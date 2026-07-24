@@ -6,4 +6,5 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repo"
 npm run prepare:sidecar:release
 npx tauri build --bundles deb
-find "${CARGO_TARGET_DIR:-$HOME/.local/state/cargo-targets}/release/bundle" -maxdepth 3 -name '*.deb' -print
+target_dir=$(cargo metadata --no-deps --format-version 1 | node -e 'let value="";process.stdin.on("data",chunk=>value+=chunk).on("end",()=>process.stdout.write(JSON.parse(value).target_directory))')
+find "$target_dir/release/bundle" -maxdepth 3 -name '*.deb' -print

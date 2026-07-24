@@ -5,5 +5,6 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 [ "$(uname -s)" = Darwin ] || { echo "macOS packaging must run on macOS" >&2; exit 1; }
 cd "$repo"
 npm run build
-find "${CARGO_TARGET_DIR:-$HOME/.local/state/cargo-targets}/release/bundle" -maxdepth 3 \
+target_dir=$(cargo metadata --no-deps --format-version 1 | node -e 'let value="";process.stdin.on("data",chunk=>value+=chunk).on("end",()=>process.stdout.write(JSON.parse(value).target_directory))')
+find "$target_dir/release/bundle" -maxdepth 3 \
   \( -name 'Hydra.app' -o -name 'Hydra_*.dmg' \) -print

@@ -2,7 +2,7 @@
 set -eu
 
 repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-target_dir=${CARGO_TARGET_DIR:-"$HOME/.local/state/cargo-targets"}
+target_dir=$(cargo metadata --quiet --no-deps --format-version 1 --manifest-path "$repo_root/Cargo.toml" | node -e 'let value="";process.stdin.on("data",chunk=>value+=chunk).on("end",()=>process.stdout.write(JSON.parse(value).target_directory))')
 runtime="$target_dir/debug/hydra-runtime"
 test_root=$(mktemp -d)
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM

@@ -13,7 +13,7 @@ node --check "$extension/test-native-host.js"
 node "$extension/test-background.js"
 
 cargo build --quiet --manifest-path "$repo_root/Cargo.toml" --bin hydra-runtime
-target_dir=${CARGO_TARGET_DIR:-$HOME/.local/state/cargo-targets}
+target_dir=$(cargo metadata --quiet --no-deps --format-version 1 --manifest-path "$repo_root/Cargo.toml" | node -e 'let value="";process.stdin.on("data",chunk=>value+=chunk).on("end",()=>process.stdout.write(JSON.parse(value).target_directory))')
 test_home=$(mktemp -d)
 trap 'rm -rf "$test_home"' EXIT HUP INT TERM
 HOME="$test_home" node "$extension/test-native-host.js" "$target_dir/debug/hydra-runtime"
