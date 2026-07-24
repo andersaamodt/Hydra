@@ -57,7 +57,7 @@ test("the Reddit Bridge exposes imported posts and comments with exact source li
 });
 
 test("startup uses the real icon and one atomic splash handoff", () => {
-  assert.match(index, /id="boot-splash"[\s\S]*src="hydra-icon\.svg"/);
+  assert.match(index, /id="boot-splash"[\s\S]*src="hydra-icon\.png"/);
   assert.match(index, /id="app"[\s\S]*hidden/);
   assert.match(app, /function finishBoot\(\)/);
   assert.match(app, /splash\?\.remove\(\)/);

@@ -25,6 +25,8 @@ tools/package/build-linux-deb
 
 Local macOS artifacts are ad-hoc signed. Public Developer ID signing and notarization require release credentials.
 
+Hydra includes `wizardry.workspace.conf` for App Forge. Import the project folder into Forge to manage it as an external cross-platform workspace; its canonical square icon master and generated platform assets live under `assets/`.
+
 For Firefox development, load `extensions/firefox/manifest.json` as a temporary add-on from `about:debugging`. The companion only opens Reddit objects in Hydra, compacts visible Hydra markers, and sends narrowly validated native messages; it never receives Nostr keys or Reddit credentials.
 
 When Stonr is installed, the canonical test gate also launches a local relay and verifies a real signed publication. Relay operators can apply `support/stonr/hydra-support.yaml` to lock Hydra’s required capabilities.

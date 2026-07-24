@@ -11,6 +11,25 @@ spec_version=${version%.*}
 
 grep -q "## $version" "$repo/CHANGELOG.md"
 grep -q "^# Hydra $spec_version Product and Protocol Specification$" "$repo/docs/AUTHORITATIVE_SPEC.md"
+grep -q '^project_id=hydra$' "$repo/wizardry.workspace.conf"
+grep -q '^app_subpath=hydra-ui$' "$repo/wizardry.workspace.conf"
+
+for icon in \
+  "$repo/assets/forge-icon.png" \
+  "$repo/assets/icons/macos/forge.icns" \
+  "$repo/assets/icons/linux/512x512/forge-icon.png" \
+  "$repo/assets/icons/web/icon-512.png" \
+  "$repo/apps/desktop/tauri/icons/icon.icns" \
+  "$repo/apps/desktop/tauri/icons/icon.ico" \
+  "$repo/hydra-ui/hydra-icon.png"
+do
+  [ -s "$icon" ]
+done
+
+cmp "$repo/assets/icons/linux/512x512/forge-icon.png" "$repo/apps/desktop/tauri/icons/icon.png"
+cmp "$repo/assets/icons/web/icon-512.png" "$repo/hydra-ui/hydra-icon.png"
+jq -e '.bundle.icon | index("icons/icon.icns") and index("icons/icon.ico")' \
+  "$repo/apps/desktop/tauri/tauri.conf.json" >/dev/null
 
 for script in "$repo/tools/package/build-macos-app" "$repo/tools/package/build-linux-deb"; do
   [ -x "$script" ]
