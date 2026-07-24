@@ -24,7 +24,8 @@ test("the permanent shell avoids AI-generated interface foibles", () => {
   assert.match(app, /function viewHeader\(title, extras = \[\]\)/);
   assert.doesNotMatch(styles, /radial-gradient|linear-gradient|backdrop-filter|border-radius:\s*999px/);
   assert.match(app, /function settingsGroup\(title, children, open = false\)/);
-  assert.match(app, /settingsGroup\("Nostr and media"/);
+  assert.match(app, /settingsGroup\("Advanced settings"/);
+  assert.equal((app.match(/settingsGroup\(/g) ?? []).length, 2);
   assert.match(app, /if \(session\.openNostr\.loaded\) surfaces\.push\(controls\)/);
 });
 

@@ -1047,7 +1047,8 @@ function renderSettings() {
   const body = element("form", { class: "form-page", onsubmit: saveSettings }, [
     field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
     field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
-    settingsGroup("Nostr and media", [
+    settingsGroup("Advanced settings", [
+      element("h2", { class: "settings-subheading", text: "Nostr and media" }),
       field("Default relays", "textarea", "relays", relayValue, "Fallback for personas without relay preferences."),
       field("This persona's read relays", "textarea", "persona_read_relays", personaReadRelayValue, "Published as NIP-65 read preferences."),
       field("This persona's write relays", "textarea", "persona_write_relays", personaWriteRelayValue, "Published as NIP-65 write preferences."),
@@ -1059,22 +1060,19 @@ function renderSettings() {
       toggle("Preserve media copies", "media_copy", settings.media_copy_enabled !== false, "Off retains URLs and text without copying files."),
       field("Maximum copied media (MiB)", "number", "max_media_mib", Math.round((settings.max_media_bytes ?? 26214400) / 1048576), "", { min: 1 }),
       field("Content-addressed blob servers", "textarea", "blob_servers", blobServers, "Optional; local preservation never depends on them."),
-    ]),
-    settingsGroup("My Feed sources", [
+      element("h2", { class: "settings-subheading", text: "My Feed sources" }),
       element("p", { text: "Relative local weights; equal values have equal priority." }),
       field("Followed personas", "number", "feed_followed", feedWeights.followed, "", { min: 0, max: 200 }),
       field("Subscribed communities", "number", "feed_communities", feedWeights.communities, "", { min: 0, max: 200 }),
       field("Replies involving me", "number", "feed_replies", feedWeights.replies, "", { min: 0, max: 200 }),
       field("Revisit memory", "number", "feed_revisit", feedWeights.revisit, "", { min: 0, max: 200 }),
-    ]),
-    settingsGroup("Reddit projection", [
+      element("h2", { class: "settings-subheading", text: "Reddit projection" }),
       toggle("Crosspost to Reddit by default", "crosspost", Boolean(settings.crosspost_default), "The composer always allows an override."),
       field("This persona’s default", "select", "persona_crosspost", crosspostOverride(settings.persona_crosspost_defaults?.[persona.id]), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
       field("Posts", "select", "post_crosspost", crosspostOverride(settings.content_crosspost_defaults?.post), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
       field("Comments", "select", "comment_crosspost", crosspostOverride(settings.content_crosspost_defaults?.comment), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
       field("Community overrides", "textarea", "community_crossposts", communityOverrides, "One per line: science=on or science=off."),
-    ]),
-    settingsGroup("Continuity", [
+      element("h2", { class: "settings-subheading", text: "Continuity" }),
       field("Replication threshold", "number", "continuity_replication", settings.continuity?.replication_threshold ?? 0, "0 inherits the ordinary threshold.", { min: 0 }),
       toggle("Enable Big Stick", "big_stick_enabled", settings.continuity?.big_stick_enabled !== false, "Opt-in for each projection."),
       field("Big Stick preservation level", "select", "big_stick_archive_level", settings.continuity?.big_stick_archive_level ?? "item", "", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
