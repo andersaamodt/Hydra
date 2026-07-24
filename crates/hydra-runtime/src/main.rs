@@ -1098,10 +1098,15 @@ fn validated_reddit_id(value: Option<&str>) -> Result<&str, RuntimeError> {
 fn launch_external(target: &str) -> Result<(), RuntimeError> {
     #[cfg(target_os = "macos")]
     let mut command = Command::new("/usr/bin/open");
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("rundll32.exe");
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let mut command = Command::new("xdg-open");
+    #[cfg(target_os = "windows")]
+    command.args(["url.dll,FileProtocolHandler", target]);
+    #[cfg(not(target_os = "windows"))]
+    command.arg(target);
     let status = command
-        .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -2189,6 +2194,7 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn firefox_install_action(input: &str) -> Result<(), RuntimeError> {
     let input: FirefoxInstallInput = serde_json::from_str(input)?;
     let executable = env::current_exe()?;
@@ -2207,10 +2213,6 @@ fn firefox_install_action(input: &str) -> Result<(), RuntimeError> {
         PathBuf::from(&home).join("Library/Application Support/Mozilla/NativeMessagingHosts");
     #[cfg(target_os = "linux")]
     let destination = PathBuf::from(&home).join(".mozilla/native-messaging-hosts");
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    return Err(RuntimeError::InvalidInput(
-        "Firefox companion installation is unavailable on this platform".to_owned(),
-    ));
     fs::create_dir_all(&destination)?;
     let manifest = serde_json::json!({
         "name": "org.hydra.desktop",
@@ -2237,7 +2239,6 @@ fn firefox_install_action(input: &str) -> Result<(), RuntimeError> {
     let xpi = Some(PathBuf::from(
         "/usr/share/hydra/firefox/hydra-companion.xpi",
     ));
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     let xpi = xpi.filter(|path| path.is_file());
     let opened = input.open
         && xpi
@@ -2254,13 +2255,19 @@ fn firefox_install_action(input: &str) -> Result<(), RuntimeError> {
     )
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn firefox_install_action(_input: &str) -> Result<(), RuntimeError> {
+    Err(RuntimeError::InvalidInput(
+        "Firefox companion installation is unavailable on this platform".to_owned(),
+    ))
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn open_firefox_extension(path: &Path) -> bool {
     #[cfg(target_os = "macos")]
     let mut command = Command::new("/Applications/Firefox.app/Contents/MacOS/firefox");
     #[cfg(target_os = "linux")]
     let mut command = Command::new("firefox");
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    return false;
     command
         .arg(path)
         .stdin(Stdio::null())
@@ -2268,6 +2275,11 @@ fn open_firefox_extension(path: &Path) -> bool {
         .stderr(Stdio::null())
         .spawn()
         .is_ok()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn open_firefox_extension(_path: &Path) -> bool {
+    false
 }
 
 const REDDIT_REDIRECT_URI: &str = "http://127.0.0.1:43117/oauth/reddit";
