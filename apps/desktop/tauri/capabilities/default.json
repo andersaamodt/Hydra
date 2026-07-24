@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "The Hydra interface may invoke only the Rust commands exposed by the desktop shell.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "deep-link:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

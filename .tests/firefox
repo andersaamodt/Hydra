@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+extension="$repo_root/extensions/firefox"
+
+jq -e '.manifest_version == 3' "$extension/manifest.json" >/dev/null
+jq -e '.permissions == ["nativeMessaging"]' "$extension/manifest.json" >/dev/null
+jq -e '.browser_specific_settings.gecko.id == "hydra-companion@hydra.local"' "$extension/manifest.json" >/dev/null
+node --check "$extension/background.js"
+node --check "$extension/content.js"
+node --check "$extension/test-native-host.js"
+node "$extension/test-background.js"
+
+cargo build --quiet --manifest-path "$repo_root/Cargo.toml" --bin hydra-runtime
+target_dir=${CARGO_TARGET_DIR:-$HOME/.local/state/cargo-targets}
+test_home=$(mktemp -d)
+trap 'rm -rf "$test_home"' EXIT HUP INT TERM
+HOME="$test_home" node "$extension/test-native-host.js" "$target_dir/debug/hydra-runtime"
+HOME="$test_home" "$extension/install-native-host" "$repo_root/libexec/hydra-native-host"
+case "$(uname -s)" in
+Darwin) installed="$test_home/Library/Application Support/Mozilla/NativeMessagingHosts/org.hydra.desktop.json" ;;
+Linux) installed="$test_home/.mozilla/native-messaging-hosts/org.hydra.desktop.json" ;;
+esac
+jq -e --arg path "$repo_root/libexec/hydra-native-host" '.path == $path' "$installed" >/dev/null
+jq -e '.allowed_extensions == ["hydra-companion@hydra.local"]' "$installed" >/dev/null

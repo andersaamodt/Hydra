@@ -1,0 +1,121 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+target_dir=${CARGO_TARGET_DIR:-"$HOME/.local/state/cargo-targets"}
+runtime="$target_dir/debug/hydra-runtime"
+test_root=$(mktemp -d)
+trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+
+cargo build --quiet --manifest-path "$repo_root/Cargo.toml" --bin hydra-runtime
+
+state_root="$test_root/state"
+HYDRA_HOME="$state_root" "$runtime" state >/dev/null
+event_log="$state_root/events.jsonl"
+before=$(cksum "$event_log")
+
+expect_rejected_without_event_change() {
+  name=$1
+  shift
+  if "$@" >"$test_root/$name.out" 2>"$test_root/$name.err"; then
+    echo "$name unexpectedly succeeded" >&2
+    exit 1
+  fi
+  [ "$(cksum "$event_log")" = "$before" ] || {
+    echo "$name changed durable state" >&2
+    exit 1
+  }
+}
+
+expect_rejected_without_event_change malformed-json \
+  env HYDRA_HOME="$state_root" "$runtime" action persona.create '{'
+expect_rejected_without_event_change unknown-action \
+  env HYDRA_HOME="$state_root" "$runtime" action adversarial.unknown '{}'
+expect_rejected_without_event_change missing-fields \
+  env HYDRA_HOME="$state_root" "$runtime" action persona.create '{}'
+expect_rejected_without_event_change directional-persona-spoof \
+  env HYDRA_HOME="$state_root" "$runtime" action persona.create \
+  '{"display_name":"Hydra \u202eardyH"}'
+
+if dd if=/dev/zero bs=1048577 count=1 2>/dev/null |
+  tr '\000' x |
+  HYDRA_HOME="$state_root" "$runtime" action persona.create - \
+    >"$test_root/oversized.out" 2>"$test_root/oversized.err"
+then
+  echo "oversized action unexpectedly succeeded" >&2
+  exit 1
+fi
+[ "$(cksum "$event_log")" = "$before" ] || {
+  echo "oversized action changed durable state" >&2
+  exit 1
+}
+grep -q "exceeds 1 MiB" "$test_root/oversized.err"
+
+outside="$test_root/outside"
+mkdir "$outside"
+ln -s "$outside" "$test_root/redirected-state"
+if HYDRA_HOME="$test_root/redirected-state" "$runtime" state \
+  >"$test_root/symlink.out" 2>"$test_root/symlink.err"
+then
+  echo "symlinked durable root unexpectedly succeeded" >&2
+  exit 1
+fi
+[ -z "$(find "$outside" -mindepth 1 -print -quit)" ] || {
+  echo "symlinked durable root wrote outside its boundary" >&2
+  exit 1
+}
+
+printf '\377' |
+  if HYDRA_HOME="$state_root" "$runtime" action persona.create - \
+    >"$test_root/non-utf8.out" 2>"$test_root/non-utf8.err"
+  then
+    echo "non-UTF-8 action unexpectedly succeeded" >&2
+    exit 1
+  fi
+[ "$(cksum "$event_log")" = "$before" ] || {
+  echo "non-UTF-8 action changed durable state" >&2
+  exit 1
+}
+
+printf '%s\n%s\n' \
+  '{"command":"state","action":null,"input":null,"unexpected":true}' \
+  '{"command":"state","action":null,"input":null}' |
+  HYDRA_HOME="$state_root" "$runtime" desktop-host >"$test_root/desktop-host.out"
+[ "$(wc -l <"$test_root/desktop-host.out" | tr -d ' ')" = 2 ]
+[ "$(sed -n '1p' "$test_root/desktop-host.out" | jq -r '.ok')" = false ]
+[ "$(sed -n '2p' "$test_root/desktop-host.out" | jq -r '.schema')" = \
+  "theurgy-state-snapshot/v1" ]
+
+{
+  dd if=/dev/zero bs=1048577 count=1 2>/dev/null | tr '\000' x
+  printf '\n%s\n' '{"command":"status","action":null,"input":null}'
+} |
+  HYDRA_HOME="$state_root" "$runtime" desktop-host >"$test_root/desktop-host-large.out"
+[ "$(wc -l <"$test_root/desktop-host-large.out" | tr -d ' ')" = 2 ]
+[ "$(sed -n '1p' "$test_root/desktop-host-large.out" | jq -r '.ok')" = false ]
+[ "$(sed -n '2p' "$test_root/desktop-host-large.out" | jq -r '.schema')" = \
+  "theurgy-runtime-status/v1" ]
+[ "$(cksum "$event_log")" = "$before" ] || {
+  echo "hostile desktop session changed durable state" >&2
+  exit 1
+}
+
+title_root="$test_root/title-state"
+HYDRA_HOME="$title_root" "$runtime" state >/dev/null
+HYDRA_HOME="$title_root" "$runtime" action persona.create \
+  '{"display_name":"Adversarial QA"}' >/dev/null
+persona=$(HYDRA_HOME="$title_root" "$runtime" state |
+  jq -r '.data.personas[0].id')
+title_before=$(cksum "$title_root/events.jsonl")
+title_input=$(jq -cn --arg persona "$persona" \
+  '{persona_id:$persona,title:"Hydra \u202eardyH",body:"body",communities:["science"]}')
+if HYDRA_HOME="$title_root" "$runtime" action post.create "$title_input" \
+  >"$test_root/title.out" 2>"$test_root/title.err"
+then
+  echo "directionally deceptive title unexpectedly succeeded" >&2
+  exit 1
+fi
+[ "$(cksum "$title_root/events.jsonl")" = "$title_before" ] || {
+  echo "rejected directional title changed durable state" >&2
+  exit 1
+}

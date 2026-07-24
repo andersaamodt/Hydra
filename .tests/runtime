@@ -1,0 +1,91 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+theurgy_root=${THEURGY_ROOT:-"$HOME/git/theurgy"}
+test_root=$(mktemp -d)
+trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+
+[ -x "$theurgy_root/scripts/theurgy-cargo" ] || {
+  echo "Theurgy validator not found at $theurgy_root; set THEURGY_ROOT" >&2
+  exit 1
+}
+
+runtime() {
+  HYDRA_HOME="$test_root/state" cargo run --quiet --manifest-path "$repo_root/Cargo.toml" --bin hydra-runtime -- "$@"
+}
+
+initial=$(runtime state)
+printf '%s\n' "$initial" >"$test_root/state.json"
+[ "$(printf '%s' "$initial" | jq -r '.schema')" = "theurgy-state-snapshot/v1" ]
+[ "$(printf '%s' "$initial" | jq -r '.data.schema')" = "hydra-state/v1" ]
+[ "$(printf '%s' "$initial" | jq '.data.personas | length')" -eq 0 ]
+[ "$(printf '%s' "$initial" | jq '.data.projections | length')" -eq 0 ]
+
+oauth=$(runtime action reddit.oauth.begin '{"client_id":"test-client"}')
+[ "$(printf '%s' "$oauth" | jq -r '.result.redirectUri')" = "http://127.0.0.1:43117/oauth/reddit" ]
+[ "$(printf '%s' "$oauth" | jq -r '.result.authorizationUrl' | sed -n 's#^https://www.reddit.com/.*#ok#p')" = "ok" ]
+[ -n "$(printf '%s' "$oauth" | jq -r '.result.state')" ]
+
+status=$(runtime status)
+printf '%s\n' "$status" >"$test_root/status.json"
+[ "$(printf '%s' "$status" | jq -r '.schema')" = "theurgy-runtime-status/v1" ]
+[ "$(printf '%s' "$status" | jq -r '.state_ready')" = "true" ]
+
+sync=$(runtime action sync.now '{}')
+printf '%s\n' "$sync" >"$test_root/action.json"
+[ "$(printf '%s' "$sync" | jq -r '.protocol')" = "theurgy-runtime-action/v1" ]
+[ "$(printf '%s' "$sync" | jq -r '.operation.longRunning')" = "true" ]
+operation=$(printf '%s' "$sync" | jq -r '.operation.id')
+
+tries=0
+while :; do
+  operation_status=$(runtime operation-status "$operation")
+  printf '%s\n' "$operation_status" >"$test_root/operation.json"
+  state=$(printf '%s' "$operation_status" | jq -r '.operation.status')
+  case "$state" in
+    completed) break ;;
+    failed|cancelled)
+      echo "empty sync operation ended as $state" >&2
+      exit 1
+      ;;
+  esac
+  tries=$((tries + 1))
+  [ "$tries" -lt 50 ] || { echo "empty sync operation did not finish" >&2; exit 1; }
+  sleep 0.02
+done
+
+runtime action persona.create '{"display_name":"Alice"}' >/dev/null
+alice=$(runtime state | jq -r '.data.personas[] | select(.displayName == "Alice") | .id')
+runtime action draft.save "$(jq -cn --arg persona "$alice" \
+  '{id:"alice-private",persona_id:$persona,kind:"post",title:"Alice",body:"private",communities:["science"],parent:null}')" >/dev/null
+runtime action persona.create '{"display_name":"Bob"}' >/dev/null
+bob=$(runtime state | jq -r '.data.personas[] | select(.displayName == "Bob") | .id')
+runtime action draft.save "$(jq -cn --arg persona "$bob" \
+  '{id:"bob-private",persona_id:$persona,kind:"post",title:"Bob",body:"private",communities:["science"],parent:null}')" >/dev/null
+runtime action persona.switch "$(jq -cn --arg persona "$bob" '{persona_id:$persona}')" >/dev/null
+active=$(runtime state)
+[ "$(printf '%s' "$active" | jq -r '.data.personas[] | select(.active) | .id')" = "$bob" ]
+[ "$(printf '%s' "$active" | jq -r '.data.drafts | length')" -eq 1 ]
+[ "$(printf '%s' "$active" | jq -r '.data.drafts[0].id')" = "bob-private" ]
+runtime action persona.switch "$(jq -cn --arg persona "$alice" '{persona_id:$persona}')" >/dev/null
+switched=$(runtime state)
+[ "$(printf '%s' "$switched" | jq -r '.data.drafts | length')" -eq 1 ]
+[ "$(printf '%s' "$switched" | jq -r '.data.drafts[0].id')" = "alice-private" ]
+
+(
+  cd "$theurgy_root"
+  runner="$theurgy_root/scripts/theurgy-cargo"
+  "$runner" run --quiet --bin theurgy-runtime -- validate-state-snapshot "$test_root/state.json" >/dev/null
+  "$runner" run --quiet --bin theurgy-runtime -- validate-runtime-status "$test_root/status.json" >/dev/null
+  "$runner" run --quiet --bin theurgy-runtime -- validate-runtime-action-result "$test_root/action.json" >/dev/null
+  "$runner" run --quiet --bin theurgy-runtime -- validate-operation-status "$test_root/operation.json" >/dev/null
+)
+
+[ -f "$test_root/state/events.jsonl" ]
+
+if runtime action unknown '{}' >"$test_root/out" 2>"$test_root/err"; then
+  echo "unknown runtime action unexpectedly succeeded" >&2
+  exit 1
+fi
+[ "$(jq -r '.ok' "$test_root/err")" = "false" ]

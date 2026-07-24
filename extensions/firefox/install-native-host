@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+case "${1-}" in
+--help|-h|'')
+  echo "Usage: install-native-host /absolute/path/to/hydra-native-host" >&2
+  exit 2
+  ;;
+esac
+
+host=$1
+case "$host" in
+/*) ;;
+*) echo "native host path must be absolute" >&2; exit 2 ;;
+esac
+[ -x "$host" ] || { echo "native host is not executable: $host" >&2; exit 2; }
+if LC_ALL=C printf '%s' "$host" | grep -q '[[:cntrl:]"]'; then
+  echo "native host path contains characters that cannot be represented safely" >&2
+  exit 2
+fi
+
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+case "$(uname -s)" in
+Darwin) destination="$HOME/Library/Application Support/Mozilla/NativeMessagingHosts" ;;
+Linux) destination="$HOME/.mozilla/native-messaging-hosts" ;;
+*) echo "unsupported platform" >&2; exit 2 ;;
+esac
+mkdir -p "$destination"
+[ ! -L "$destination" ] || { echo "native messaging destination must not be a symlink" >&2; exit 2; }
+escaped=$(printf '%s' "$host" | sed 's/[\\&|]/\\&/g')
+temporary=$(mktemp "$destination/.org.hydra.desktop.XXXXXX")
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+sed "s|@HYDRA_NATIVE_HOST@|$escaped|g" \
+  "$script_dir/native/org.hydra.desktop.json.in" \
+  >"$temporary"
+chmod 600 "$temporary"
+mv "$temporary" "$destination/org.hydra.desktop.json"
+trap - EXIT HUP INT TERM

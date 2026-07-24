@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+version=$(sed -n '1p' "$repo/VERSION")
+spec_version=${version%.*}
+
+[ "$version" = "$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$repo/Cargo.toml" | head -n 1)" ]
+[ "$version" = "$(jq -r '.version' "$repo/apps/desktop/tauri/tauri.conf.json")" ]
+[ "$version" = "$(jq -r '.version' "$repo/package.json")" ]
+
+grep -q "## $version" "$repo/CHANGELOG.md"
+grep -q "^# Hydra $spec_version Product and Protocol Specification$" "$repo/docs/AUTHORITATIVE_SPEC.md"
+
+for script in "$repo/tools/package/build-macos-app" "$repo/tools/package/build-linux-deb"; do
+  [ -x "$script" ]
+  sh -n "$script"
+done
+
+grep -q 'tools/package/build-macos-app' "$repo/.github/workflows/ci.yml"
+grep -q 'tools/package/build-linux-deb' "$repo/.github/workflows/ci.yml"
+grep -q 'npx tauri build --no-bundle' "$repo/.github/workflows/ci.yml"
+if grep -Eq 'apps/desktop/(macos|linux)' "$repo/.github/workflows/ci.yml"; then
+  echo "CI still references an abandoned desktop shell" >&2
+  exit 1
+fi
+
+git -C "$repo" rev-parse --is-inside-work-tree >/dev/null
+git -C "$repo" ls-files | while IFS= read -r path; do
+  case "$path" in
+    target/*|dist/*|*/.build/*|node_modules/*|*.log|*.sqlite|*.sqlite3|*.db|.env|.env.*)
+      printf 'tracked release pollution: %s\n' "$path" >&2
+      exit 1
+      ;;
+  esac
+done

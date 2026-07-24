@@ -1,0 +1,25 @@
+[package]
+name = "hydra-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hydra-app = { path = "../hydra-app" }
+hydra-domain = { path = "../hydra-domain" }
+hydra-store = { path = "../hydra-store" }
+hydra-nostr = { path = "../hydra-nostr" }
+hydra-reddit = { path = "../hydra-reddit" }
+hydra-media = { path = "../hydra-media" }
+hydra-lens = { path = "../hydra-lens" }
+nostr.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

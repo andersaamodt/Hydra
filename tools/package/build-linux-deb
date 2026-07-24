@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+[ "$(uname -s)" = Linux ] || { echo "Linux packaging must run on Linux" >&2; exit 1; }
+cd "$repo"
+npm run prepare:sidecar:release
+npx tauri build --bundles deb
+find "${CARGO_TARGET_DIR:-$HOME/.local/state/cargo-targets}/release/bundle" -maxdepth 3 -name '*.deb' -print

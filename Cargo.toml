@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop/tauri",
+  "crates/hydra-domain",
+  "crates/hydra-store",
+  "crates/hydra-app",
+  "crates/hydra-runtime",
+  "crates/hydra-nostr",
+  "crates/hydra-protocol",
+  "crates/hydra-reddit",
+  "crates/hydra-lens",
+  "crates/hydra-media",
+  "crates/hydra-archive",
+  "crates/hydra-projection",
+  "crates/hydra-messaging",
+]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.90"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+thiserror = "2"
+uuid = { version = "1", features = ["serde", "v4"] }
+tempfile = "3"
+keyring = "4.1.5"
+fs2 = "0.4"
+nostr = { version = "0.44.2", features = ["nip44", "nip59"] }
+nostr-sdk = "0.44.1"
+nostr-connect = "0.44.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+age = "0.11.3"
+tar = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+url = "2"
+base64 = "0.22"
+chacha20poly1305 = "0.10"
+csv = "1"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+time = { version = "0.3", features = ["parsing"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "warn"

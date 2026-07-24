@@ -1,0 +1,12 @@
+[package]
+name = "hydra-projection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hydra-domain = { path = "../hydra-domain" }
+
+[lints]
+workspace = true

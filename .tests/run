@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repo_root"
+
+cargo fmt --all --check
+npm run prepare:sidecar
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm test
+node --check hydra-ui/app.js
+"$repo_root/.tests/runtime"
+"$repo_root/.tests/firefox"
+"$repo_root/.tests/adversarial"
+"$repo_root/.tests/protocol"
+"$repo_root/.tests/release"
+npx tauri build --debug --no-bundle

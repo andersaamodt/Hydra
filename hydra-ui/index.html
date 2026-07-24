@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Hydra — I’m with the banned.</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to discussion</a>
+    <div id="app" class="app-shell" aria-busy="true">
+      <header class="topbar">
+        <button class="brand" type="button" data-nav="feed" aria-label="Hydra home">
+          <span class="brand-mark" aria-hidden="true">H</span>
+          <span><strong>Hydra</strong><small>I’m with the banned.</small></span>
+        </button>
+        <label class="search-box">
+          <span class="sr-only">Search Hydra</span>
+          <input id="global-search" type="search" placeholder="Search people, /h/ communities, or Reddit URLs" autocomplete="off" />
+          <kbd>⌘K</kbd>
+        </label>
+        <div class="top-actions">
+          <button id="sync-button" class="quiet-button" type="button">Sync</button>
+          <button id="compose-button" class="primary-button" type="button">New post</button>
+          <button id="persona-button" class="persona-button" type="button" aria-haspopup="menu" aria-expanded="false">
+            <span class="avatar" aria-hidden="true">?</span>
+            <span class="persona-copy"><strong>No persona</strong><small>Create one to participate</small></span>
+          </button>
+        </div>
+      </header>
+
+      <aside class="sidebar" aria-label="Hydra navigation">
+        <nav>
+          <p class="nav-heading">Your Hydra</p>
+          <button class="nav-item is-active" type="button" data-nav="feed"><span>⌂</span>My Feed</button>
+          <button class="nav-item" type="button" data-nav="front"><span>✦</span>Front Page</button>
+          <button class="nav-item" type="button" data-nav="open-nostr"><span>◎</span>Open Nostr</button>
+          <button class="nav-item" type="button" data-nav="revisited"><span>↺</span>Revisited</button>
+          <button class="nav-item" type="button" data-nav="messages"><span>✉</span>Messages <span id="message-badge" class="badge" hidden></span></button>
+        </nav>
+        <section class="community-nav" aria-labelledby="community-heading">
+          <div class="section-heading-row">
+            <p id="community-heading" class="nav-heading">Communities</p>
+            <button id="add-community" class="icon-button" type="button" title="Open a community" aria-label="Open a community">＋</button>
+          </div>
+          <div id="community-list"></div>
+        </section>
+        <nav class="sidebar-bottom">
+          <button class="nav-item" type="button" data-nav="reddit"><span>↗</span>Reddit Bridge</button>
+          <button class="nav-item" type="button" data-nav="settings"><span>⚙</span>Settings</button>
+        </nav>
+      </aside>
+
+      <main id="main" class="main-panel" tabindex="-1">
+        <section id="view" aria-live="polite"></section>
+      </main>
+
+      <aside id="context-panel" class="context-panel" aria-label="Context and activity"></aside>
+      <div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
+      <div id="modal-root"></div>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

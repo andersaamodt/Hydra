@@ -1,0 +1,78 @@
+name: Hydra 1.0
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust contracts and protocol
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch the pinned Theurgy contract validator
+        env:
+          THEURGY_REV: 3486ee925a2d5ca905e98b1f4f88b3f6bf35d3c2
+        run: >-
+          git clone --filter=blob:none https://github.com/andersaamodt/theurgy.git
+          "$RUNNER_TEMP/theurgy" &&
+          git -C "$RUNNER_TEMP/theurgy" checkout "$THEURGY_REV"
+      - name: Install test dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          jq nodejs npm libwebkit2gtk-4.1-dev libssl-dev
+          libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: cargo fmt --all --check
+      - run: npm run prepare:sidecar
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: ./.tests/runtime
+        env:
+          THEURGY_ROOT: ${{ runner.temp }}/theurgy
+      - run: ./.tests/firefox
+      - run: ./.tests/protocol
+      - run: ./.tests/release
+
+  macos:
+    name: Tauri macOS package
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: tools/package/build-macos-app
+
+  linux:
+    name: Tauri Linux ARM64 package
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Tauri dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          nodejs npm libwebkit2gtk-4.1-dev libssl-dev
+          libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: tools/package/build-linux-deb
+
+  windows:
+    name: Tauri Windows compile
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run prepare:sidecar:release
+      - run: npx tauri build --no-bundle

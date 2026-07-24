@@ -1,0 +1,64 @@
+{
+  "schema": "hydra-protocol-test-vectors/v1",
+  "kinds": {
+    "objectHead": 30800,
+    "projectionRecord": 30801
+  },
+  "stableAddressPrefixes": {
+    "objectHead": "hydra:head:",
+    "projectionRecord": "hydra:projection:"
+  },
+  "requiredLabels": {
+    "namespace": "hydra",
+    "objectHead": "object-head",
+    "projectionRecord": "projection-record"
+  },
+  "examples": {
+    "objectHeadPost": {
+      "kind": 30800,
+      "content": "Current Markdown body.",
+      "tags": [
+        ["d", "hydra:head:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        ["e", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        ["k", "11"],
+        ["L", "hydra"],
+        ["l", "object-head", "hydra"],
+        ["version", "hydra-protocol/v1"],
+        ["title", "A durable post"],
+        ["t", "science"]
+      ]
+    },
+    "projectionRecord": {
+      "kind": 30801,
+      "tags": [
+        ["d", "hydra:projection:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"],
+        ["e", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        ["i", "https://www.reddit.com/r/science/comments/abc/topic/"],
+        ["k", "web"],
+        ["L", "hydra"],
+        ["l", "projection-record", "hydra"],
+        ["version", "hydra-protocol/v1"],
+        ["external", "reddit", "t3_abc"]
+      ],
+      "decodedContent": {
+        "schema_version": "hydra-protocol/v1",
+        "anchor": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "external_id": {
+          "system": "reddit",
+          "canonical": "t3_abc"
+        },
+        "external_url": "https://www.reddit.com/r/science/comments/abc/topic/",
+        "reddit_fullname": "t3_abc",
+        "target_subreddit": "science",
+        "projection_type": "post",
+        "state": "live",
+        "current_head": null
+      }
+    }
+  },
+  "invariants": [
+    "replies target immutable kind 11 or 1111 anchors",
+    "projection credentials and secrets never enter event content",
+    "new addressable heads retain the same d tag"
+  ]
+}

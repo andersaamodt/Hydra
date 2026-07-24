@@ -1,0 +1,7 @@
+{
+  "name": "org.hydra.desktop",
+  "description": "Narrow native bridge to the Hydra desktop app",
+  "path": "@HYDRA_NATIVE_HOST@",
+  "type": "stdio",
+  "allowed_extensions": ["hydra-companion@hydra.local"]
+}

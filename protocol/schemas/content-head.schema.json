@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hydra:protocol:v1:content-head-event",
+  "title": "Hydra addressable content-head event v1",
+  "description": "The signed Nostr event remains the wire object; this schema validates its interoperable kind, plaintext content, and required tag surface.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["kind", "content", "tags"],
+  "properties": {
+    "kind": { "const": 30800 },
+    "content": { "type": "string", "maxLength": 100000 },
+    "tags": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 16,
+        "items": { "type": "string", "maxLength": 4096 }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "d" },
+              { "type": "string", "pattern": "^hydra:head:[0-9a-f]{64}$" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "e" },
+              { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "k" },
+              { "enum": ["11", "1111"] }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "L" },
+              { "const": "hydra" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "l" },
+              { "const": "object-head" },
+              { "const": "hydra" }
+            ]
+          }
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "version" },
+              { "const": "hydra-protocol/v1" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "t" },
+              { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

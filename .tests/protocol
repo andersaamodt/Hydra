@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+vectors="$repo/protocol/test-vectors-v1.json"
+
+jq -e '.schema == "hydra-protocol-test-vectors/v1"' "$vectors" >/dev/null
+jq -e '.kinds == {"objectHead":30800,"projectionRecord":30801}' "$vectors" >/dev/null
+jq -e '.examples.objectHeadPost.kind == .kinds.objectHead
+  and (.examples.objectHeadPost.tags | any(.[0] == "version" and .[1] == "hydra-protocol/v1"))
+  and (.examples.projectionRecord.decodedContent.projection_type == "post")
+  and (.examples.projectionRecord.decodedContent.target_subreddit == "science")' "$vectors" >/dev/null
+jq -e '."$schema" == "https://json-schema.org/draft/2020-12/schema"' "$repo/protocol/schemas/content-head.schema.json" >/dev/null
+jq -e '."$schema" == "https://json-schema.org/draft/2020-12/schema"' "$repo/protocol/schemas/projection-record.schema.json" >/dev/null
+jq -e '.properties.projection_type.enum == ["post","comment"]' "$repo/protocol/schemas/projection-record.schema.json" >/dev/null
+grep -q 'OBJECT_HEAD_KIND: u16 = 30_800' "$repo/crates/hydra-protocol/src/lib.rs"
+grep -q 'PROJECTION_RECORD_KIND: u16 = 30_801' "$repo/crates/hydra-protocol/src/lib.rs"

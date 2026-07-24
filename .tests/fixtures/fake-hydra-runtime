@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+if [ "${1-}" = "state" ]; then
+  exec printf '%s\n' '{"schema":"theurgy-state-snapshot/v1","app":"hydra","generatedAt":"test","data":{"schema":"hydra-state/v1","durableRoot":"/tmp/hydra-test","personas":[{"id":"00000000-0000-0000-0000-000000000001","displayName":"Test Persona","publicKey":"npub1test","active":true,"redditLinked":true}],"drafts":[],"objects":[{"anchor":"post:test","author":"npub1test","kind":"post","title":"Hydra remembers","body":"A local-first discussion used for native UI verification.","communities":["hydra"],"root":null,"parent":null,"currentScore":1,"reaffirmations":2,"discussionCount":1,"controversy":0,"durability":"replicated","redditProjected":true,"editedAt":1},{"anchor":"comment:test","author":"npub1other","kind":"comment","title":null,"body":"A nested reply survives independently of its projections.","communities":["hydra"],"root":"post:test","parent":"post:test","currentScore":0,"reaffirmations":0,"discussionCount":0,"controversy":0,"durability":"published","redditProjected":false,"editedAt":2}],"messages":[],"subscriptions":[{"personaId":"00000000-0000-0000-0000-000000000001","community":"quiet-subscribed-room","public":false}],"revisits":[],"follows":[],"blocks":[],"operationCount":0,"pendingDeliveryCount":0,"reactionCount":0,"revisitCount":0,"followCount":0,"blockCount":0,"messageRequestCount":0,"mediaCount":0,"projections":[{"id":"00000000-0000-0000-0000-000000000003","anchor":"post:test","destination":"reddit","externalId":"t3_test","externalUrl":"https://reddit.com/r/hydra/comments/test","state":"projected","divergence":null,"error":null}],"settings":{"relays":[],"inbox_relays":[],"replication_threshold":1,"theme":"system","onboarding_complete":true,"active_persona_id":"00000000-0000-0000-0000-000000000001","last_backup_at":null,"crosspost_default":false,"persona_crosspost_defaults":{},"community_crosspost_defaults":{},"content_crosspost_defaults":{},"relay_probe":{"last_tested_at":null,"last_success_at":null,"ready":false,"detail":"Not tested"},"reddit_probe":{"last_tested_at":null,"last_success_at":null,"ready":true,"detail":"Connected"}},"readiness":[{"id":"identity","label":"Identity backup","state":"missing","required":true,"detail":"Export an encrypted backup.","nextAction":"backup.export","lastTestedAt":null,"lastSuccessAt":null}]}}'
+fi
+
+if [ "${1-}" = "action" ]; then
+  if [ "${3-}" = "-" ]; then
+    read -r _input || true
+  fi
+  if [ -n "${HYDRA_TEST_ACTION_LOG-}" ]; then
+    printf '%s\n' "${2-unknown}" >> "$HYDRA_TEST_ACTION_LOG"
+  fi
+  exec printf '%s\n' "{\"protocol\":\"theurgy-runtime-action-result/v1\",\"app\":\"hydra\",\"action\":\"${2-unknown}\",\"operation\":{\"id\":\"00000000-0000-0000-0000-000000000002\",\"status\":\"succeeded\",\"progress\":100,\"longRunning\":false},\"result\":{\"changed\":true}}"
+fi
+
+exit 2

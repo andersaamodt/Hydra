@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Hydra Companion",
+  "version": "1.0.0",
+  "description": "Opens Reddit conversations in Hydra and replaces visible Big Stick markers with a compact local control.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "hydra-companion@hydra.local",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["https://www.reddit.com/*", "https://old.reddit.com/*"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.reddit.com/*", "https://old.reddit.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

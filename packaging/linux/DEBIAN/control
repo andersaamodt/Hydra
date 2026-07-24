@@ -1,0 +1,9 @@
+Package: hydra-social
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: arm64
+Depends: libgtk-4-1 (>= 4.10), libjson-glib-1.0-0, libsecret-1-0
+Maintainer: Hydra contributors
+Description: The underground Reddit alternative
+ Hydra is a local-first Nostr community client with an optional Reddit bridge.

@@ -1,0 +1,13 @@
+[package]
+name = "hydra-messaging"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hydra-domain = { path = "../hydra-domain" }
+hydra-store = { path = "../hydra-store" }
+
+[lints]
+workspace = true

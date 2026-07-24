@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hydra:protocol:v1:projection-record",
+  "title": "Hydra public projection record v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "anchor", "external_id", "external_url", "reddit_fullname", "target_subreddit", "projection_type", "state", "current_head"],
+  "properties": {
+    "schema_version": { "const": "hydra-protocol/v1" },
+    "anchor": { "type": "string", "minLength": 1 },
+    "external_id": { "$ref": "#/$defs/externalId" },
+    "external_url": { "type": "string", "pattern": "^https://(www|old)\\.reddit\\.com/" },
+    "reddit_fullname": { "type": "string", "pattern": "^t[13]_[a-z0-9]+$" },
+    "target_subreddit": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "projection_type": { "enum": ["post", "comment"] },
+    "state": { "enum": ["live", "removed", "deleted", "locked", "withdrawn"] },
+    "current_head": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "externalId": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["system", "canonical"],
+      "properties": {
+        "system": { "type": "string", "minLength": 1 },
+        "canonical": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

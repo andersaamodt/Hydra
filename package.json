@@ -1,0 +1,18 @@
+{
+  "name": "hydra-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "prepare:sidecar": "cargo build --locked -p hydra-runtime && node tools/tauri/stage-sidecar.mjs debug",
+    "prepare:sidecar:release": "cargo build --locked --release -p hydra-runtime && node tools/tauri/stage-sidecar.mjs release",
+    "tauri": "npm run prepare:sidecar && tauri",
+    "dev": "npm run tauri -- dev",
+    "build": "npm run prepare:sidecar:release && tauri build",
+    "test": "npm run test:ui",
+    "test:ui": "node --test hydra-ui/tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

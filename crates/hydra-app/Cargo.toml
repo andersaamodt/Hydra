@@ -1,0 +1,31 @@
+[package]
+name = "hydra-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hydra-domain = { path = "../hydra-domain" }
+hydra-archive = { path = "../hydra-archive" }
+hydra-messaging = { path = "../hydra-messaging" }
+hydra-nostr = { path = "../hydra-nostr" }
+hydra-store = { path = "../hydra-store" }
+hydra-lens = { path = "../hydra-lens" }
+hydra-media = { path = "../hydra-media" }
+keyring.workspace = true
+nostr.workspace = true
+nostr-connect.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+age.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true
