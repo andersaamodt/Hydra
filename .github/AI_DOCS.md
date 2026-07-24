@@ -14,7 +14,7 @@ Read `docs/AUTHORITATIVE_SPEC.md` before changing product behavior.
 
 ## Local standards decision
 
-- Audited against Phronesis revision `ab1a4bce1fd4048e1fe122cb50d17357c41e2842` and Wizardry Apps revision `1b174ebe7a30dec09bc97158ebe9d72aa041975d` on 2026-07-23.
+- Audited against Phronesis revision `28af77100a6f1c3cda002e80429ba12bd7f0fce4` and Wizardry Apps revision `1b174ebe7a30dec09bc97158ebe9d72aa041975d` on 2026-07-23.
 - Re-audit when Phronesis changes runtime-boundary, storage, GUI, tests, or parsimony standards.
 - Use no TypeScript.
 - Keep runtime data, credentials, caches, logs, screenshots, generated platform sources, and build products outside the repository.

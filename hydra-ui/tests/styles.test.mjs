@@ -7,24 +7,36 @@ const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
 const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
 
 test("light mode supplies semantic surfaces instead of inheriting dark literals", () => {
-  for (const variable of [
-    "--nav-ink",
-    "--bar",
-    "--card",
-    "--card-hover",
-    "--card-soft",
-    "--card-subtle",
-    "--body-ink",
-    "--modal",
-  ]) {
+  for (const variable of ["--nav-ink", "--bar", "--card-hover", "--body-ink", "--modal"]) {
     assert.match(styles, new RegExp(`:root\\[data-theme=\"light\"\\][\\s\\S]*${variable}:`));
     assert.match(styles, new RegExp(`:root\\[data-theme=\"system\"\\][\\s\\S]*${variable}:`));
   }
 
-  assert.match(styles, /\.post-card\s*\{[^}]*background:\s*var\(--card\)/);
-  assert.match(styles, /\.context-card\s*\{[^}]*background:\s*var\(--card-soft\)/);
+  assert.match(styles, /\.post-card\s*\{[^}]*background:\s*transparent/);
+  assert.match(styles, /\.context-card\s*\{[^}]*border-bottom:\s*1px solid var\(--line\)/);
   assert.match(styles, /\.lens-bar\s*\{[^}]*background:\s*var\(--bar\)/);
   assert.match(styles, /\.modal\s*\{[^}]*background:\s*var\(--modal\)/);
+});
+
+test("the permanent shell avoids AI-generated interface foibles", () => {
+  assert.doesNotMatch(index, /<small>I’m with the banned\.<\/small>/);
+  assert.doesNotMatch(app, /Your living memory|No rulers, only lenses|view-kicker|view-subtitle|empty-mark/);
+  assert.match(app, /function viewHeader\(title, extras = \[\]\)/);
+  assert.doesNotMatch(styles, /radial-gradient|linear-gradient|backdrop-filter|border-radius:\s*999px/);
+  assert.match(app, /function settingsGroup\(title, children, open = false\)/);
+  assert.match(app, /settingsGroup\("Nostr and media"/);
+  assert.match(app, /if \(session\.openNostr\.loaded\) surfaces\.push\(controls\)/);
+});
+
+test("selection and conversation state use whole-element treatments", () => {
+  const activeNav = styles.match(/\.nav-item\.is-active\s*\{([^}]*)\}/)?.[1] ?? "";
+  const comment = styles.match(/\.comment\s*\{([^}]*)\}/)?.[1] ?? "";
+  const norm = styles.match(/\.norm-card\s*\{([^}]*)\}/)?.[1] ?? "";
+
+  assert.match(activeNav, /background:/);
+  assert.doesNotMatch(activeNav, /border-left|inset/);
+  assert.doesNotMatch(comment, /border-left/);
+  assert.doesNotMatch(norm, /border-left/);
 });
 
 test("Open Nostr uses a readable one-column card and bounded first page", () => {

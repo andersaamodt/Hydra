@@ -303,9 +303,9 @@ function renderPersona() {
   const button = document.querySelector("#persona-button");
   button.querySelector(".avatar").textContent = persona?.displayName?.slice(0, 1).toUpperCase() || "?";
   button.querySelector("strong").textContent = persona?.displayName || "No persona";
-  button.querySelector("small").textContent = persona
-    ? `${persona.redditLinked ? "Reddit linked" : "Hydra only"} · ${persona.publicKey.slice(0, 10)}…`
-    : "Create one to participate";
+  const detail = button.querySelector("small");
+  detail.hidden = !persona;
+  detail.textContent = persona ? `${persona.redditLinked ? "Reddit linked" : "Hydra only"} · ${persona.publicKey.slice(0, 10)}…` : "";
   const requests = session.state?.messageRequestCount ?? 0;
   const badge = document.querySelector("#message-badge");
   badge.hidden = requests === 0;
@@ -334,30 +334,19 @@ function renderCommunities() {
 function renderContext() {
   const state = session.state;
   const readiness = state?.readiness ?? [];
-  const statusCard = element("section", { class: "context-card" }, [
-    element("h2", { text: "Continuity status" }),
+  const status = element("section", { class: "context-status" }, [
+    element("h2", { text: "Status" }),
     ...readiness.map((item) => element("div", { class: "readiness-row" }, [
       element("span", { class: `status-dot ${item.state}` }),
       element("div", {}, [element("strong", { text: item.label }), element("p", { text: item.detail })]),
     ])),
   ]);
-  const memoryCard = element("section", { class: "context-card" }, [
-    element("h2", { text: "Your living memory" }),
-    element("p", { text: `${state?.revisitCount ?? 0} Revisit items · ${state?.archiveCount ?? 0} continuity records` }),
-    element("p", { text: "Reading stays private. Interaction creates durable memory only when you choose it." }),
-  ]);
-  const philosophy = element("section", { class: "context-card" }, [
-    element("h2", { text: "No rulers, only lenses" }),
-    element("p", { text: "Hydra communities have no owners or moderators. Your follows, blocks, norms, and selected lens shape what you see." }),
-  ]);
-  contextPanel.replaceChildren(statusCard, memoryCard, philosophy);
+  contextPanel.replaceChildren(status);
 }
 
-function viewHeader(kicker, title, subtitle, extras = []) {
+function viewHeader(title, extras = []) {
   return element("header", { class: "view-header" }, [
-    element("p", { class: "view-kicker", text: kicker }),
     element("h1", { text: title }),
-    element("p", { class: "view-subtitle", text: subtitle }),
     ...extras,
   ]);
 }
@@ -418,14 +407,8 @@ function filterCommunityAudience(posts) {
 function renderFeed() {
   const community = session.route === "community" ? session.community : null;
   const title = community ? `/${session.chamber === "reddit" ? "r" : "h"}/${community}` : session.route === "front" ? "Hydra Front Page" : session.route === "revisited" ? "Revisited" : "My Feed";
-  const kicker = community ? (session.chamber === "reddit" ? "Reddit’s public room" : "Hydra backroom") : "Your decentralized home";
-  const subtitle = community
-    ? session.chamber === "reddit"
-      ? "Live Reddit material remains transient; your direct actions are sent one-for-one through the bridge."
-      : "The ownerless Nostr place: native discussion, durable memory, and uncensored continuation."
-    : "Follow people, subscribe to places, and return to what still matters—without a canonical algorithm.";
   const extras = community ? [chamberTabs()] : [];
-  const header = viewHeader(kicker, title, subtitle, extras);
+  const header = viewHeader(title, extras);
 
   if (community && session.chamber === "reddit") {
     renderRedditCommunity(header, community);
@@ -441,7 +424,7 @@ function renderFeed() {
   if (posts.length === 0) {
     list.append(emptyState(
       community ? `Nothing durable in /h/${community} yet` : "Your feed is quiet—in a good way",
-      community ? "Start the conversation here, or visit the Reddit chamber without importing anything until you interact." : "Follow a persona, subscribe to a community, or write the first post. Hydra does not manufacture urgency.",
+      community ? "Start the conversation here or check the Reddit chamber." : "Follow a persona, subscribe to a community, or write a post.",
       community ? "Post here" : "Create your first post",
       () => showComposer(community),
     ));
@@ -464,7 +447,7 @@ function renderCommunityTools(community) {
     ]),
     element("details", { class: "norm-field" }, [
       element("summary", { text: `${norms.length} communal norm ${norms.length === 1 ? "statement" : "statements"}` }),
-      element("p", { text: "These are signed positions, not enforceable rules. Endorsements and divergences never grant removal power." }),
+      element("p", { text: "Signed positions, not enforceable rules." }),
       ...norms.map((norm) => element("article", { class: "norm-card" }, [
         element("p", { text: norm.body }),
         element("div", { class: "post-actions" }, [
@@ -479,9 +462,8 @@ function renderCommunityTools(community) {
 
 function emptyState(title, body, action, onAction) {
   return element("div", { class: "empty-state" }, [
-    element("div", { class: "empty-mark", text: "H" }),
     element("h2", { text: title }),
-    element("p", { text: body }),
+    body ? element("p", { text: body }) : null,
     actionButton(action, onAction, "primary-button"),
   ]);
 }
@@ -616,12 +598,12 @@ function renderRedditCommunity(header, community) {
     return;
   }
   const body = element("div", { class: "content-list" }, [
-    element("div", { class: "empty-state" }, [
-      element("div", { class: "empty-mark", text: "r" }),
-      element("h2", { text: persona.redditLinked ? `Browse /r/${community}` : "Connect Reddit to enter the public room" }),
-      element("p", { text: persona.redditLinked ? "Browsing remains transient. Hydra sends only actions you explicitly take." : "Your Hydra identity remains independent. Linking only adds an optional Reddit projection endpoint." }),
-      actionButton(persona.redditLinked ? "Load Reddit" : "Open Reddit Bridge", persona.redditLinked ? () => loadRedditCommunity(community) : () => setRoute("reddit"), "primary-button"),
-    ]),
+    emptyState(
+      persona.redditLinked ? `Browse /r/${community}` : "Connect Reddit",
+      persona.redditLinked ? "" : "Linking adds an optional Reddit projection endpoint.",
+      persona.redditLinked ? "Load Reddit" : "Open Reddit Bridge",
+      persona.redditLinked ? () => loadRedditCommunity(community) : () => setRoute("reddit"),
+    ),
   ]);
   view.replaceChildren(header, body);
 }
@@ -805,28 +787,28 @@ function showRedditReply(item) {
 function renderMessages() {
   const persona = activePersona(session.state);
   const messages = (session.state.messages ?? []).filter((item) => item.personaId === persona.id);
-  const header = viewHeader("Persona-addressed Nostr messages", "Messages", "NIP-17 private messages remain addressed to this public persona; Hydra never exposes unified local inbox ownership.");
+  const header = viewHeader("Messages");
   const body = element("div", { class: "content-list" }, [
-    actionButton("New message", showMessageComposer, "primary-button"),
+    messages.length ? actionButton("New message", showMessageComposer, "primary-button") : null,
     ...(messages.length ? messages.map((message) => element("article", { class: "context-card" }, [
       element("div", { class: "meta-line" }, [element("strong", { text: message.peer }), element("span", { text: relativeTime(message.createdAt) }), message.request ? element("span", { class: "state-chip", text: "Message request" }) : null]),
       element("p", { text: message.body }),
       element("div", { class: "post-actions" }, [
         actionButton("Reply as this persona", () => showMessageComposerTo(message.peer), "primary-button"),
       ]),
-    ])) : [emptyState("No messages for this persona", "Messages to other locally managed personas stay in their own inboxes.", "Write a message", showMessageComposer)]),
+    ])) : [emptyState("No messages", "This inbox belongs only to the selected persona.", "Write a message", showMessageComposer)]),
   ]);
   view.replaceChildren(header, body);
 }
 
 function renderOpenNostr() {
-  const header = viewHeader("The wider Nostr commons", "Open Nostr", "Browse public Nostr conversation without pretending every note belongs to a subreddit. Topic tags flow naturally into /h/; untagged notes remain Uncategorized.");
+  const header = viewHeader("Open Nostr");
   const controls = element("div", { class: "community-actions" }, [
-    actionButton(session.openNostr.loaded ? "Refresh from relays" : "Load from relays", loadOpenNostr, "primary-button"),
+    actionButton("Refresh from relays", loadOpenNostr, "primary-button"),
   ]);
   const list = element("div", { class: "content-list" });
   if (!session.openNostr.loaded) {
-    list.append(emptyState("Nostr is larger than Hydra", "Load recent discussion from this persona’s selected relays. Reading remains transient until you deliberately curate or categorize an event.", "Load Open Nostr", loadOpenNostr));
+    list.append(emptyState("No relay sample loaded", "Reading remains transient until you curate or categorize an event.", "Load from relays", loadOpenNostr));
   } else if (!session.openNostr.items.length) {
     list.append(emptyState("No recent discussion returned", "Try again later or choose different read relays in Settings.", "Refresh", loadOpenNostr));
   } else {
@@ -837,7 +819,11 @@ function renderOpenNostr() {
       renderOpenNostr();
     }));
   }
-  view.replaceChildren(header, controls, openNostrFilterBar(), list);
+  const surfaces = [header];
+  if (session.openNostr.loaded) surfaces.push(controls);
+  if (session.openNostr.items.length) surfaces.push(openNostrFilterBar());
+  surfaces.push(list);
+  view.replaceChildren(...surfaces);
 }
 
 function filteredOpenNostrItems() {
@@ -878,7 +864,6 @@ function openNostrCard(item) {
         actionButton("Categorize for me", () => showNostrCategorize(item)),
         actionButton("Share to /h/", () => showNostrCuration(item), "primary-button"),
       ]),
-      element("p", { class: "evidence-note", text: "Categorize changes only your local view. Share creates a standard Nostr repost that keeps the original author and event intact." }),
     ]),
   ]);
 }
@@ -925,11 +910,10 @@ function renderRedditBridge() {
     const key = `${projection.anchor}\n${projection.destinationSystem}\n${projection.destination}`;
     duplicateGroups.set(key, (duplicateGroups.get(key) ?? 0) + 1);
   }
-  const header = viewHeader("Optional projection adapter", "Reddit Bridge", "Hydra remains complete without Reddit. OAuth tokens stay in secure local storage and never become Nostr events.");
+  const header = viewHeader("Reddit Bridge");
   const body = element("div", { class: "form-page" }, [
     element("section", { class: "context-card" }, [
       element("h2", { text: persona.redditLinked ? "Reddit connected" : "No Reddit account linked" }),
-      element("p", { text: persona.redditLinked ? "This persona has one private Reddit projection endpoint." : "One persona may link to zero or one Reddit account. One Reddit account may link to one persona locally." }),
       actionButton(persona.redditLinked ? "Disconnect Reddit" : "Connect with Reddit OAuth", persona.redditLinked ? disconnectReddit : connectReddit, persona.redditLinked ? "danger-button" : "primary-button"),
       persona.redditLinked ? actionButton(persona.redditProof ? "Replace public identity proof" : "Publish optional identity proof", showRedditIdentityProof) : null,
       persona.redditProof ? element("p", { class: "evidence-note", text: `Public proof: ${persona.redditProof}` }) : null,
@@ -944,11 +928,8 @@ function renderRedditBridge() {
       element("p", { text: "Import only your posts and comments from Reddit’s official account-data export. Other export files are ignored." }),
       actionButton("Import official data export", showRedditExportImport, "primary-button"),
     ]),
-    element("section", { class: "context-card imported-writing" }, [
+    importedWriting.length ? element("section", { class: "context-card imported-writing" }, [
       element("h2", { text: `Imported Reddit writing (${importedWriting.length})` }),
-      importedWriting.length
-        ? element("p", { text: `Your latest ${visibleImportedWriting.length} imported items are shown here. They remain distinguishable from Hydra-originated writing and retain their exact Reddit source links.` })
-        : element("p", { text: "Posts and comments from an official Reddit account-data export will appear here after you import them." }),
       ...visibleImportedWriting.map((item) => element("article", { class: "imported-writing-item" }, [
         element("div", { class: "meta-line" }, [
           element("span", { class: "provenance reddit", text: item.kind === "comment" ? "Reddit comment" : "Reddit post" }),
@@ -960,8 +941,8 @@ function renderRedditBridge() {
         element("p", { class: "source-link", text: item.externalSource }),
         actionButton("Copy source link", () => copyText(item.externalSource, "Reddit source link copied.")),
       ])),
-    ]),
-    element("h2", { text: `Projection records (${projections.length})` }),
+    ]) : null,
+    projections.length ? element("h2", { text: `Projection records (${projections.length})` }) : null,
     ...projections.map((projection) => {
       const duplicateKey = `${projection.anchor}\n${projection.destinationSystem}\n${projection.destination}`;
       const duplicateCount = duplicateGroups.get(duplicateKey) ?? 0;
@@ -1039,10 +1020,17 @@ async function saveThemeChoice(event) {
   }
 }
 
+function settingsGroup(title, children, open = false) {
+  return element("details", { class: "settings-group", open: open ? "open" : null }, [
+    element("summary", { text: title }),
+    element("div", { class: "settings-group-body" }, children),
+  ]);
+}
+
 function renderSettings() {
   const settings = session.state.settings ?? {};
   const persona = activePersona(session.state);
-  const header = viewHeader("Local control", "Settings", "Defaults are conveniences, never authorities. Each persona can isolate relays, media servers, drafts, notifications, and Reddit credentials.");
+  const header = viewHeader("Settings");
   const relayValue = (settings.relays ?? []).join("\n");
   const personaRelaySettings = settings.persona_relays?.[persona.id] ?? {};
   const personaReadRelayValue = (personaRelaySettings.read ?? settings.relays ?? []).join("\n");
@@ -1057,39 +1045,44 @@ function renderSettings() {
   const drafts = (session.state.drafts ?? []).filter((item) => item.personaId === persona.id);
   const feedWeights = { followed: 100, communities: 100, replies: 100, revisit: 100, ...(settings.feed_source_weights ?? {}) };
   const body = element("form", { class: "form-page", onsubmit: saveSettings }, [
-    field("Public display name", "text", "display_name", persona.displayName, "Published as standard Nostr profile metadata for this persona.", { required: true }),
-    field("Default relays", "textarea", "relays", relayValue, "Fallback relays for personas without their own relay preferences."),
-    field("This persona's read relays", "textarea", "persona_read_relays", personaReadRelayValue, "Published as this persona's NIP-65 read preferences."),
-    field("This persona's write relays", "textarea", "persona_write_relays", personaWriteRelayValue, "Published as this persona's NIP-65 write preferences."),
-    field("Private-message inbox relays", "textarea", "inbox_relays", inboxRelayValue, "One to three NIP-17 inbox relays, published for this persona."),
-    field("Replication threshold", "number", "replication", settings.replication_threshold ?? 2, "Published means one relay; replicated means this threshold."),
-    field("Continuity threshold", "number", "continuity_replication", settings.continuity?.replication_threshold ?? 0, "0 inherits the ordinary threshold; a stricter value protects Big Stick and withdrawals.", { min: 0 }),
-    field("Optional Nostr web gateway", "text", "preferred_gateway", settings.continuity?.preferred_gateway_template ?? "", "Optional HTTPS template such as https://njump.me/{identifier}. The portable Nostr identifier stays inside the link."),
-    field("Theme", "select", "theme", settings.theme ?? "system", "Applies and saves immediately.", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
-    field("Local spam threshold", "number", "spam_threshold", settings.spam_filter_threshold ?? 100, "0 disables automatic hiding; 100 hides only items matching every strong local heuristic. Raw evidence remains inspectable.", { min: 0, max: 100 }),
-    field("Remote and sensitive media", "select", "remote_media_policy", settings.remote_media_policy ?? "on_demand", "Hydra never bulk-downloads remote files; on demand still requires an explicit request for each item.", { values: [["never", "Never fetch"], ["on_demand", "Ask before loading"]] }),
-    element("section", { class: "context-card" }, [
-      element("h2", { text: "My Feed sources" }),
-      element("p", { text: "Equal values mean no intrinsic hierarchy. Increase or decrease a source locally without changing anyone else’s view." }),
-      field("Followed personas", "number", "feed_followed", feedWeights.followed, "Relative weight from 0 to 200.", { min: 0, max: 200 }),
-      field("Subscribed communities", "number", "feed_communities", feedWeights.communities, "Relative weight from 0 to 200.", { min: 0, max: 200 }),
-      field("Replies involving me", "number", "feed_replies", feedWeights.replies, "Relative weight from 0 to 200.", { min: 0, max: 200 }),
-      field("Revisit memory", "number", "feed_revisit", feedWeights.revisit, "Relative weight from 0 to 200.", { min: 0, max: 200 }),
+    field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
+    field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
+    settingsGroup("Nostr and media", [
+      field("Default relays", "textarea", "relays", relayValue, "Fallback for personas without relay preferences."),
+      field("This persona's read relays", "textarea", "persona_read_relays", personaReadRelayValue, "Published as NIP-65 read preferences."),
+      field("This persona's write relays", "textarea", "persona_write_relays", personaWriteRelayValue, "Published as NIP-65 write preferences."),
+      field("Private-message inbox relays", "textarea", "inbox_relays", inboxRelayValue, "One to three published NIP-17 inbox relays."),
+      field("Replication threshold", "number", "replication", settings.replication_threshold ?? 2, "One relay means published; this many means replicated."),
+      field("Optional Nostr web gateway", "text", "preferred_gateway", settings.continuity?.preferred_gateway_template ?? "", "HTTPS template, for example https://njump.me/{identifier}."),
+      field("Local spam threshold", "number", "spam_threshold", settings.spam_filter_threshold ?? 100, "0 disables hiding; 100 requires every strong local signal.", { min: 0, max: 100 }),
+      field("Remote and sensitive media", "select", "remote_media_policy", settings.remote_media_policy ?? "on_demand", "", { values: [["never", "Never fetch"], ["on_demand", "Ask before loading"]] }),
+      toggle("Preserve media copies", "media_copy", settings.media_copy_enabled !== false, "Off retains URLs and text without copying files."),
+      field("Maximum copied media (MiB)", "number", "max_media_mib", Math.round((settings.max_media_bytes ?? 26214400) / 1048576), "", { min: 1 }),
+      field("Content-addressed blob servers", "textarea", "blob_servers", blobServers, "Optional; local preservation never depends on them."),
     ]),
-    toggle("Crosspost to Reddit by default", "crosspost", Boolean(settings.crosspost_default), "The composer always lets you override this. Off is the canonical default."),
-    field("This persona’s crosspost default", "select", "persona_crosspost", crosspostOverride(settings.persona_crosspost_defaults?.[persona.id]), "Overrides the global setting only for this persona.", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
-    field("Post crosspost default", "select", "post_crosspost", crosspostOverride(settings.content_crosspost_defaults?.post), "Applies to posts unless a community override is more specific.", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
-    field("Comment crosspost default", "select", "comment_crosspost", crosspostOverride(settings.content_crosspost_defaults?.comment), "Applies to comments unless a community override is more specific.", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
-    field("Community crosspost overrides", "textarea", "community_crossposts", communityOverrides, "Optional, one per line: science=on or science=off."),
-    toggle("Preserve media copies", "media_copy", settings.media_copy_enabled !== false, "Turn off to retain external URLs and text without copying files."),
-    field("Maximum copied media (MiB)", "number", "max_media_mib", Math.round((settings.max_media_bytes ?? 26214400) / 1048576), "Hydra refuses larger files before copying them.", { min: 1 }),
-    field("This persona’s content-addressed blob servers", "textarea", "blob_servers", blobServers, "Optional server URLs, one per line. Local preservation never depends on them."),
-    toggle("Enable Big Stick", "big_stick_enabled", settings.continuity?.big_stick_enabled !== false, "Implemented and tested in 1.0, but locally disableable. It remains opt-in per projection."),
-    field("Big Stick preservation level", "select", "big_stick_archive_level", settings.continuity?.big_stick_archive_level ?? "item", "Big Stick preserves the Hydra-originated item before attaching its portable record.", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
-    toggle("Enable Reddacted", "reddacted_enabled", settings.continuity?.reddacted_enabled !== false, "Allows one-way withdrawal of Hydra-originated Reddit projections."),
-    field("Reddacted preservation level", "select", "reddacted_archive_level", settings.continuity?.reddacted_archive_level ?? "item", "Applied only to the Hydra-originated content being withdrawn.", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
+    settingsGroup("My Feed sources", [
+      element("p", { text: "Relative local weights; equal values have equal priority." }),
+      field("Followed personas", "number", "feed_followed", feedWeights.followed, "", { min: 0, max: 200 }),
+      field("Subscribed communities", "number", "feed_communities", feedWeights.communities, "", { min: 0, max: 200 }),
+      field("Replies involving me", "number", "feed_replies", feedWeights.replies, "", { min: 0, max: 200 }),
+      field("Revisit memory", "number", "feed_revisit", feedWeights.revisit, "", { min: 0, max: 200 }),
+    ]),
+    settingsGroup("Reddit projection", [
+      toggle("Crosspost to Reddit by default", "crosspost", Boolean(settings.crosspost_default), "The composer always allows an override."),
+      field("This persona’s default", "select", "persona_crosspost", crosspostOverride(settings.persona_crosspost_defaults?.[persona.id]), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
+      field("Posts", "select", "post_crosspost", crosspostOverride(settings.content_crosspost_defaults?.post), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
+      field("Comments", "select", "comment_crosspost", crosspostOverride(settings.content_crosspost_defaults?.comment), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
+      field("Community overrides", "textarea", "community_crossposts", communityOverrides, "One per line: science=on or science=off."),
+    ]),
+    settingsGroup("Continuity", [
+      field("Replication threshold", "number", "continuity_replication", settings.continuity?.replication_threshold ?? 0, "0 inherits the ordinary threshold.", { min: 0 }),
+      toggle("Enable Big Stick", "big_stick_enabled", settings.continuity?.big_stick_enabled !== false, "Opt-in for each projection."),
+      field("Big Stick preservation level", "select", "big_stick_archive_level", settings.continuity?.big_stick_archive_level ?? "item", "", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
+      toggle("Enable Reddacted", "reddacted_enabled", settings.continuity?.reddacted_enabled !== false, "One-way withdrawal of Hydra-originated Reddit projections."),
+      field("Reddacted preservation level", "select", "reddacted_archive_level", settings.continuity?.reddacted_archive_level ?? "item", "", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
+    ]),
     element("div", { class: "modal-actions" }, [actionButton("Save settings", null, "primary-button")]),
-    element("section", { class: "context-card" }, [
+    drafts.length ? element("section", { class: "context-card" }, [
       element("h2", { text: `Private drafts (${drafts.length})` }),
       element("p", { text: "Drafts are encrypted, persona-bound, and never sent to a relay or public media server." }),
       ...drafts.map((draft) => element("div", { class: "readiness-row" }, [
@@ -1099,13 +1092,13 @@ function renderSettings() {
           actionButton("Discard", () => mutate("draft.discard", { persona_id: persona.id, id: draft.id }, "Draft discarded for this persona."), "danger-button"),
         ]),
       ])),
-    ]),
+    ]) : null,
     element("section", { class: "context-card" }, [
-      element("h2", { text: "Privacy, honestly described" }),
+      element("h2", { text: "Privacy" }),
       element("p", { text: "Personas are pseudonymous, not guaranteed anonymous. Timing, relays, media servers, IP addresses, writing style, and mistakes can correlate separate keys. Telemetry is off by default." }),
     ]),
     element("section", { class: "context-card" }, [
-      element("h2", { text: "People and local lenses" }),
+      element("h2", { text: "People" }),
       element("p", { text: `${session.state.followCount ?? 0} follows · ${session.state.blockCount ?? 0} blocks. Public declarations remain signed claims, never Hydra judgments.` }),
       element("div", { class: "post-actions" }, [
         actionButton("Follow a persona", showFollowEditor),
@@ -1157,12 +1150,11 @@ function renderSettings() {
 }
 
 function renderWelcome() {
-  const header = viewHeader("The underground Reddit alternative", "I’m with the banned.", "Create a gatekeeper-free Nostr persona. It belongs to you, even if every platform projection disappears.");
+  const header = viewHeader("Welcome to Hydra");
   const body = element("div", { class: "content-list" }, [
-    emptyState("Begin with a persona", "A persona is one durable public Nostr identity. You may create many; Hydra never publishes that they share a local keyring.", "Create persona", showPersonaCreator),
+    emptyState("Create a persona", "A persona is a durable public Nostr identity.", "Create persona", showPersonaCreator),
     element("section", { class: "context-card" }, [
-      element("h2", { text: "Already carry Hydra with you?" }),
-      element("p", { text: "Restore a verified encrypted persona archive only into this empty local root." }),
+      element("h2", { text: "Restore a persona" }),
       actionButton("Restore encrypted archive", showBackupRestore),
     ]),
   ]);
@@ -1172,7 +1164,7 @@ function renderWelcome() {
 function renderUnavailable(error) {
   finishBoot();
   document.querySelector("#app").setAttribute("aria-busy", "false");
-  view.replaceChildren(viewHeader("Local runtime unavailable", "Hydra could not open its durable root", readableError(error)), element("div", { class: "content-list" }, [emptyState("The interface is intact", "Your data has not been sent elsewhere. Restart Hydra or inspect the local runtime status.", "Try again", () => refresh({ quiet: true }))]));
+  view.replaceChildren(viewHeader("Hydra could not open"), element("div", { class: "content-list" }, [emptyState("Local runtime unavailable", readableError(error), "Try again", () => refresh({ quiet: true }))]));
   contextPanel.replaceChildren();
 }
 

@@ -1,6 +1,6 @@
 # Phronesis parsimony audit
 
-This is derivative evidence for `docs/AUTHORITATIVE_SPEC.md`, audited against Phronesis `ab1a4bce1fd4048e1fe122cb50d17357c41e2842` on 2026-07-23. Re-audit when the authoritative specification or Phronesis parsimony, GUI, runtime-boundary, storage, or test standards change.
+This is derivative evidence for `docs/AUTHORITATIVE_SPEC.md`, audited against Phronesis `28af77100a6f1c3cda002e80429ba12bd7f0fce4` on 2026-07-23. Re-audit when the authoritative specification or Phronesis parsimony, GUI, runtime-boundary, storage, or test standards change.
 
 ## Arches
 
@@ -35,4 +35,4 @@ Theurgy owns the generic runtime envelope contract and future institutional rele
 
 ## Simplification result
 
-The audit removed duplicate local READMEs, a dead narrow-window layout, decorative capitalization and button motion, an unsupported network-routing claim, and a false Reddacted restoration transition. It added no new service or framework; the only compatibility addition is a declarative Stonr profile with a signed-publication test.
+The audit removed duplicate local READMEs, a dead narrow-window layout, decorative capitalization and button motion, an unsupported network-routing claim, and a false Reddacted restoration transition. The later anti-AI-GUI pass also removed permanent product explanations, title/subtitle duplication, boxed empty states, decorative gradients and blur, pill inflation, selection rails, and nested card chrome while retaining accessible focus outlines and task-specific help. It added no new service or framework; the only compatibility addition is a declarative Stonr profile with a signed-publication test.
