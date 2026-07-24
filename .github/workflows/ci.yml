@@ -12,7 +12,7 @@ jobs:
     name: Rust contracts and protocol
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy,rustfmt
@@ -38,7 +38,7 @@ jobs:
     name: Tauri macOS package
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.90.0
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
@@ -48,7 +48,7 @@ jobs:
     name: Tauri Linux ARM64 package
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.90.0
       - uses: Swatinem/rust-cache@v2
       - name: Install Tauri dependencies
@@ -63,7 +63,7 @@ jobs:
     name: Tauri Windows package
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.90.0
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
