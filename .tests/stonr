@@ -1,0 +1,144 @@
+#!/bin/sh
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+profile="$repo/support/stonr/hydra-support.yaml"
+stonr_candidate="${STONR_BIN:-$HOME/git/stonr/target/debug/stonr}"
+
+[ -f "$profile" ] || {
+  printf '%s\n' "missing Stonr support profile: $profile" >&2
+  exit 1
+}
+
+if [ -x "$stonr_candidate" ]; then
+  stonr=$stonr_candidate
+elif command -v stonr >/dev/null 2>&1; then
+  stonr=$(command -v stonr)
+else
+  printf '%s\n' "Hydra Stonr profile check skipped: no Stonr binary found"
+  exit 0
+fi
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/hydra-stonr-profile.XXXXXX")
+trap 'code=$?; if [ -n "${stonr_pid:-}" ]; then kill "$stonr_pid" 2>/dev/null || true; wait "$stonr_pid" 2>/dev/null || true; fi; rm -rf "$tmp"; exit "$code"' EXIT HUP INT TERM
+mkdir -p "$tmp/store"
+
+ports=$(python3 - <<'PY'
+import json
+import socket
+
+def pick():
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+print(json.dumps({"http": pick(), "ws": pick()}))
+PY
+)
+http_port=$(printf '%s' "$ports" | python3 -c 'import json,sys; print(json.load(sys.stdin)["http"])')
+ws_port=$(printf '%s' "$ports" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ws"])')
+
+cat >"$tmp/relay.env" <<EOF
+STORE_ROOT=$tmp/store
+BIND_HTTP=127.0.0.1:$http_port
+BIND_WS=127.0.0.1:$ws_port
+VERIFY_SIG=1
+ENABLE_NIP11=1
+ENABLE_QUERY=1
+ENABLE_PUBLISH=1
+ENABLE_LIVE_SUBSCRIPTIONS=1
+ENABLE_TAG_QUERIES=1
+ENABLE_SEARCH=1
+FILTER_SINCE_MODE=cursor
+EOF
+
+json=$("$stonr" --env "$tmp/relay.env" print-autoconfig --file "$profile")
+python3 - "$json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["name"] == "Hydra"
+locked = set(payload["locked_keys"])
+expected = {
+    "VERIFY_SIG",
+    "ENABLE_NIP11",
+    "SUPPORT_NIP11",
+    "ENABLE_QUERY",
+    "ENABLE_PUBLISH",
+    "ENABLE_LIVE_SUBSCRIPTIONS",
+    "ENABLE_TAG_QUERIES",
+    "SUPPORT_NIP12",
+    "ENABLE_SEARCH",
+    "SUPPORT_NIP50",
+    "FILTER_SINCE_MODE",
+}
+missing = expected - locked
+assert not missing, f"missing locked keys: {sorted(missing)}"
+PY
+
+"$stonr" --env "$tmp/relay.env" init >/dev/null
+"$stonr" --env "$tmp/relay.env" serve >"$tmp/stonr.log" 2>&1 &
+stonr_pid=$!
+
+python3 - "$ws_port" <<'PY'
+import socket
+import sys
+import time
+
+port = int(sys.argv[1])
+deadline = time.time() + 15
+while time.time() < deadline:
+    sock = socket.socket()
+    sock.settimeout(0.3)
+    try:
+        sock.connect(("127.0.0.1", port))
+        raise SystemExit(0)
+    except OSError:
+        time.sleep(0.1)
+    finally:
+        sock.close()
+raise SystemExit("Stonr did not start in time")
+PY
+
+target_dir=$(cargo metadata --manifest-path "$repo/Cargo.toml" --no-deps --format-version 1 |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
+runtime="$target_dir/debug/hydra-runtime"
+[ -x "$runtime" ] || cargo build --quiet --manifest-path "$repo/Cargo.toml" -p hydra-runtime
+
+hydra() {
+  HYDRA_HOME="$tmp/hydra" "$runtime" "$@"
+}
+
+relay="ws://127.0.0.1:$ws_port"
+hydra action settings.update "$(printf '{"relays":["%s"],"replication_threshold":1}' "$relay")" >/dev/null
+hydra action persona.create '{"display_name":"Stonr smoke"}' >/dev/null
+persona=$(hydra state | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["personas"][0]["id"])')
+hydra action post.create "$(python3 - "$persona" <<'PY'
+import json
+import sys
+
+print(json.dumps({
+    "persona_id": sys.argv[1],
+    "title": "Hydra Stonr smoke",
+    "body": "A signed Hydra post published through the ordinary relay transport.",
+    "communities": ["hydrasmoke"],
+}))
+PY
+)" >/dev/null
+hydra action sync.now '{}' >/dev/null
+
+tries=0
+while [ "$("$stonr" --env "$tmp/relay.env" query --t hydrasmoke --count)" -lt 1 ]; do
+  tries=$((tries + 1))
+  [ "$tries" -lt 80 ] || {
+    printf '%s\n' "Hydra did not publish its signed post to Stonr" >&2
+    cat "$tmp/stonr.log" >&2
+    exit 1
+  }
+  sleep 0.1
+done
+
+printf '%s\n' "Hydra Stonr profile and signed publication passed"

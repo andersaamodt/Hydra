@@ -1,0 +1,14 @@
+name: Hydra
+description: Locks the relay capabilities Hydra needs for signed publishing, topic feeds, live synchronization, and Open Nostr search.
+settings:
+  VERIFY_SIG: true
+  ENABLE_NIP11: true
+  SUPPORT_NIP11: true
+  ENABLE_QUERY: true
+  ENABLE_PUBLISH: true
+  ENABLE_LIVE_SUBSCRIPTIONS: true
+  ENABLE_TAG_QUERIES: true
+  SUPPORT_NIP12: true
+  ENABLE_SEARCH: true
+  SUPPORT_NIP50: true
+  FILTER_SINCE_MODE: cursor

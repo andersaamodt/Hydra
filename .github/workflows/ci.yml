@@ -30,16 +30,9 @@ jobs:
           jq nodejs npm libwebkit2gtk-4.1-dev libssl-dev
           libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      - run: cargo fmt --all --check
-      - run: npm run prepare:sidecar
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: ./.tests/runtime
+      - run: ./.tests/run
         env:
           THEURGY_ROOT: ${{ runner.temp }}/theurgy
-      - run: ./.tests/firefox
-      - run: ./.tests/protocol
-      - run: ./.tests/release
 
   macos:
     name: Tauri macOS package
@@ -67,7 +60,7 @@ jobs:
       - run: tools/package/build-linux-deb
 
   windows:
-    name: Tauri Windows compile
+    name: Tauri Windows package
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -75,4 +68,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run prepare:sidecar:release
-      - run: npx tauri build --no-bundle
+      - run: npx tauri build --bundles nsis

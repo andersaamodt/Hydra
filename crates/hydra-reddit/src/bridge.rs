@@ -38,7 +38,7 @@ pub enum BridgeError {
     NotQueued,
     #[error("the Hydra object has not reached the required relay replication threshold")]
     NotReplicated,
-    #[error("withdrawn content requires an explicit restore action")]
+    #[error("withdrawn content is terminal in Hydra 1.0")]
     Withdrawn,
 }
 
@@ -862,7 +862,7 @@ impl<S: SecretStore, A: RedditAdapter> BridgeService<S, A> {
 
     /// Pushes the latest canonical Hydra head to an existing projection while
     /// preserving its explicitly selected marker. Withdrawn content remains
-    /// withdrawn until a separate restore action requeues it.
+    /// permanently withdrawn in Hydra 1.0.
     ///
     /// # Errors
     ///

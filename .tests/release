@@ -19,7 +19,7 @@ done
 
 grep -q 'tools/package/build-macos-app' "$repo/.github/workflows/ci.yml"
 grep -q 'tools/package/build-linux-deb' "$repo/.github/workflows/ci.yml"
-grep -q 'npx tauri build --no-bundle' "$repo/.github/workflows/ci.yml"
+grep -q 'npx tauri build --bundles nsis' "$repo/.github/workflows/ci.yml"
 if grep -Eq 'apps/desktop/(macos|linux)' "$repo/.github/workflows/ci.yml"; then
   echo "CI still references an abandoned desktop shell" >&2
   exit 1

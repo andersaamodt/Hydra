@@ -69,8 +69,7 @@ impl ProjectionState {
             (
                 NotRequested | Failed | Rejected | Abandoned,
                 Queued | Abandoned
-            ) | (Withdrawn, Queued)
-                | (Queued, Submitting | Failed | Abandoned)
+            ) | (Queued, Submitting | Failed | Abandoned)
                 | (Submitting, Live | Rejected | Failed | Abandoned)
                 | (
                     Live,
@@ -309,14 +308,14 @@ mod tests {
     }
 
     #[test]
-    fn withdrawn_content_requires_explicit_requeue() {
+    fn withdrawn_content_is_terminal() {
         let mut projection = projection();
         projection.transition(ProjectionState::Queued).unwrap();
         projection.transition(ProjectionState::Submitting).unwrap();
         projection.transition(ProjectionState::Live).unwrap();
         projection.transition(ProjectionState::Withdrawn).unwrap();
         assert!(projection.transition(ProjectionState::Live).is_err());
-        projection.transition(ProjectionState::Queued).unwrap();
+        assert!(projection.transition(ProjectionState::Queued).is_err());
     }
 
     #[test]

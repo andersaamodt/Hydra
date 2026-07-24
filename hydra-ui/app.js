@@ -36,6 +36,13 @@ const contextPanel = document.querySelector("#context-panel");
 const modalRoot = document.querySelector("#modal-root");
 const toastRegion = document.querySelector("#toast-region");
 
+function finishBoot() {
+  const app = document.querySelector("#app");
+  const splash = document.querySelector("#boot-splash");
+  app.hidden = false;
+  splash?.remove();
+}
+
 function formatBytes(size) {
   const bytes = Number(size) || 0;
   if (bytes < 1024) return `${bytes} B`;
@@ -100,6 +107,7 @@ async function refresh({ quiet = false } = {}) {
     const result = await runtime("state");
     session.state = extractState(result);
     render();
+    finishBoot();
     if (!quiet) toast("Hydra is up to date on this device.");
   } catch (error) {
     renderUnavailable(error);
@@ -355,16 +363,27 @@ function viewHeader(kicker, title, subtitle, extras = []) {
 }
 
 function chamberTabs() {
+  const selectChamber = (chamber) => {
+    if (chamber === "hydra") stopRedditThreadRefresh();
+    session.chamber = chamber;
+    renderFeed();
+    window.setTimeout(() => document.querySelector(`.view-tabs [aria-selected="true"]`)?.focus(), 0);
+  };
+  const move = (event) => {
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    selectChamber(session.chamber === "hydra" ? "reddit" : "hydra");
+  };
   return element("div", { class: "view-tabs", role: "tablist", "aria-label": "Community chamber" }, [
     element("button", {
       type: "button", role: "tab", class: `tab-button${session.chamber === "hydra" ? " is-active" : ""}`,
-      "aria-selected": session.chamber === "hydra", text: `/h/${session.community}`,
-      onclick: () => { stopRedditThreadRefresh(); session.chamber = "hydra"; renderFeed(); },
+      "aria-selected": session.chamber === "hydra", tabindex: session.chamber === "hydra" ? "0" : "-1", text: `/h/${session.community}`,
+      onclick: () => selectChamber("hydra"), onkeydown: move,
     }),
     element("button", {
       type: "button", role: "tab", class: `tab-button reddit${session.chamber === "reddit" ? " is-active" : ""}`,
-      "aria-selected": session.chamber === "reddit", text: `/r/${session.community}`,
-      onclick: () => { session.chamber = "reddit"; renderFeed(); },
+      "aria-selected": session.chamber === "reddit", tabindex: session.chamber === "reddit" ? "0" : "-1", text: `/r/${session.community}`,
+      onclick: () => selectChamber("reddit"), onkeydown: move,
     }),
   ]);
 }
@@ -621,11 +640,16 @@ async function loadRedditCommunity(community) {
       after: result.result?.after ?? null,
       threadRoot: null,
       threadItems: [],
+      focusedFullname: null,
+      refreshTimer: null,
+      refreshStep: 0,
       requestEpoch: epoch,
     };
     toast(`Loaded /r/${community} transiently. Nothing was published to Nostr.`);
     renderFeed();
-  } catch (error) { toast(readableError(error), true); }
+  } catch (error) {
+    if (epoch === session.reddit.requestEpoch) toast(readableError(error), true);
+  }
 }
 
 function redditUrl(item) {
@@ -689,15 +713,18 @@ function hydraRepliesForExternal(url) {
 async function loadRedditThread(post) {
   const persona = activePersona(session.state);
   const epoch = ++session.reddit.requestEpoch;
+  const community = session.community;
   try {
     const result = await runtime("reddit.browse.thread", { persona_id: persona.id, post: post.fullname });
-    if (epoch !== session.reddit.requestEpoch || session.chamber !== "reddit") return;
+    if (epoch !== session.reddit.requestEpoch || session.route !== "community" || session.community !== community || session.chamber !== "reddit") return;
     session.reddit.threadRoot = post.fullname;
     session.reddit.threadItems = result.result?.items ?? [post];
     resetRedditThreadRefresh();
     toast("Loaded the current Reddit thread transiently. Hydra-only replies remain linked by their external parent.");
     renderFeed();
-  } catch (error) { toast(readableError(error), true); }
+  } catch (error) {
+    if (epoch === session.reddit.requestEpoch) toast(readableError(error), true);
+  }
 }
 
 function stopRedditThreadRefresh() {
@@ -720,6 +747,10 @@ function scheduleRedditThreadRefresh() {
   const delay = intervals[Math.min(session.reddit.refreshStep, intervals.length - 1)] * 1000;
   session.reddit.refreshTimer = window.setTimeout(async () => {
     if (session.reddit.threadRoot !== root) return;
+    if (session.busy || modalRoot.childElementCount || document.hidden) {
+      scheduleRedditThreadRefresh();
+      return;
+    }
     try {
       const persona = activePersona(session.state);
       const result = await runtime("reddit.browse.thread", { persona_id: persona.id, post: root });
@@ -987,10 +1018,31 @@ async function chooseRedditExport(directory) {
   } });
 }
 
+async function saveThemeChoice(event) {
+  const select = event.currentTarget;
+  const previous = session.state.settings?.theme ?? "system";
+  const selected = select.value;
+  document.documentElement.dataset.theme = selected;
+  setBusy(true);
+  try {
+    const result = await runtime("settings.update", { theme: selected });
+    const snapshot = extractState(result);
+    if (snapshot?.personas) session.state = snapshot;
+    else session.state.settings.theme = selected;
+    toast("Theme saved locally.");
+  } catch (error) {
+    select.value = previous;
+    document.documentElement.dataset.theme = previous;
+    toast(readableError(error), true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 function renderSettings() {
   const settings = session.state.settings ?? {};
   const persona = activePersona(session.state);
-  const header = viewHeader("Local control", "Settings", "Defaults are conveniences, never authorities. Each persona can isolate relays, media servers, and network routing.");
+  const header = viewHeader("Local control", "Settings", "Defaults are conveniences, never authorities. Each persona can isolate relays, media servers, drafts, notifications, and Reddit credentials.");
   const relayValue = (settings.relays ?? []).join("\n");
   const personaRelaySettings = settings.persona_relays?.[persona.id] ?? {};
   const personaReadRelayValue = (personaRelaySettings.read ?? settings.relays ?? []).join("\n");
@@ -1013,7 +1065,7 @@ function renderSettings() {
     field("Replication threshold", "number", "replication", settings.replication_threshold ?? 2, "Published means one relay; replicated means this threshold."),
     field("Continuity threshold", "number", "continuity_replication", settings.continuity?.replication_threshold ?? 0, "0 inherits the ordinary threshold; a stricter value protects Big Stick and withdrawals.", { min: 0 }),
     field("Optional Nostr web gateway", "text", "preferred_gateway", settings.continuity?.preferred_gateway_template ?? "", "Optional HTTPS template such as https://njump.me/{identifier}. The portable Nostr identifier stays inside the link."),
-    field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]] }),
+    field("Theme", "select", "theme", settings.theme ?? "system", "Applies and saves immediately.", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
     field("Local spam threshold", "number", "spam_threshold", settings.spam_filter_threshold ?? 100, "0 disables automatic hiding; 100 hides only items matching every strong local heuristic. Raw evidence remains inspectable.", { min: 0, max: 100 }),
     field("Remote and sensitive media", "select", "remote_media_policy", settings.remote_media_policy ?? "on_demand", "Hydra never bulk-downloads remote files; on demand still requires an explicit request for each item.", { values: [["never", "Never fetch"], ["on_demand", "Ask before loading"]] }),
     element("section", { class: "context-card" }, [
@@ -1118,6 +1170,7 @@ function renderWelcome() {
 }
 
 function renderUnavailable(error) {
+  finishBoot();
   document.querySelector("#app").setAttribute("aria-busy", "false");
   view.replaceChildren(viewHeader("Local runtime unavailable", "Hydra could not open its durable root", readableError(error)), element("div", { class: "content-list" }, [emptyState("The interface is intact", "Your data has not been sent elsewhere. Restart Hydra or inspect the local runtime status.", "Try again", () => refresh({ quiet: true }))]));
   contextPanel.replaceChildren();
@@ -1125,10 +1178,10 @@ function renderUnavailable(error) {
 
 function field(label, type, name, value = "", help = "", options = {}) {
   let control;
-  if (type === "textarea") control = element("textarea", { name, text: value, required: options.required ?? false });
+  if (type === "textarea") control = element("textarea", { name, text: value, required: options.required ?? false, onchange: options.onchange });
   else if (type === "select") {
-    control = element("select", { name }, options.values.map(([id, text]) => element("option", { value: id, text, selected: id === value ? "selected" : null })));
-  } else control = element("input", { name, type, value, required: options.required ?? false, placeholder: options.placeholder ?? null, min: options.min ?? null });
+    control = element("select", { name, onchange: options.onchange }, options.values.map(([id, text]) => element("option", { value: id, text, selected: id === value ? "selected" : null })));
+  } else control = element("input", { name, type, value, required: options.required ?? false, placeholder: options.placeholder ?? null, min: options.min ?? null, onchange: options.onchange });
   return element("label", { class: "field" }, [element("span", { text: label }), control, help ? element("small", { class: "field-help", text: help }) : null]);
 }
 
@@ -1710,10 +1763,17 @@ async function preserveMedia(object) {
   if (!paths) return;
   const selected = Array.isArray(paths) ? paths : [paths];
   const mimeFor = (path) => ({ png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", mp4: "video/mp4", webm: "video/webm", mp3: "audio/mpeg", ogg: "audio/ogg", pdf: "application/pdf" }[String(path).split(".").pop().toLowerCase()] ?? "application/octet-stream");
-  for (const path of selected) await runtime("media.preserve", { object: object.anchor, source_path: path, mime_type: mimeFor(path), original_url: null });
-  session.state = extractState(await runtime("state"));
-  toast(`${selected.length} media file${selected.length === 1 ? "" : "s"} preserved by content hash.`);
-  render();
+  setBusy(true);
+  try {
+    for (const path of selected) await runtime("media.preserve", { object: object.anchor, source_path: path, mime_type: mimeFor(path), original_url: null });
+    session.state = extractState(await runtime("state"));
+    toast(`${selected.length} media file${selected.length === 1 ? "" : "s"} preserved by content hash.`);
+    render();
+  } catch (error) {
+    toast(readableError(error), true);
+  } finally {
+    setBusy(false);
+  }
 }
 
 document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => setRoute(button.dataset.nav)));
@@ -1739,8 +1799,15 @@ document.querySelector("#global-search").addEventListener("keydown", async (even
   try { const result = await runtime("search.local", { persona_id: activePersona(session.state)?.id ?? null, query, limit: 50 }); showSearchResults(query, result); } catch (error) { toast(readableError(error), true); }
 });
 document.addEventListener("keydown", (event) => {
+  const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target?.isContentEditable;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.querySelector("#global-search").focus(); }
+  else if (editable && (event.metaKey || event.ctrlKey || event.altKey)) return;
   if (event.key === "Escape") closeModal();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || session.busy || modalRoot.childElementCount) return;
+  refresh({ quiet: true });
+  if (session.reddit.threadRoot) resetRedditThreadRefresh();
 });
 
 refresh({ quiet: true }).then(listenForHydraLinks).catch((error) => toast(readableError(error), true));

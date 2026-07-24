@@ -25,6 +25,10 @@ tools/package/build-linux-deb
 
 Local macOS artifacts are ad-hoc signed. Public Developer ID signing and notarization require release credentials.
 
+For Firefox development, load `extensions/firefox/manifest.json` as a temporary add-on from `about:debugging`. The companion only opens Reddit objects in Hydra, compacts visible Hydra markers, and sends narrowly validated native messages; it never receives Nostr keys or Reddit credentials.
+
+When Stonr is installed, the canonical test gate also launches a local relay and verifies a real signed publication. Relay operators can apply `support/stonr/hydra-support.yaml` to lock Hydra’s required capabilities.
+
 ## Architecture
 
 - `crates/hydra-domain`: framework-free identities, communities, reactions, memory, and state machines.

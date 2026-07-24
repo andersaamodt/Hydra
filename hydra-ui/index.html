@@ -3,16 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>Hydra — I’m with the banned.</title>
+    <link rel="preload" href="hydra-icon.svg" as="image" fetchpriority="high" />
+    <style>
+      html, body { margin: 0; background: #07100d; }
+      .boot-splash { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: #07100d; }
+      .boot-splash img { width: 112px; height: 112px; border-radius: 25%; }
+      @media (prefers-color-scheme: light) {
+        html, body, .boot-splash { background: #eff6f1; }
+      }
+    </style>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div id="boot-splash" class="boot-splash" role="status" aria-label="Opening Hydra">
+      <img src="hydra-icon.svg" alt="" />
+    </div>
     <a class="skip-link" href="#main">Skip to discussion</a>
-    <div id="app" class="app-shell" aria-busy="true">
+    <div id="app" class="app-shell" aria-busy="true" hidden>
       <header class="topbar">
         <button class="brand" type="button" data-nav="feed" aria-label="Hydra home">
-          <span class="brand-mark" aria-hidden="true">H</span>
+          <img class="brand-mark" src="hydra-icon.svg" alt="" />
           <span><strong>Hydra</strong><small>I’m with the banned.</small></span>
         </button>
         <label class="search-box">

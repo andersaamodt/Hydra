@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
 
 test("light mode supplies semantic surfaces instead of inheriting dark literals", () => {
   for (const variable of [
@@ -40,4 +41,28 @@ test("the Reddit Bridge exposes imported posts and comments with exact source li
   assert.match(app, /Copy source link/);
   assert.match(app, /slice\(0,\s*25\)/);
   assert.match(styles, /\.source-link\s*\{[^}]*overflow-wrap:\s*anywhere/);
+});
+
+test("startup uses the real icon and one atomic splash handoff", () => {
+  assert.match(index, /id="boot-splash"[\s\S]*src="hydra-icon\.svg"/);
+  assert.match(index, /id="app"[\s\S]*hidden/);
+  assert.match(app, /function finishBoot\(\)/);
+  assert.match(app, /splash\?\.remove\(\)/);
+  assert.doesNotMatch(styles, /text-transform:\s*uppercase/);
+  assert.doesNotMatch(styles, /button[^{]*:[^{]*\{[^}]*transform:/);
+});
+
+test("themes and chamber tabs honor desktop input contracts", () => {
+  assert.match(app, /function saveThemeChoice\(event\)/);
+  assert.match(app, /runtime\("settings\.update", \{ theme: selected \}\)/);
+  assert.match(app, /role:\s*"tab"/);
+  assert.match(app, /"ArrowLeft",\s*"ArrowRight"/);
+  assert.match(app, /tabindex:\s*session\.chamber/);
+  assert.match(styles, /\.discussion-toolbar\s*\{[^}]*flex-wrap:\s*wrap/s);
+});
+
+test("background Reddit refresh cannot overwrite a newer interaction", () => {
+  assert.match(app, /epoch !== session\.reddit\.requestEpoch/);
+  assert.match(app, /session\.busy \|\| modalRoot\.childElementCount \|\| document\.hidden/);
+  assert.match(app, /document\.addEventListener\("visibilitychange"/);
 });
