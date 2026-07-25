@@ -244,6 +244,17 @@ async function openHydraLink(value) {
       toast("Opened the Reddit object through Hydra. Browsing alone remains transient.");
       return;
     }
+    if (link.hostname === "nostr") {
+      const uri = link.searchParams.get("uri");
+      if (!uri?.startsWith("nostr:")) throw new Error("Missing portable Nostr URI");
+      const persona = activePersona(session.state);
+      const resolved = await runtime("nostr.resolve", { persona_id: persona?.id ?? null, uri });
+      session.openNostr.items = [resolved.result.item];
+      session.openNostr.loaded = true;
+      setRoute("open-nostr");
+      toast("Opened a verified portable Nostr event. It remains transient until you keep or use it.");
+      return;
+    }
     toast("Hydra received a portable link, but this build does not recognize its destination.", true);
   } catch {
     toast("Hydra rejected an invalid deep link.", true);
@@ -851,6 +862,7 @@ function openNostrFilterBar() {
 
 function openNostrCard(item) {
   const topics = item.topics?.length ? item.topics : [];
+  if (item.canon) return canonNostrCard(item);
   return element("article", { class: "post-card open-nostr-card" }, [
     element("div", { class: "post-main" }, [
       element("div", { class: "meta-line" }, [
@@ -866,6 +878,87 @@ function openNostrCard(item) {
       ]),
     ]),
   ]);
+}
+
+function canonNostrCard(item) {
+  const record = item.canon;
+  const creatorLine = record.creators?.length ? record.creators.join(", ") : `${String(item.author).slice(0, 14)}…`;
+  return element("article", { class: "post-card open-nostr-card canon-record" }, [
+    element("div", { class: "post-main" }, [
+      element("div", { class: "meta-line" }, [
+        element("span", { class: "provenance native", text: "Canon" }),
+        element("span", { class: "state-chip", text: String(record.role).replaceAll("-", " ") }),
+        element("span", { text: relativeTime(item.createdAt) }),
+      ]),
+      element("h2", { text: record.title }),
+      element("p", { class: "evidence-note", text: creatorLine }),
+      record.summary ? element("p", { class: "post-body", text: record.summary }) : null,
+      record.identifiers?.length ? element("p", { class: "evidence-note", text: record.identifiers.join(" · ") }) : null,
+      element("div", { class: "post-actions" }, [
+        actionButton("Keep locally", () => keepNostrEvent(item), "primary-button"),
+        record.role === "work" && record.identifiers?.length
+          ? actionButton("Discuss in Hydra", () => showCanonDiscussion(item))
+          : null,
+        item.bookClubUrl ? actionButton("Open in Book Club", () => openBookClub(item.bookClubUrl)) : null,
+        item.portable ? actionButton("Copy Nostr link", () => copyPortableLink(item.portable)) : null,
+      ]),
+    ]),
+  ]);
+}
+
+function showCanonDiscussion(item) {
+  const identifier = item.canon?.identifiers?.find((value) => typeof value === "string" && value.includes(":"));
+  const separator = identifier?.indexOf(":") ?? -1;
+  if (separator < 1) {
+    toast("This record has no standard work identifier to anchor a shared thread.", true);
+    return;
+  }
+  const system = identifier.slice(0, separator);
+  const persona = activePersona(session.state);
+  modal("Discuss this work", `This publishes a standard NIP-22 comment rooted at ${identifier}, so Book Club and other Nostr clients can find the same thread.`, element("div", {}, [
+    field("Community", "input", "community", validCommunity(session.community || "books"), "One Hydra community label is required.", { required: true }),
+    field("Comment", "textarea", "body", "", "Public on your configured write relays.", { required: true }),
+  ]), { submitLabel: "Publish comment", onSubmit: async (data) => {
+    await runtime("comment.create_external", {
+      persona_id: persona.id,
+      root_system: system,
+      root_id: identifier,
+      parent_system: system,
+      parent_id: identifier,
+      communities: [validCommunity(data.get("community"))],
+      body: data.get("body"),
+    });
+    closeModal();
+    session.state = extractState(await runtime("state"));
+    toast("Published to the work’s shared Nostr discussion.");
+    renderFeed();
+  } });
+}
+
+async function keepNostrEvent(item) {
+  try {
+    await runtime("nostr.keep", { event_json: item.event });
+    toast("Kept the verified Canon event in Hydra’s local evidence.");
+  } catch (error) {
+    toast(readableError(error), true);
+  }
+}
+
+function openBookClub(url) {
+  if (typeof url !== "string" || !url.startsWith("bookclub://nostr/")) {
+    toast("Hydra rejected an invalid Book Club handoff.", true);
+    return;
+  }
+  window.location.assign(url);
+}
+
+async function copyPortableLink(uri) {
+  try {
+    await navigator.clipboard.writeText(uri);
+    toast("Copied portable Nostr link.");
+  } catch {
+    toast("Could not copy the portable link.", true);
+  }
 }
 
 async function loadOpenNostr() {

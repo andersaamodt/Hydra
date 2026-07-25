@@ -10,8 +10,8 @@ use hydra_domain::{
 };
 use nostr::signer::SignerBackend;
 use nostr::{
-    Event, EventBuilder, EventId, Filter, JsonUtil, Keys, Kind, NostrSigner, PublicKey, RelayUrl,
-    SignerError, Tag, Timestamp, ToBech32, UnsignedEvent,
+    Event, EventBuilder, EventId, Filter, FromBech32, JsonUtil, Keys, Kind, NostrSigner, PublicKey,
+    RelayUrl, SignerError, Tag, Timestamp, ToBech32, UnsignedEvent,
     nips::{
         nip01::Coordinate,
         nip02::Contact,
@@ -29,6 +29,10 @@ use thiserror::Error;
 use url::Url;
 
 pub use hydra_protocol::{OBJECT_HEAD_KIND, PROJECTION_RECORD_KIND, PROTOCOL_VERSION};
+
+pub const CANON_NAMESPACE: &str = "dev.wizardry.canon";
+pub const CANON_SCHEMA_VERSION: &str = "2";
+pub const CANON_RECORD_KIND: u16 = 30_078;
 
 #[derive(Debug, Error)]
 pub enum ProtocolError {
@@ -193,6 +197,18 @@ pub struct RelayProbe {
     pub connected: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonRecordPreview {
+    pub event_id: String,
+    pub author: String,
+    pub role: String,
+    pub object_id: String,
+    pub title: String,
+    pub creators: Vec<String>,
+    pub identifiers: Vec<String>,
+    pub summary: String,
+}
+
 /// Connects to configured relays and reports actual websocket readiness.
 ///
 /// # Errors
@@ -269,6 +285,57 @@ pub fn portable_event_uri(event: &Event, relays: &[String]) -> Result<String, Pr
     let entity = Nip19Event::from(event).relays(relays);
     let encoded = entity.to_bech32().map_err(nostr_error)?;
     Ok(format!("nostr:{encoded}"))
+}
+
+/// Resolves one portable NIP-19 event reference using its relay hints and the
+/// caller's configured relays. Nothing is persisted by this operation.
+///
+/// # Errors
+///
+/// Returns an error for unsupported links, invalid relays, transport failure,
+/// a missing event, or a bad event signature.
+pub async fn fetch_portable_event(
+    uri: &str,
+    configured_relays: &[String],
+) -> Result<Event, ProtocolError> {
+    let encoded = uri
+        .strip_prefix("nostr:")
+        .ok_or_else(|| ProtocolError::Nostr("portable link must start with nostr:".to_owned()))?;
+    let reference = Nip19Event::from_bech32(encoded).map_err(nostr_error)?;
+    let mut relays = reference.relays;
+    for relay in configured_relays {
+        let relay = RelayUrl::parse(relay).map_err(nostr_error)?;
+        if !relays.contains(&relay) {
+            relays.push(relay);
+        }
+    }
+    relays.truncate(16);
+    if relays.is_empty() {
+        return Err(ProtocolError::Nostr(
+            "portable link has no usable relay".to_owned(),
+        ));
+    }
+    let client = Client::builder().build();
+    for relay in relays {
+        client
+            .add_relay(relay)
+            .await
+            .map_err(|error| ProtocolError::Relay(error.to_string()))?;
+    }
+    client.connect().await;
+    let event = client
+        .fetch_events(
+            Filter::new().id(reference.event_id).limit(1),
+            Duration::from_secs(8),
+        )
+        .await
+        .map_err(|error| ProtocolError::Relay(error.to_string()))?
+        .into_iter()
+        .find(|event| event.id == reference.event_id)
+        .ok_or_else(|| ProtocolError::Nostr("portable event was not found".to_owned()))?;
+    client.disconnect().await;
+    event.verify().map_err(nostr_error)?;
+    Ok(event)
 }
 
 #[derive(Debug, Clone)]
@@ -424,7 +491,228 @@ fn open_content_kinds() -> Vec<Kind> {
         Kind::Custom(20),
         Kind::Custom(21),
         Kind::Custom(22),
+        Kind::Custom(1_063),
+        Kind::Custom(9_802),
+        Kind::Custom(30_004),
+        Kind::Custom(CANON_RECORD_KIND),
+        Kind::Custom(31_922),
+        Kind::Custom(31_923),
     ]
+}
+
+/// Verifies and decodes one Canon v2 NIP-78 record into a compact preview.
+///
+/// Unrelated kind-30078 data returns `None`. Hydra keeps this adapter
+/// intentionally projection-only: Book Club remains the owner of the Canon
+/// vocabulary and neither app reads the other's local storage.
+///
+/// # Errors
+///
+/// Returns an error for invalid signatures, malformed Canon envelopes,
+/// unsupported roles or versions, non-object JSON, or public secrets.
+pub fn received_canon_record(event: &Event) -> Result<Option<CanonRecordPreview>, ProtocolError> {
+    if !is_canon_record(event) {
+        return Ok(None);
+    }
+    if event.as_json().len() > OutboundEvent::MAX_EVENT_BYTES {
+        return Err(ProtocolError::Nostr(
+            "Canon event exceeds Hydra's public event bound".to_owned(),
+        ));
+    }
+    event.verify().map_err(nostr_error)?;
+    let identifier = unique_tag_value(event, "d")?;
+    let version = unique_tag_value(event, "version")?;
+    if version != CANON_SCHEMA_VERSION {
+        return Err(ProtocolError::Nostr(format!(
+            "unsupported Canon schema version {version}"
+        )));
+    }
+    let role = canon_role(event)?;
+    let prefix = format!("{CANON_NAMESPACE}:{role}:");
+    let object_id = identifier
+        .strip_prefix(&prefix)
+        .filter(|value| valid_canon_object_id(value))
+        .ok_or_else(|| ProtocolError::Nostr("invalid Canon d tag".to_owned()))?;
+    let content: serde_json::Value = serde_json::from_str(&event.content)
+        .map_err(|error| ProtocolError::Nostr(format!("invalid Canon JSON: {error}")))?;
+    let object = content
+        .as_object()
+        .ok_or_else(|| ProtocolError::Nostr("Canon content must be a JSON object".to_owned()))?;
+    if let Some(field) = private_canon_field(&content) {
+        return Err(ProtocolError::Nostr(format!(
+            "Canon public content contains private field {field}"
+        )));
+    }
+    if object
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|id| id != object_id)
+    {
+        return Err(ProtocolError::Nostr(
+            "Canon content id does not match its d tag".to_owned(),
+        ));
+    }
+
+    let title = object
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| first_tag_value(event, "title"))
+        .unwrap_or(object_id)
+        .chars()
+        .take(512)
+        .collect();
+    let creators = object
+        .get("creators")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .take(32)
+        .map(|value| value.chars().take(256).collect())
+        .collect();
+    let mut identifiers = event
+        .tags
+        .iter()
+        .filter(|tag| tag.as_slice().first().map(String::as_str) == Some("i"))
+        .filter_map(|tag| tag.as_slice().get(1))
+        .filter(|value| !value.trim().is_empty())
+        .take(32)
+        .cloned()
+        .collect::<Vec<_>>();
+    identifiers.extend(
+        object
+            .get("identifiers")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .take(32)
+            .map(str::to_owned),
+    );
+    identifiers.sort();
+    identifiers.dedup();
+    let summary = ["description", "summary", "preserve_case"]
+        .into_iter()
+        .find_map(|field| object.get(field).and_then(serde_json::Value::as_str))
+        .unwrap_or("")
+        .chars()
+        .take(2_000)
+        .collect();
+
+    Ok(Some(CanonRecordPreview {
+        event_id: event.id.to_hex(),
+        author: event.pubkey.to_hex(),
+        role: role.to_owned(),
+        object_id: object_id.to_owned(),
+        title,
+        creators,
+        identifiers,
+        summary,
+    }))
+}
+
+#[must_use]
+pub fn is_canon_record(event: &Event) -> bool {
+    event.kind == Kind::Custom(CANON_RECORD_KIND)
+        && event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.first().map(String::as_str) == Some("L")
+                && parts.get(1).map(String::as_str) == Some(CANON_NAMESPACE)
+        })
+}
+
+/// Returns whether a verified event belongs to the small, shared reading
+/// surface Hydra may retain without translating into its object model.
+#[must_use]
+pub fn is_reading_surface_event(event: &Event) -> bool {
+    is_canon_record(event)
+        || matches!(
+            u16::from(event.kind),
+            1_063 | 9_802 | 30_004 | 31_922 | 31_923
+        )
+}
+
+fn canon_role(event: &Event) -> Result<&str, ProtocolError> {
+    let mut roles = event.tags.iter().filter_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.first().map(String::as_str) == Some("l")
+            && parts.get(2).map(String::as_str) == Some(CANON_NAMESPACE))
+        .then(|| parts.get(1).map(String::as_str))
+        .flatten()
+    });
+    let role = roles
+        .next()
+        .ok_or_else(|| ProtocolError::Nostr("missing Canon role label".to_owned()))?;
+    if roles.next().is_some() {
+        return Err(ProtocolError::Nostr(
+            "duplicate Canon role label".to_owned(),
+        ));
+    }
+    if !matches!(
+        role,
+        "work"
+            | "edition"
+            | "encounter"
+            | "recommendation"
+            | "comparison"
+            | "intertext"
+            | "reading-path"
+            | "reading-group"
+            | "merge-proposal"
+            | "trust-record"
+    ) {
+        return Err(ProtocolError::Nostr(format!(
+            "unsupported Canon role {role}"
+        )));
+    }
+    Ok(role)
+}
+
+fn valid_canon_object_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 512
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
+}
+
+fn first_tag_value<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
+    event.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        (parts.first().map(String::as_str) == Some(name))
+            .then(|| parts.get(1).map(String::as_str))
+            .flatten()
+    })
+}
+
+fn private_canon_field(value: &serde_json::Value) -> Option<&str> {
+    match value {
+        serde_json::Value::Object(fields) => fields.iter().find_map(|(name, value)| {
+            let normalized = name.to_ascii_lowercase().replace('-', "_");
+            if normalized == "room_password"
+                || normalized == "password"
+                || normalized == "private_key"
+                || normalized == "private_key_hex"
+                || normalized == "secret"
+                || normalized == "token"
+                || normalized == "api_key"
+                || normalized == "access_token"
+                || normalized == "refresh_token"
+                || normalized == "authorization"
+                || normalized.ends_with("_secret")
+                || normalized.ends_with("_token")
+                || normalized.ends_with("_credential")
+                || normalized.ends_with("_credentials")
+            {
+                Some(name.as_str())
+            } else {
+                private_canon_field(value)
+            }
+        }),
+        serde_json::Value::Array(values) => values.iter().find_map(private_canon_field),
+        _ => None,
+    }
 }
 
 /// Searches selected relays through the standard NIP-50 filter extension.
@@ -937,9 +1225,9 @@ pub fn external_comment_anchor(
     require_communities(communities)?;
     let mut tags = vec![
         tag(["I", &scope.root.canonical])?,
-        tag(["K", "web"])?,
+        tag(["K", external_content_kind(&scope.root)])?,
         tag(["i", &scope.parent.canonical])?,
-        tag(["k", "web"])?,
+        tag(["k", external_content_kind(&scope.parent)])?,
     ];
     if let Some(source) = source {
         source.validate().map_err(domain_protocol_error)?;
@@ -973,7 +1261,7 @@ pub fn external_comment_head(
         tag(["e", &anchor.id.to_hex()])?,
         tag(["k", &u16::from(anchor.kind).to_string()])?,
         tag(["I", &scope.root.canonical])?,
-        tag(["K", "web"])?,
+        tag(["K", external_content_kind(&scope.root)])?,
         tag(["i", &scope.parent.canonical])?,
         tag(["L", "hydra"])?,
         tag(["l", "object-head", "hydra"])?,
@@ -1006,7 +1294,7 @@ pub fn external_root_comment_anchor(
     require_communities(communities)?;
     let mut tags = vec![
         tag(["I", &root.canonical])?,
-        tag(["K", "web"])?,
+        tag(["K", external_content_kind(root)])?,
         tag(["e", &parent.id.to_hex()])?,
         tag(["k", &u16::from(parent.kind).to_string()])?,
         tag(["p", &parent.author.to_hex()])?,
@@ -1609,11 +1897,15 @@ fn native_comment_head(event: &Event) -> Result<ObjectHead, ProtocolError> {
             .transpose()
             .map_err(domain_protocol_error)?,
         external_root: external_root
-            .map(|value| hydra_domain::ExternalId::new("web", value))
+            .map(|value| {
+                hydra_domain::ExternalId::new(tag_value(event, "K").unwrap_or("web"), value)
+            })
             .transpose()
             .map_err(domain_protocol_error)?,
         external_parent: external_parent
-            .map(|value| hydra_domain::ExternalId::new("web", value))
+            .map(|value| {
+                hydra_domain::ExternalId::new(tag_value(event, "k").unwrap_or("web"), value)
+            })
             .transpose()
             .map_err(domain_protocol_error)?,
         external_source: tag_value(event, "proxy")
@@ -1622,6 +1914,14 @@ fn native_comment_head(event: &Event) -> Result<ObjectHead, ProtocolError> {
             .map_err(domain_protocol_error)?,
         edited_at: event.created_at.as_secs(),
     })
+}
+
+fn external_content_kind(identifier: &hydra_domain::ExternalId) -> &str {
+    if identifier.canonical.starts_with("https://") || identifier.canonical.starts_with("http://") {
+        "web"
+    } else {
+        identifier.system.as_str()
+    }
 }
 
 fn open_nostr_head(event: &Event) -> Result<ObjectHead, ProtocolError> {
@@ -2089,6 +2389,58 @@ mod tests {
     }
 
     #[test]
+    fn verified_canon_record_projects_to_bounded_preview() {
+        let keys = Keys::generate();
+        let event = EventBuilder::new(
+            Kind::Custom(CANON_RECORD_KIND),
+            r#"{"id":"work-1","title":"The Dispossessed","creators":["Ursula K. Le Guin"],"description":"A durable work."}"#,
+        )
+        .tags([
+            tag(["d", "dev.wizardry.canon:work:work-1"]).unwrap(),
+            tag(["L", CANON_NAMESPACE]).unwrap(),
+            tag(["l", "work", CANON_NAMESPACE]).unwrap(),
+            tag(["version", CANON_SCHEMA_VERSION]).unwrap(),
+            tag(["i", "isbn:9780061054884"]).unwrap(),
+        ])
+        .custom_created_at(Timestamp::from(10))
+        .sign_with_keys(&keys)
+        .unwrap();
+
+        let preview = received_canon_record(&event).unwrap().unwrap();
+        assert_eq!(preview.role, "work");
+        assert_eq!(preview.object_id, "work-1");
+        assert_eq!(preview.title, "The Dispossessed");
+        assert_eq!(preview.creators, ["Ursula K. Le Guin"]);
+        assert_eq!(preview.identifiers, ["isbn:9780061054884"]);
+    }
+
+    #[test]
+    fn canon_adapter_rejects_public_secrets_and_ignores_other_app_data() {
+        let keys = Keys::generate();
+        let private = EventBuilder::new(
+            Kind::Custom(CANON_RECORD_KIND),
+            r#"{"id":"group-1","room_password":"secret"}"#,
+        )
+        .tags([
+            tag(["d", "dev.wizardry.canon:reading-group:group-1"]).unwrap(),
+            tag(["L", CANON_NAMESPACE]).unwrap(),
+            tag(["l", "reading-group", CANON_NAMESPACE]).unwrap(),
+            tag(["version", CANON_SCHEMA_VERSION]).unwrap(),
+        ])
+        .custom_created_at(Timestamp::from(10))
+        .sign_with_keys(&keys)
+        .unwrap();
+        assert!(received_canon_record(&private).is_err());
+
+        let unrelated = EventBuilder::new(Kind::Custom(CANON_RECORD_KIND), "{}")
+            .tag(tag(["d", "another-app"]).unwrap())
+            .custom_created_at(Timestamp::from(10))
+            .sign_with_keys(&keys)
+            .unwrap();
+        assert_eq!(received_canon_record(&unrelated).unwrap(), None);
+    }
+
+    #[test]
     fn inbox_declaration_uses_standard_nip_17_kind_and_relay_tags() {
         let keys = Keys::generate();
         let event = inbox_relays(&keys, &["wss://inbox.example".to_owned()], 10).unwrap();
@@ -2502,6 +2854,22 @@ mod tests {
         assert_eq!(reaction.kind, Kind::Custom(17));
         assert!(reaction.as_json().contains("[\"k\",\"web\"]"));
         assert!(reaction.as_json().contains(&parent.canonical));
+
+        let work = hydra_domain::ExternalId::new("isbn", "isbn:9780061054884").unwrap();
+        let work_comment = external_comment_anchor(
+            &keys,
+            "A shared work thread",
+            &ExternalCommentScope {
+                root: work.clone(),
+                parent: work,
+            },
+            None,
+            &communities(),
+            22,
+        )
+        .unwrap();
+        assert!(work_comment.as_json().contains("[\"K\",\"isbn\"]"));
+        assert!(work_comment.as_json().contains("[\"k\",\"isbn\"]"));
     }
 
     #[test]

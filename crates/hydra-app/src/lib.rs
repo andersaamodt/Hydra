@@ -363,6 +363,7 @@ impl ImportService {
                 | Kind::Label
         ) && event.kind != Kind::Custom(hydra_nostr::OBJECT_HEAD_KIND)
             && event.kind != Kind::Custom(hydra_nostr::PROJECTION_RECORD_KIND)
+            && !hydra_nostr::is_reading_surface_event(&event)
         {
             return Ok(Vec::new());
         }
@@ -414,6 +415,7 @@ fn materialize_public_event(
     store: &DurableStore,
     event: &Event,
 ) -> Result<PublicMaterialization, AppError> {
+    let _canon = hydra_nostr::received_canon_record(event)?;
     let heads = received_heads(store, event)?;
     let reactions = remote_reactions(store, event, &heads)?;
     let mut public_projections = Vec::new();
@@ -3477,6 +3479,37 @@ mod tests {
         .unwrap();
         ImportService::receive_public(&mut store, &reaction.as_json(), 22).unwrap();
         assert_eq!(store.state().reactions.len(), 1);
+    }
+
+    #[test]
+    fn verified_canon_records_are_retained_as_evidence_without_hydra_heads() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let keys = Keys::generate();
+        let canon = EventBuilder::new(
+            Kind::Custom(hydra_nostr::CANON_RECORD_KIND),
+            r#"{"id":"work-1","title":"The Dispossessed"}"#,
+        )
+        .tags([
+            nostr::Tag::parse(["d", "dev.wizardry.canon:work:work-1"]).unwrap(),
+            nostr::Tag::parse(["L", hydra_nostr::CANON_NAMESPACE]).unwrap(),
+            nostr::Tag::parse(["l", "work", hydra_nostr::CANON_NAMESPACE]).unwrap(),
+            nostr::Tag::parse(["version", hydra_nostr::CANON_SCHEMA_VERSION]).unwrap(),
+            nostr::Tag::parse(["i", "isbn:9780061054884"]).unwrap(),
+        ])
+        .custom_created_at(nostr::Timestamp::from(10))
+        .sign_with_keys(&keys)
+        .unwrap();
+
+        let heads = ImportService::receive_public(&mut store, &canon.as_json(), 11).unwrap();
+        assert!(heads.is_empty());
+        assert!(
+            store
+                .state()
+                .received_events
+                .contains_key(&canon.id.to_hex())
+        );
+        assert_eq!(store.state().heads.current_count(), 0);
     }
 
     #[test]

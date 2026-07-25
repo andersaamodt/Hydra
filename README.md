@@ -6,6 +6,13 @@ Hydra 1.0 provides ownerless `/h/` topic communities, pseudonymous personas, edi
 
 Reddit-specific behavior is isolated behind an adapter. Browsed Reddit bodies remain transient. Users can post, comment, edit, and vote through the bridge, import their own writing from Reddit’s official account-data export with exact source permalinks intact, and use Big Stick or Reddacted on Reddit projections that originated in Hydra.
 
+Canon reading records are likewise handled by a narrow public-protocol adapter.
+Hydra can preview verified Book Club records, discuss works through standard
+NIP-22/NIP-73 identifiers, retain the signed source event on request, and hand
+portable `nostr:` references to Book Club. It does not share Book Club storage
+or translate Canon records into Hydra-owned objects. See
+[the Canon adapter contract](protocol/canon-adapter-v1.md).
+
 There is no Hydra-hosted social website, central index, moderator class, global karma, or required Hydra server.
 
 ## Build and test
@@ -35,7 +42,7 @@ When Stonr is installed, the canonical test gate also launches a local relay and
 
 - `crates/hydra-domain`: framework-free identities, communities, reactions, memory, and state machines.
 - `crates/hydra-store`: checksummed append log, encrypted private records, drafts, settings, and media.
-- `crates/hydra-nostr`: standard Nostr composition and the two minimal Hydra protocol additions.
+- `crates/hydra-nostr`: standard Nostr composition, the two minimal Hydra protocol additions, and the projection-only Canon adapter.
 - `crates/hydra-reddit`: detachable OAuth, browsing, projection, vote, Big Stick, Reddacted, and official export adapter.
 - `crates/hydra-app`: domain orchestration without desktop dependencies.
 - `crates/hydra-runtime`: typed actions and Theurgy-compatible envelopes.

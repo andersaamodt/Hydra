@@ -394,8 +394,12 @@ struct CreateCommentInput {
 #[derive(Debug, Deserialize)]
 struct CreateExternalCommentInput {
     persona_id: String,
-    root_url: String,
-    parent_url: String,
+    root_url: Option<String>,
+    parent_url: Option<String>,
+    root_system: Option<String>,
+    root_id: Option<String>,
+    parent_system: Option<String>,
+    parent_id: Option<String>,
     communities: Vec<String>,
     body: String,
 }
@@ -663,6 +667,12 @@ struct OpenNostrInput {
 }
 
 #[derive(Debug, Deserialize)]
+struct ResolveNostrInput {
+    persona_id: Option<String>,
+    uri: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct NostrCurateInput {
     persona_id: String,
     event_json: String,
@@ -674,6 +684,11 @@ struct NostrCategorizeInput {
     persona_id: String,
     event_json: String,
     communities: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KeepNostrInput {
+    event_json: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2186,8 +2201,10 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "search.local" => search_local_action(root, input),
         "search.network" => search_network_action(root, input).await,
         "nostr.open" => open_nostr_action(root, input).await,
+        "nostr.resolve" => resolve_nostr_action(root, input).await,
         "nostr.curate" => curate_nostr_action(root, input),
         "nostr.categorize_local" => categorize_nostr_action(root, input),
+        "nostr.keep" => keep_nostr_action(root, input),
         "events.raw" => raw_events_action(root, input),
         "sync.now" => sync_action(root, input),
         other => Err(RuntimeError::UnknownAction(other.to_owned())),
@@ -2960,32 +2977,79 @@ async fn open_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErr
     let events = bounded_open_page(events, limit);
     let items = events
         .into_iter()
-        .map(|(event, body)| {
-            let topics = event
-                .tags
-                .iter()
-                .filter(|tag| tag.as_slice().first().map(String::as_str) == Some("t"))
-                .filter_map(|tag| tag.content())
-                .map(str::to_owned)
-                .take(32)
-                .collect::<Vec<_>>();
-            serde_json::json!({
-                "id": event.id.to_hex(),
-                "kind": u16::from(event.kind),
-                "author": event.pubkey.to_hex(),
-                "body": body,
-                "topics": topics,
-                "uncategorized": topics.is_empty(),
-                "createdAt": event.created_at.as_secs(),
-                "event": event.as_json()
-            })
-        })
+        .map(|(event, body)| open_nostr_item(&event, &body, &relays))
         .collect::<Vec<_>>();
     print_action_result(
         "nostr.open",
         operation_view(OperationId::new(), OperationState::Succeeded, false),
         serde_json::json!({"changed": false, "items": items}),
     )
+}
+
+async fn resolve_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: ResolveNostrInput = serde_json::from_str(input)?;
+    let store = DurableStore::open(root)?;
+    let settings = SettingsStore::new(root).load()?;
+    let persona = input
+        .persona_id
+        .as_deref()
+        .map(PersonaId::parse)
+        .transpose()?
+        .or_else(|| active_persona_id(&store, &settings));
+    let relays = persona.map_or_else(
+        || Ok(settings.relays.clone()),
+        |persona| allowed_read_relays(&settings, &store, persona),
+    )?;
+    let event = hydra_nostr::fetch_portable_event(&input.uri, &relays).await?;
+    let body = open_event_body(&event).ok_or_else(|| {
+        RuntimeError::InvalidInput("portable event has no visible supported content".to_owned())
+    })?;
+    let item = open_nostr_item(&event, &body, &relays);
+    print_action_result(
+        "nostr.resolve",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": false, "item": item}),
+    )
+}
+
+fn open_nostr_item(event: &Event, body: &str, relays: &[String]) -> serde_json::Value {
+    let topics = event
+        .tags
+        .iter()
+        .filter(|tag| tag.as_slice().first().map(String::as_str) == Some("t"))
+        .filter_map(|tag| tag.content())
+        .map(str::to_owned)
+        .take(32)
+        .collect::<Vec<_>>();
+    let canon = hydra_nostr::received_canon_record(event).ok().flatten();
+    let portable = hydra_nostr::portable_event_uri(event, relays).ok();
+    let book_club_url = portable
+        .as_deref()
+        .and_then(|uri| uri.strip_prefix("nostr:"))
+        .map(|entity| format!("bookclub://nostr/{entity}"));
+    let canon_view = canon.map(|record| {
+        serde_json::json!({
+            "role": record.role,
+            "objectId": record.object_id,
+            "title": record.title,
+            "creators": record.creators,
+            "identifiers": record.identifiers,
+            "summary": record.summary,
+        })
+    });
+    serde_json::json!({
+        "id": event.id.to_hex(),
+        "kind": u16::from(event.kind),
+        "author": event.pubkey.to_hex(),
+        "body": body,
+        "topics": topics,
+        "uncategorized": topics.is_empty(),
+        "createdAt": event.created_at.as_secs(),
+        "event": event.as_json(),
+        "portable": portable,
+        "bookClubUrl": book_club_url,
+        "canon": canon_view
+    })
 }
 
 fn bounded_open_page(mut events: Vec<Event>, limit: usize) -> Vec<(Event, String)> {
@@ -3000,6 +3064,12 @@ fn bounded_open_page(mut events: Vec<Event>, limit: usize) -> Vec<(Event, String
 }
 
 fn open_event_body(event: &Event) -> Option<String> {
+    if hydra_nostr::is_canon_record(event) {
+        return hydra_nostr::received_canon_record(event)
+            .ok()
+            .flatten()
+            .map(|record| record.title);
+    }
     let fallback = event.tags.iter().find_map(|tag| {
         let parts = tag.as_slice();
         match parts.first().map(String::as_str) {
@@ -3030,6 +3100,17 @@ fn open_event_body(event: &Event) -> Option<String> {
         &event.content
     };
     Some(source.chars().take(4_000).collect())
+}
+
+fn keep_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: KeepNostrInput = serde_json::from_str(input)?;
+    let mut store = DurableStore::open(root)?;
+    ImportService::receive_public(&mut store, &input.event_json, unix_now())?;
+    print_action_result(
+        "nostr.keep",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": true}),
+    )
 }
 
 fn curate_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
@@ -4132,8 +4213,35 @@ fn create_external_comment_action(root: &PathBuf, input: &str) -> Result<(), Run
         .map(CommunityKey::parse)
         .collect::<Result<Vec<_>, _>>()?;
     let mut store = DurableStore::open(root)?;
-    let external_root = ExternalId::new("reddit", input.root_url)?;
-    let external_parent = ExternalId::new("reddit", input.parent_url)?;
+    let (root_system, root_id, parent_system, parent_id) = match (input.root_id, input.parent_id) {
+        (Some(root_id), Some(parent_id)) => (
+            input.root_system.ok_or_else(|| {
+                RuntimeError::InvalidInput("external root system is required".to_owned())
+            })?,
+            root_id,
+            input.parent_system.ok_or_else(|| {
+                RuntimeError::InvalidInput("external parent system is required".to_owned())
+            })?,
+            parent_id,
+        ),
+        (None, None) => (
+            "reddit".to_owned(),
+            input.root_url.ok_or_else(|| {
+                RuntimeError::InvalidInput("external root is required".to_owned())
+            })?,
+            "reddit".to_owned(),
+            input.parent_url.ok_or_else(|| {
+                RuntimeError::InvalidInput("external parent is required".to_owned())
+            })?,
+        ),
+        _ => {
+            return Err(RuntimeError::InvalidInput(
+                "external root and parent must use the same input shape".to_owned(),
+            ));
+        }
+    };
+    let external_root = ExternalId::new(root_system, root_id)?;
+    let external_parent = ExternalId::new(parent_system, parent_id)?;
     let head = DiscussionService::new(PlatformSecretStore).create_external_comment(
         &mut store,
         CreateExternalComment {
