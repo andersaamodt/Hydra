@@ -17,6 +17,10 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-shell = "2.3.3"
 tokio = { version = "1", features = ["sync", "time"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSURL"] }
+
 [target.'cfg(any(target_os = "macos", target_os = "linux", windows))'.dependencies]
 tauri-plugin-single-instance = { version = "2.3.6", features = ["deep-link"] }
 

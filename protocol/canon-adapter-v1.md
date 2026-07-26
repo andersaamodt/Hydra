@@ -36,6 +36,11 @@ NIP-25 reactions.
 - `Discuss in Hydra` publishes a NIP-22 comment whose NIP-73 `I/i` identifier
   and `K/k` type match the work identifier used by Book Club.
 
+Direct Book Club cross-links are a default-on local preference. Hydra shows
+them only when the desktop shell finds a registered `bookclub:` handler.
+Turning them off hides app-specific handoffs without disabling Canon or
+standard Nostr parsing.
+
 Browsing, resolving, and previewing never publish or persist. Neither app
 receives the other's private keys, relay credentials, drafts, queues, local
 preferences, private groups, or room-control state.

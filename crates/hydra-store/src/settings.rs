@@ -41,6 +41,21 @@ pub struct PersonaRelaySettings {
     pub write: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CrossLinkSettings {
+    #[serde(default = "default_enabled")]
+    pub book_club_enabled: bool,
+}
+
+impl Default for CrossLinkSettings {
+    fn default() -> Self {
+        Self {
+            book_club_enabled: true,
+        }
+    }
+}
+
 impl Default for ContinuitySettings {
     fn default() -> Self {
         Self {
@@ -77,6 +92,8 @@ pub struct Settings {
     pub reddit_probe: ReadinessProbe,
     #[serde(default)]
     pub crosspost_default: bool,
+    #[serde(default)]
+    pub cross_links: CrossLinkSettings,
     #[serde(default)]
     pub persona_crosspost_defaults: BTreeMap<String, bool>,
     #[serde(default)]
@@ -172,6 +189,7 @@ impl Default for Settings {
             relay_probe: ReadinessProbe::default(),
             reddit_probe: ReadinessProbe::default(),
             crosspost_default: false,
+            cross_links: CrossLinkSettings::default(),
             persona_crosspost_defaults: BTreeMap::new(),
             community_crosspost_defaults: BTreeMap::new(),
             content_crosspost_defaults: BTreeMap::new(),
@@ -472,6 +490,24 @@ mod tests {
         store.save(&settings).unwrap();
         assert_eq!(store.load().unwrap(), settings);
         assert!(!root.path().join("settings.yaml.new").exists());
+    }
+
+    #[test]
+    fn older_settings_enable_book_club_cross_links_by_default() {
+        let root = tempdir().unwrap();
+        let store = SettingsStore::new(root.path());
+        let serialized = serde_yaml::to_string(&Settings::default()).unwrap();
+        let legacy = serialized
+            .lines()
+            .filter(|line| {
+                !line.starts_with("cross_links:")
+                    && !line.trim_start().starts_with("book_club_enabled:")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(root.path().join("settings.yaml"), legacy).unwrap();
+
+        assert!(store.load().unwrap().cross_links.book_club_enabled);
     }
 
     #[cfg(unix)]

@@ -1,7 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![forbid(unsafe_code)]
 
+#[cfg(target_os = "macos")]
+use objc2_app_kit::NSWorkspace;
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSString, NSURL};
+use serde::Serialize;
 use serde_json::Value;
+#[cfg(any(target_os = "linux", windows))]
+use std::process::Command as ProcessCommand;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::{
@@ -18,6 +25,51 @@ async fn runtime_state(runtime: State<'_, RuntimeClient>) -> Result<Value, Strin
 #[tauri::command]
 async fn runtime_status(runtime: State<'_, RuntimeClient>) -> Result<Value, String> {
     runtime.request(RuntimeRequest::status()).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompanionStatus {
+    book_club_installed: bool,
+}
+
+#[tauri::command]
+fn companion_status() -> CompanionStatus {
+    CompanionStatus {
+        book_club_installed: book_club_installed(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn book_club_installed() -> bool {
+    NSURL::URLWithString(&NSString::from_str("bookclub://")).is_some_and(|url| {
+        NSWorkspace::sharedWorkspace()
+            .URLForApplicationToOpenURL(&url)
+            .is_some()
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn book_club_installed() -> bool {
+    ProcessCommand::new("xdg-mime")
+        .args(["query", "default", "x-scheme-handler/bookclub"])
+        .output()
+        .is_ok_and(|output| {
+            output.status.success() && output.stdout.iter().any(|byte| !byte.is_ascii_whitespace())
+        })
+}
+
+#[cfg(windows)]
+fn book_club_installed() -> bool {
+    ProcessCommand::new("reg.exe")
+        .args(["query", r"HKCR\bookclub\shell\open\command", "/ve"])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+const fn book_club_installed() -> bool {
+    false
 }
 
 #[tauri::command]
@@ -211,7 +263,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             runtime_state,
             runtime_status,
-            runtime_action
+            runtime_action,
+            companion_status
         ])
         .run(tauri::generate_context!())
         .expect("Hydra desktop application failed");

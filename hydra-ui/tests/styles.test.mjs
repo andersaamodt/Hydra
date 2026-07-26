@@ -48,6 +48,14 @@ test("Open Nostr uses a readable one-column card and bounded first page", () => 
   assert.match(app, /limit:\s*30/);
 });
 
+test("Book Club cross-links require both local consent and an installed handler", () => {
+  assert.match(app, /Show Book Club cross-links/);
+  assert.match(app, /bookClubCrossLinksAvailable\(\) && item\.bookClubUrl/);
+  assert.match(app, /session\.companions\.bookClubInstalled/);
+  assert.match(app, /cross_links\?\.book_club_enabled !== false/);
+  assert.match(app, /disabled:\s*!session\.companions\.bookClubInstalled/);
+});
+
 test("the Reddit Bridge exposes imported posts and comments with exact source links", () => {
   assert.match(app, /Imported Reddit writing/);
   assert.match(app, /item\.externalSource/);

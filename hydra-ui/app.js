@@ -28,6 +28,7 @@ const session = {
   treeFilters: {},
   reddit: { community: null, items: [], rules: [], rulesAvailable: false, after: null, threadRoot: null, threadItems: [], focusedFullname: null, refreshTimer: null, refreshStep: 0, requestEpoch: 0 },
   openNostr: { items: [], loaded: false, filter: "all" },
+  companions: { checked: false, bookClubInstalled: false },
   busy: false,
 };
 
@@ -104,8 +105,14 @@ async function refresh({ quiet = false } = {}) {
   if (session.busy) return;
   setBusy(true);
   try {
-    const result = await runtime("state");
+    const [result, companions] = await Promise.all([
+      runtime("state"),
+      session.companions.checked
+        ? Promise.resolve(session.companions)
+        : invoke("companion_status").catch(() => session.companions),
+    ]);
     session.state = extractState(result);
+    session.companions = { checked: true, bookClubInstalled: Boolean(companions.bookClubInstalled) };
     render();
     finishBoot();
     if (!quiet) toast("Hydra is up to date on this device.");
@@ -899,11 +906,18 @@ function canonNostrCard(item) {
         record.role === "work" && record.identifiers?.length
           ? actionButton("Discuss in Hydra", () => showCanonDiscussion(item))
           : null,
-        item.bookClubUrl ? actionButton("Open in Book Club", () => openBookClub(item.bookClubUrl)) : null,
+        bookClubCrossLinksAvailable() && item.bookClubUrl
+          ? actionButton("Open in Book Club", () => openBookClub(item.bookClubUrl))
+          : null,
         item.portable ? actionButton("Copy Nostr link", () => copyPortableLink(item.portable)) : null,
       ]),
     ]),
   ]);
+}
+
+function bookClubCrossLinksAvailable() {
+  return session.companions.bookClubInstalled
+    && session.state?.settings?.cross_links?.book_club_enabled !== false;
 }
 
 function showCanonDiscussion(item) {
@@ -1142,6 +1156,15 @@ function renderSettings() {
     field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
     settingsGroup("Advanced settings", [
       element("h2", { class: "settings-subheading", text: "Nostr and media" }),
+      toggle(
+        "Show Book Club cross-links",
+        "book_club_cross_links",
+        settings.cross_links?.book_club_enabled !== false,
+        session.companions.bookClubInstalled
+          ? "Shows direct handoffs for verified Nostr events. Shared Nostr support remains available when off."
+          : "No installed Book Club link handler was found, so direct cross-links are unavailable.",
+        { disabled: !session.companions.bookClubInstalled },
+      ),
       field("Default relays", "textarea", "relays", relayValue, "Fallback for personas without relay preferences."),
       field("This persona's read relays", "textarea", "persona_read_relays", personaReadRelayValue, "Published as NIP-65 read preferences."),
       field("This persona's write relays", "textarea", "persona_write_relays", personaWriteRelayValue, "Published as NIP-65 write preferences."),
@@ -1268,10 +1291,10 @@ function field(label, type, name, value = "", help = "", options = {}) {
   return element("label", { class: "field" }, [element("span", { text: label }), control, help ? element("small", { class: "field-help", text: help }) : null]);
 }
 
-function toggle(label, name, checked, help) {
+function toggle(label, name, checked, help, options = {}) {
   return element("label", { class: "toggle-row" }, [
     element("span", {}, [element("strong", { text: label }), element("small", { class: "field-help", text: help })]),
-    element("input", { type: "checkbox", name, checked: checked ? "checked" : null }),
+    element("input", { type: "checkbox", name, checked: checked ? "checked" : null, disabled: options.disabled ?? false }),
   ]);
 }
 
@@ -1799,7 +1822,7 @@ async function saveSettings(event) {
   const blobServers = String(data.get("blob_servers")).split(/\s+/).map((item) => item.trim()).filter(Boolean);
   const personaBlobServers = { ...(settings.persona_blob_servers ?? {}), [persona.id]: blobServers };
   const feedSourceWeights = { followed: Number(data.get("feed_followed")), communities: Number(data.get("feed_communities")), replies: Number(data.get("feed_replies")), revisit: Number(data.get("feed_revisit")) };
-  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
+  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
   if (String(data.get("display_name")).trim() !== persona.displayName) {
     await mutate("persona.profile.update", { persona_id: persona.id, display_name: String(data.get("display_name")).trim() }, "Public persona profile updated and queued for publication.");
   }

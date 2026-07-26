@@ -525,6 +525,7 @@ struct SettingsUpdateInput {
     theme: Option<String>,
     onboarding_complete: Option<bool>,
     crosspost_default: Option<bool>,
+    book_club_cross_links_enabled: Option<bool>,
     persona_crosspost_defaults: Option<BTreeMap<String, bool>>,
     community_crosspost_defaults: Option<BTreeMap<String, bool>>,
     content_crosspost_defaults: Option<BTreeMap<String, bool>>,
@@ -3697,6 +3698,9 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     }
     if let Some(value) = input.crosspost_default {
         settings.crosspost_default = value;
+    }
+    if let Some(value) = input.book_club_cross_links_enabled {
+        settings.cross_links.book_club_enabled = value;
     }
     if let Some(value) = input.persona_crosspost_defaults {
         settings.persona_crosspost_defaults = value;
