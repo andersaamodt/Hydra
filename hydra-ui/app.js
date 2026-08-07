@@ -675,9 +675,6 @@ function redditCard(item, community, depth = 0) {
       element("p", { class: "post-body", text: item.body || (unavailable ? "Reddit no longer supplies this text." : "") }),
       element("div", { class: "post-actions" }, [
         isPost ? actionButton("Open thread", () => loadRedditThread(item)) : null,
-        actionButton("▲ Vote", () => reactToReddit(item, 1)),
-        actionButton("▼ Vote", () => reactToReddit(item, -1)),
-        actionButton("Reset", () => reactToReddit(item, 0)),
         actionButton("Reply in Hydra", () => showRedditReply(item), "primary-button"),
       ]),
       element("p", { class: "evidence-note", text: "This Reddit-supplied body is transient and is not published to Nostr." }),
@@ -763,17 +760,6 @@ function scheduleRedditThreadRefresh() {
     }
     scheduleRedditThreadRefresh();
   }, delay);
-}
-
-async function reactToReddit(item, direction) {
-  const persona = activePersona(session.state);
-  try {
-    await runtime("reddit.vote_external", { persona_id: persona.id, fullname: item.fullname, direction });
-    session.state = extractState(await runtime("state"));
-    resetRedditThreadRefresh();
-    toast(direction === 0 ? "Reddit vote reset." : "Your vote was sent to Reddit.");
-    renderFeed();
-  } catch (error) { toast(`Reddit did not complete the vote: ${readableError(error)}`, true); }
 }
 
 function showRedditReply(item) {

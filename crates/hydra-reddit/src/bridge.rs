@@ -1324,10 +1324,6 @@ mod tests {
             Ok(())
         }
 
-        fn vote(&self, _target: &RedditFullname, _direction: i8) -> Result<(), RedditError> {
-            Ok(())
-        }
-
         fn fetch(&self, target: &RedditFullname) -> Result<RedditThing, RedditError> {
             self.state
                 .lock()
@@ -1364,7 +1360,7 @@ mod tests {
             access_token: "access".to_owned(),
             refresh_token: Some("refresh".to_owned()),
             expires_at: 3_600,
-            scope: "identity read history submit edit vote".to_owned(),
+            scope: "identity read history submit edit".to_owned(),
         };
         RedditLinkService::new(MemoryRedditCredentialStore::default())
             .link(&personas, store, persona.id, reddit, &credential, 2)

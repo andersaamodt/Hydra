@@ -1,5 +1,9 @@
 # Security and privacy
 
+Hydra's user-facing data practices are defined in [`PRIVACY.md`](../PRIVACY.md),
+and the Reddit adapter's exact access and retention boundary is documented in
+[`REDDIT_DATA_API.md`](REDDIT_DATA_API.md).
+
 Hydra assumes relays, Reddit responses, links, media, event bodies, and profile text are hostile input.
 
 - Persona keys use the operating-system credential vault or Hydra’s encrypted permission-restricted fallback.

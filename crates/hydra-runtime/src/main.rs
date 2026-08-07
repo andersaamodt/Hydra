@@ -609,19 +609,6 @@ struct ProjectionSyncSettingInput {
 }
 
 #[derive(Debug, Deserialize)]
-struct RedditVoteInput {
-    projection_id: String,
-    direction: i8,
-}
-
-#[derive(Debug, Deserialize)]
-struct RedditExternalVoteInput {
-    persona_id: String,
-    fullname: String,
-    direction: i8,
-}
-
-#[derive(Debug, Deserialize)]
 struct RedditBrowseCommunityInput {
     persona_id: String,
     subreddit: String,
@@ -2195,8 +2182,6 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "reddit.divergence.adopt" => reddit_divergence_adopt_action(root, input),
         "reddit.divergence.restore" => reddit_divergence_restore_action(root, input),
         "reddit.divergence.keep" => reddit_divergence_keep_action(root, input),
-        "reddit.vote" => reddit_vote_action(root, input),
-        "reddit.vote_external" => reddit_external_vote_action(root, input),
         "reddit.big_stick" => reddit_big_stick_action(root, input),
         "reddit.withdraw" => reddit_withdraw_action(root, input),
         "search.local" => search_local_action(root, input),
@@ -2301,7 +2286,11 @@ fn open_firefox_extension(_path: &Path) -> bool {
 }
 
 const REDDIT_REDIRECT_URI: &str = "http://127.0.0.1:43117/oauth/reddit";
-const REDDIT_USER_AGENT: &str = concat!("desktop:io.hydra.Hydra:", env!("CARGO_PKG_VERSION"));
+const REDDIT_USER_AGENT: &str = concat!(
+    "desktop:io.hydra.Hydra:",
+    env!("CARGO_PKG_VERSION"),
+    " (by /u/raisondecalcul)"
+);
 
 fn reddit_oauth_begin_action(input: &str) -> Result<(), RuntimeError> {
     let input: RedditOAuthBeginInput = serde_json::from_str(input)?;
@@ -3431,72 +3420,6 @@ fn reddit_divergence_keep_action(root: &PathBuf, input: &str) -> Result<(), Runt
         now.saturating_add(1),
     )?;
     print_projection_result("reddit.divergence.keep", &projection)
-}
-
-fn reddit_vote_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
-    let input: RedditVoteInput = serde_json::from_str(input)?;
-    if !matches!(input.direction, -1..=1) {
-        return Err(RuntimeError::InvalidInput(
-            "Reddit vote direction must be -1, 0, or 1".to_owned(),
-        ));
-    }
-    let id = hydra_domain::ProjectionId::parse(&input.projection_id)?;
-    let mut store = DurableStore::open(root)?;
-    let projection = store
-        .state()
-        .projections
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| RuntimeError::InvalidInput("projection not found".to_owned()))?;
-    let fullname = projection
-        .external_id
-        .as_ref()
-        .filter(|external| external.system == "reddit")
-        .map(|external| RedditFullname::parse(external.canonical.clone()))
-        .transpose()?
-        .ok_or_else(|| RuntimeError::InvalidInput("projection is not live on Reddit".to_owned()))?;
-    let operation = OperationId::new();
-    store.append(
-        DurableEvent::OperationChanged {
-            operation_id: operation,
-            state: OperationState::Running,
-        },
-        unix_now(),
-    )?;
-    let outcome = reddit_api(projection.persona).and_then(|api| {
-        hydra_reddit::RedditAdapter::vote(&api, &fullname, input.direction).map_err(Into::into)
-    });
-    let state = if outcome.is_ok() {
-        OperationState::Succeeded
-    } else {
-        OperationState::Failed
-    };
-    store.append(
-        DurableEvent::OperationChanged {
-            operation_id: operation,
-            state,
-        },
-        unix_now(),
-    )?;
-    outcome?;
-    print_action_result(
-        "reddit.vote",
-        operation_view(operation, OperationState::Succeeded, false),
-        serde_json::json!({"changed": true, "direction": input.direction}),
-    )
-}
-
-fn reddit_external_vote_action(_root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
-    let input: RedditExternalVoteInput = serde_json::from_str(input)?;
-    if !matches!(input.direction, -1..=1) {
-        return Err(RuntimeError::InvalidInput(
-            "Reddit vote direction must be -1, 0, or 1".to_owned(),
-        ));
-    }
-    let persona = PersonaId::parse(&input.persona_id)?;
-    let fullname = RedditFullname::parse(input.fullname)?;
-    hydra_reddit::RedditAdapter::vote(&reddit_api(persona)?, &fullname, input.direction)?;
-    print_changed("reddit.vote_external")
 }
 
 fn reddit_big_stick_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
@@ -5019,6 +4942,14 @@ mod tests {
                 "expected"
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn reddit_user_agent_is_versioned_and_identifies_the_developer() {
+        assert_eq!(
+            REDDIT_USER_AGENT,
+            "desktop:io.hydra.Hydra:1.0.0 (by /u/raisondecalcul)"
         );
     }
 

@@ -12,7 +12,7 @@ This file is an evidence map, not a second product specification. Product meanin
 | Open Nostr | `hydra-nostr`, `hydra-runtime` | tagged/Uncategorized discovery, bounded feed, private categorization, and standard repost tests |
 | Relay interoperability | ordinary `hydra-nostr` transport and `support/stonr/hydra-support.yaml` | `.tests/stonr` validates the capability profile and publishes a real signed Hydra post through a live local Stonr relay |
 | Messaging | `hydra-messaging`, `hydra-nostr`, `hydra-app` | NIP-17 sender/receiver wraps, encrypted recovery, request filtering, and persona-bound tests |
-| Reddit Bridge | `hydra-reddit` behind `hydra-projection` | OAuth-state, transient parser, exact-parent, idempotency, divergence, adaptive-state, vote, and failure tests |
+| Reddit Bridge | `hydra-reddit` behind `hydra-projection` | OAuth-state, transient parser, exact-parent, idempotency, divergence, adaptive-state, and failure tests |
 | Official Reddit export | `hydra-reddit::export` | ZIP traversal defense and posts/comments-only tests plus UI source-link contract |
 | Big Stick and Reddacted | `hydra-reddit::bridge` | verified-before-edit tests, Hydra-origin restriction, and terminal-withdrawal tests |
 | Firefox companion | `extensions/firefox` | manifest, CSP, permissions, URL validation, native-message, and no-key checks in `.tests/firefox` |

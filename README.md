@@ -4,7 +4,7 @@ Hydra is the underground Reddit alternative: a desktop-first, local-first Nostr 
 
 Hydra 1.0 provides ownerless `/h/` topic communities, pseudonymous personas, editable posts and nested comments, voting and reaffirmation, private Revisit workflows, emergent norms, Nostr messaging, Open Nostr discovery, and an optional Reddit projection bridge.
 
-Reddit-specific behavior is isolated behind an adapter. Browsed Reddit bodies remain transient. Users can post, comment, edit, and vote through the bridge, import their own writing from Reddit’s official account-data export with exact source permalinks intact, and use Big Stick or Reddacted on Reddit projections that originated in Hydra.
+Reddit-specific behavior is isolated behind an adapter. Browsed Reddit bodies remain transient. Users can post, comment, and edit through the bridge, import their own writing from Reddit’s official account-data export with exact source permalinks intact, and use Big Stick or Reddacted on Reddit projections that originated in Hydra. Reddit vote projection is deferred pending policy clarification; Nostr voting remains available.
 
 Canon reading records are likewise handled by a narrow public-protocol adapter.
 Hydra can preview verified Book Club records, discuss works through standard
@@ -43,7 +43,7 @@ When Stonr is installed, the canonical test gate also launches a local relay and
 - `crates/hydra-domain`: framework-free identities, communities, reactions, memory, and state machines.
 - `crates/hydra-store`: checksummed append log, encrypted private records, drafts, settings, and media.
 - `crates/hydra-nostr`: standard Nostr composition, the two minimal Hydra protocol additions, and the projection-only Canon adapter.
-- `crates/hydra-reddit`: detachable OAuth, browsing, projection, vote, Big Stick, Reddacted, and official export adapter.
+- `crates/hydra-reddit`: detachable OAuth, browsing, projection, Big Stick, Reddacted, and official export adapter.
 - `crates/hydra-app`: domain orchestration without desktop dependencies.
 - `crates/hydra-runtime`: typed actions and Theurgy-compatible envelopes.
 - `apps/desktop/tauri`: the desktop shell.
@@ -58,6 +58,9 @@ The [public specification](docs/AUTHORITATIVE_SPEC.md) governs 1.0 behavior.
 Public Nostr events are public. Local categorization, private lists, drafts, Revisit entries, and credentials remain local or encrypted. Pseudonymous personas are not guaranteed anonymous.
 
 Hydra stores ordinary state under `~/hydra` by default or `HYDRA_HOME`. Repository directories never contain app state or user data.
+
+Read the full [privacy policy](PRIVACY.md), [security model](docs/SECURITY.md),
+and [Reddit Data API use and retention statement](docs/REDDIT_DATA_API.md).
 
 ## License
 

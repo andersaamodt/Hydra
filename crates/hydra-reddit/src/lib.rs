@@ -217,11 +217,6 @@ pub trait RedditAdapter {
     /// # Errors
     /// Returns an error when deletion is rejected or unavailable.
     fn delete(&self, target: &RedditFullname) -> Result<(), RedditError>;
-    /// Projects the current flattened stance to Reddit.
-    ///
-    /// # Errors
-    /// Returns an error for an invalid stance or failed projection.
-    fn vote(&self, target: &RedditFullname, direction: i8) -> Result<(), RedditError>;
     /// Fetches one exact live Reddit object.
     ///
     /// # Errors
@@ -306,7 +301,7 @@ impl RedditDataApi {
             .append_pair("state", &state)
             .append_pair("redirect_uri", redirect_uri)
             .append_pair("duration", "permanent")
-            .append_pair("scope", "identity read history submit edit vote");
+            .append_pair("scope", "identity read history submit edit");
         Ok(OAuthRequest {
             authorization_url: url.to_string(),
             state,
@@ -527,17 +522,6 @@ impl RedditAdapter for RedditDataApi {
 
     fn delete(&self, target: &RedditFullname) -> Result<(), RedditError> {
         self.post("/api/del", &[("id", target.as_str())])?;
-        Ok(())
-    }
-
-    fn vote(&self, target: &RedditFullname, direction: i8) -> Result<(), RedditError> {
-        if !matches!(direction, -1..=1) {
-            return Err(RedditError::Invalid(
-                "Reddit vote direction must be -1, 0, or 1".to_owned(),
-            ));
-        }
-        let direction = direction.to_string();
-        self.post("/api/vote", &[("id", target.as_str()), ("dir", &direction)])?;
         Ok(())
     }
 
@@ -1166,7 +1150,7 @@ mod tests {
         assert_eq!(query.get("duration").unwrap(), "permanent");
         assert_eq!(
             query.get("scope").unwrap(),
-            "identity read history submit edit vote"
+            "identity read history submit edit"
         );
         assert!(
             RedditDataApi::authorization_request(

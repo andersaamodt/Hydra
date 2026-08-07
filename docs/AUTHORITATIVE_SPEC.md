@@ -30,7 +30,8 @@ This document is authoritative for the public Hydra 1.0 implementation.
 - OAuth is preferred and credentials remain in the local credential vault.
 - Browsed Reddit bodies are transient and are not published to Nostr.
 - Hydra stores only the identifiers, hashes, and state required to maintain a user-requested projection.
-- Users may explicitly project Hydra posts, comments, edits, and one-for-one vote actions to Reddit.
+- Users may explicitly project Hydra posts, comments, and edits to Reddit.
+- Reddit vote projection is deferred pending policy clarification; Hydra's Nostr votes and reaffirmations remain available.
 - Crossposting is off by default and may be configured globally, per persona, per content kind, or per community.
 - A failed Reddit action never destroys the Hydra original.
 - Big Stick may attach a portable Nostr record only to a Reddit copy that originated in Hydra.
