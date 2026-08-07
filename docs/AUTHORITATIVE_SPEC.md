@@ -27,7 +27,10 @@ This document is authoritative for the public Hydra 1.0 implementation.
 ## Reddit Bridge
 
 - Reddit code lives only in the detachable Reddit adapter.
-- OAuth is preferred and credentials remain in the local credential vault.
+- Hydra 1.0's only Reddit network path is OAuth-authenticated Data API access after Reddit approval; without approved access, network Reddit functions remain unavailable.
+- Hydra does not fall back to HTML scraping, browser cookies, or session automation.
+- Hydra does not bypass blocks, CAPTCHAs, authentication gates, or rate limits, rotate identities or network paths, or pool installations as distributed access capacity.
+- Reddit credentials remain in the local credential vault.
 - Browsed Reddit bodies are transient and are not published to Nostr.
 - Hydra stores only the identifiers, hashes, and state required to maintain a user-requested projection.
 - Users may explicitly project Hydra posts, comments, and edits to Reddit.

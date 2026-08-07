@@ -22,6 +22,14 @@ The bridge is not a bot, moderator, scraper, archive, data broker, or model-
 training pipeline. It performs no action without the authenticated user's
 choice and remains removable without impairing Hydra's Nostr functions.
 
+Hydra does not scrape Reddit HTML, use Reddit browser cookies or session
+tokens, route Reddit requests through proxies, rotate accounts or network
+identities, solve or bypass CAPTCHAs, retry around blocks, or pool installations
+to multiply an access quota. If API access is unavailable or revoked, network
+Reddit functions stop rather than falling back to another acquisition method.
+The local importer for a user-supplied official Reddit account-data export
+remains available because it makes no Reddit network request.
+
 ## Why Devvit is insufficient
 
 Hydra is an installed desktop application, not a subreddit-installed Reddit
