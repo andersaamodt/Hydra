@@ -43,6 +43,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: tools/package/build-macos-app
+      - name: Verify App Forge bundle staging
+        run: |
+          staging=$(mktemp -d "$RUNNER_TEMP/hydra-forge.XXXXXX")
+          trap 'find "$staging" -depth -delete' EXIT HUP INT TERM
+          WIZARDRY_NATIVE_MACOS_BUNDLE_PATH="$staging/Hydra.app" \
+            tools/forge/stage-macos-bundle
 
   linux:
     name: Tauri Linux ARM64 package

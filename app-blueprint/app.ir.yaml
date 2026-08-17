@@ -1,0 +1,14 @@
+{
+  "version": "native-desktop-ir/v1",
+  "format": "yaml-1.2-json-compatible",
+  "app": {
+    "id": "hydra-desktop",
+    "name": "Hydra",
+    "targets": ["macos"],
+    "window": {
+      "id": "window.main",
+      "type": "Window"
+    }
+  },
+  "extensions": []
+}

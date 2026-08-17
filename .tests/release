@@ -12,7 +12,25 @@ spec_version=${version%.*}
 grep -q "## $version" "$repo/CHANGELOG.md"
 grep -q "^# Hydra $spec_version Product and Protocol Specification$" "$repo/docs/AUTHORITATIVE_SPEC.md"
 grep -q '^project_id=hydra$' "$repo/wizardry.workspace.conf"
-grep -q '^app_subpath=hydra-ui$' "$repo/wizardry.workspace.conf"
+grep -q '^project_type=native-desktop$' "$repo/wizardry.workspace.conf"
+grep -q '^development_context=native-desktop$' "$repo/wizardry.workspace.conf"
+grep -q '^targets=macos$' "$repo/wizardry.workspace.conf"
+grep -q '^native_ir_path=app-blueprint/app.ir.yaml$' "$repo/wizardry.workspace.conf"
+grep -q '^run_rebuild_command=npm run build$' "$repo/wizardry.workspace.conf"
+grep -q '^native_macos_bundle_command=sh tools/forge/stage-macos-bundle$' "$repo/wizardry.workspace.conf"
+jq -e '
+  .version == "native-desktop-ir/v1" and
+  .format == "yaml-1.2-json-compatible" and
+  .app.targets == ["macos"] and
+  .app.window == {"id":"window.main","type":"Window"} and
+  .extensions == []
+' "$repo/app-blueprint/app.ir.yaml" >/dev/null
+[ "$(jq -r '.app.id' "$repo/app-blueprint/app.ir.yaml")" = \
+  "$(sed -n 's/^name = "\([^"]*\)"/\1/p' "$repo/apps/desktop/tauri/Cargo.toml" | head -n 1)" ]
+[ "$(jq -r '.app.name' "$repo/app-blueprint/app.ir.yaml")" = \
+  "$(jq -r '.productName' "$repo/apps/desktop/tauri/tauri.conf.json")" ]
+[ "$(jq -r '.app.targets | join(",")' "$repo/app-blueprint/app.ir.yaml")" = \
+  "$(sed -n 's/^targets=//p' "$repo/wizardry.workspace.conf")" ]
 
 for icon in \
   "$repo/assets/forge-icon.png" \
@@ -31,12 +49,19 @@ cmp "$repo/assets/icons/web/icon-512.png" "$repo/hydra-ui/hydra-icon.png"
 jq -e '.bundle.icon | index("icons/icon.icns") and index("icons/icon.ico")' \
   "$repo/apps/desktop/tauri/tauri.conf.json" >/dev/null
 
-for script in "$repo/tools/package/build-macos-app" "$repo/tools/package/build-linux-deb"; do
+for script in \
+  "$repo/tools/forge/stage-macos-bundle" \
+  "$repo/tools/package/build-macos-app" \
+  "$repo/tools/package/build-linux-deb"
+do
   [ -x "$script" ]
   sh -n "$script"
 done
 
 grep -q 'tools/package/build-macos-app' "$repo/.github/workflows/ci.yml"
+grep -q 'tools/forge/stage-macos-bundle' "$repo/.github/workflows/ci.yml"
+grep -q 'HYDRA_MACOS_SIGNING_IDENTITY' "$repo/tools/forge/stage-macos-bundle"
+grep -q -- '--identifier org.hydra.desktop.runtime' "$repo/tools/forge/stage-macos-bundle"
 grep -q 'tools/package/build-linux-deb' "$repo/.github/workflows/ci.yml"
 grep -q 'npx tauri build --bundles nsis' "$repo/.github/workflows/ci.yml"
 if grep -Eq 'apps/desktop/(macos|linux)' "$repo/.github/workflows/ci.yml"; then

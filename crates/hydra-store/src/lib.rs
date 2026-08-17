@@ -6,13 +6,12 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
-    thread,
-    time::Duration,
 };
+
+#[cfg(not(target_os = "macos"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(any(test, not(target_os = "macos")))]
+use std::{sync::mpsc, thread, time::Duration};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chacha20poly1305::{
@@ -28,6 +27,7 @@ use hydra_domain::{
     PublicFollowSet, PublicProjectionRecord, ReactionRecord, ReactionValue, RedditIdentityProof,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -38,26 +38,37 @@ pub use settings::{PersonaRelaySettings, ReadinessProbe, Settings, SettingsStore
 /// Runs a blocking platform-keyring operation without allowing a missing
 /// desktop credential service to stall Hydra's local encrypted fallback.
 ///
-/// A healthy system keyring normally responds immediately. Minimal Linux
-/// sessions can otherwise wait roughly two minutes for D-Bus activation before
-/// reporting that Secret Service is absent.
+/// macOS access stays synchronous so the user has time to answer a legitimate
+/// Keychain authorization prompt. Other desktop sessions retain a short bound:
+/// minimal Linux environments can otherwise wait roughly two minutes for D-Bus
+/// activation before reporting that Secret Service is absent.
 #[must_use]
 pub fn try_platform_keyring<T, F>(operation: F) -> Option<T>
 where
     T: Send + 'static,
     F: FnOnce() -> Option<T> + Send + 'static,
 {
-    static TIMED_OUT: AtomicBool = AtomicBool::new(false);
-    if TIMED_OUT.load(Ordering::Relaxed) {
-        return None;
+    #[cfg(target_os = "macos")]
+    {
+        operation()
     }
-    let (result, timed_out) = try_platform_keyring_with_timeout(operation, Duration::from_secs(3));
-    if timed_out {
-        TIMED_OUT.store(true, Ordering::Relaxed);
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        static TIMED_OUT: AtomicBool = AtomicBool::new(false);
+        if TIMED_OUT.load(Ordering::Relaxed) {
+            return None;
+        }
+        let (result, timed_out) =
+            try_platform_keyring_with_timeout(operation, Duration::from_secs(3));
+        if timed_out {
+            TIMED_OUT.store(true, Ordering::Relaxed);
+        }
+        result
     }
-    result
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 fn try_platform_keyring_with_timeout<T, F>(operation: F, timeout: Duration) -> (Option<T>, bool)
 where
     T: Send + 'static,
@@ -366,6 +377,21 @@ impl EncryptedEventRecord {
     const SCHEMA: &'static str = "hydra-encrypted-event/v1";
 }
 
+#[derive(Deserialize)]
+struct RawEventEnvelope {
+    schema: String,
+    id: EventId,
+    recorded_at: u64,
+    previous_checksum: Option<String>,
+    event: Box<RawValue>,
+    checksum: String,
+}
+
+struct StoredEvent {
+    envelope: EventEnvelope,
+    serialized: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum StoreKeyMode {
@@ -405,8 +431,9 @@ impl EventLog {
             key,
         };
         let lock = log.exclusive_lock()?;
-        let (events, contains_legacy) = Self::read_all_from(&log.path, &log.key)?;
+        let contains_legacy = Self::read_all_from(&log.path, &log.key, false)?.1;
         if contains_legacy {
+            let events = Self::read_all_from(&log.path, &log.key, true)?.0;
             log.replace_unlocked(&events)?;
         }
         FileExt::unlock(&lock)?;
@@ -421,8 +448,12 @@ impl EventLog {
     pub fn append(&mut self, event: DurableEvent, recorded_at: u64) -> Result<EventId, StoreError> {
         event.validate()?;
         let lock = self.exclusive_lock()?;
-        let (events, _) = Self::read_all_from(&self.path, &self.key)?;
-        let id = self.append_unlocked(event, recorded_at, events.last())?;
+        let (events, _) = Self::read_all_from(&self.path, &self.key, false)?;
+        let id = self.append_unlocked(
+            event,
+            recorded_at,
+            events.last().map(|stored| &stored.envelope),
+        )?;
         FileExt::unlock(&lock)?;
         Ok(id)
     }
@@ -435,15 +466,16 @@ impl EventLog {
     /// records, or any checksum-chain break.
     pub fn read_all(&self) -> Result<Vec<EventEnvelope>, StoreError> {
         let lock = self.shared_lock()?;
-        let (events, _) = Self::read_all_from(&self.path, &self.key)?;
+        let (events, _) = Self::read_all_from(&self.path, &self.key, false)?;
         FileExt::unlock(&lock)?;
-        Ok(events)
+        Ok(events.into_iter().map(|stored| stored.envelope).collect())
     }
 
     fn read_all_from(
         path: &Path,
         key: &[u8; 32],
-    ) -> Result<(Vec<EventEnvelope>, bool), StoreError> {
+        preserve_serialized: bool,
+    ) -> Result<(Vec<StoredEvent>, bool), StoreError> {
         const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
         let mut reader = BufReader::new(File::open(path)?);
         let mut result = Vec::new();
@@ -469,36 +501,54 @@ impl EventLog {
             while matches!(line.last(), Some(b'\n' | b'\r')) {
                 line.pop();
             }
+            let serialized = match serde_json::from_slice::<EncryptedEventRecord>(&line) {
+                Ok(record) if record.schema == EncryptedEventRecord::SCHEMA => {
+                    decrypt_event(&record, key).map_err(|message| {
+                        StoreError::Encryption(format!("line {line_number}: {message}"))
+                    })?
+                }
+                _ => {
+                    contains_legacy = true;
+                    line
+                }
+            };
+            let raw: RawEventEnvelope =
+                serde_json::from_slice(&serialized).map_err(|source| StoreError::InvalidJson {
+                    line: line_number,
+                    source,
+                })?;
             let envelope: EventEnvelope =
-                match serde_json::from_slice::<EncryptedEventRecord>(&line) {
-                    Ok(record) if record.schema == EncryptedEventRecord::SCHEMA => {
-                        decrypt_event(&record, key).map_err(|message| {
-                            StoreError::Encryption(format!("line {line_number}: {message}"))
-                        })?
-                    }
-                    _ => {
-                        contains_legacy = true;
-                        serde_json::from_slice(&line).map_err(|source| StoreError::InvalidJson {
-                            line: line_number,
-                            source,
-                        })?
-                    }
-                };
-            let expected = checksum_for(
-                &envelope.schema,
-                envelope.id,
-                envelope.recorded_at,
-                envelope.previous_checksum.as_deref(),
+                serde_json::from_slice(&serialized).map_err(|source| StoreError::InvalidJson {
+                    line: line_number,
+                    source,
+                })?;
+            let canonical_checksum = checksum_for(
+                &raw.schema,
+                raw.id,
+                raw.recorded_at,
+                raw.previous_checksum.as_deref(),
                 &envelope.event,
             )?;
-            if envelope.schema != EventEnvelope::SCHEMA
-                || envelope.previous_checksum != previous
-                || envelope.checksum != expected
+            let checksum_matches = raw.checksum == canonical_checksum
+                || raw.checksum
+                    == checksum_for_raw_event(
+                        &raw.schema,
+                        raw.id,
+                        raw.recorded_at,
+                        raw.previous_checksum.as_deref(),
+                        &raw.event,
+                    )?;
+            if raw.schema != EventEnvelope::SCHEMA
+                || raw.previous_checksum != previous
+                || !checksum_matches
             {
                 return Err(StoreError::InvalidChecksum { line: line_number });
             }
-            previous = Some(envelope.checksum.clone());
-            result.push(envelope);
+            previous = Some(raw.checksum);
+            result.push(StoredEvent {
+                envelope,
+                serialized: preserve_serialized.then_some(serialized),
+            });
         }
         Ok((result, contains_legacy))
     }
@@ -565,12 +615,20 @@ impl EventLog {
         Ok(id)
     }
 
-    fn replace_unlocked(&self, events: &[EventEnvelope]) -> Result<(), StoreError> {
+    fn replace_unlocked(&self, events: &[StoredEvent]) -> Result<(), StoreError> {
         let backup = self.path.with_extension("jsonl.migration-backup");
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
         let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        for envelope in events {
-            serde_json::to_writer(&mut temporary, &encrypt_event(envelope, &self.key)?)?;
+        for stored in events {
+            let serialized = stored.serialized.as_deref().ok_or_else(|| {
+                StoreError::Io(std::io::Error::other(
+                    "verified event bytes are unavailable for migration",
+                ))
+            })?;
+            serde_json::to_writer(
+                &mut temporary,
+                &encrypt_serialized_event(serialized, &self.key)?,
+            )?;
             temporary.write_all(b"\n")?;
         }
         temporary.as_file().sync_all()?;
@@ -592,12 +650,18 @@ fn encrypt_event(
     envelope: &EventEnvelope,
     key: &[u8; 32],
 ) -> Result<EncryptedEventRecord, StoreError> {
+    encrypt_serialized_event(&serde_json::to_vec(envelope)?, key)
+}
+
+fn encrypt_serialized_event(
+    plaintext: &[u8],
+    key: &[u8; 32],
+) -> Result<EncryptedEventRecord, StoreError> {
     let mut nonce = [0_u8; 24];
     OsRng.fill_bytes(&mut nonce);
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
-    let plaintext = serde_json::to_vec(envelope)?;
     let ciphertext = cipher
-        .encrypt(XNonce::from_slice(&nonce), plaintext.as_ref())
+        .encrypt(XNonce::from_slice(&nonce), plaintext)
         .map_err(|error| StoreError::Encryption(error.to_string()))?;
     Ok(EncryptedEventRecord {
         schema: EncryptedEventRecord::SCHEMA.to_owned(),
@@ -606,7 +670,7 @@ fn encrypt_event(
     })
 }
 
-fn decrypt_event(record: &EncryptedEventRecord, key: &[u8; 32]) -> Result<EventEnvelope, String> {
+fn decrypt_event(record: &EncryptedEventRecord, key: &[u8; 32]) -> Result<Vec<u8>, String> {
     let nonce = BASE64
         .decode(&record.nonce)
         .map_err(|error| error.to_string())?;
@@ -617,10 +681,9 @@ fn decrypt_event(record: &EncryptedEventRecord, key: &[u8; 32]) -> Result<EventE
         .decode(&record.ciphertext)
         .map_err(|error| error.to_string())?;
     let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
-    let plaintext = cipher
+    cipher
         .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
-        .map_err(|_| "event authentication failed".to_owned())?;
-    serde_json::from_slice(&plaintext).map_err(|error| error.to_string())
+        .map_err(|_| "event authentication failed".to_owned())
 }
 
 fn load_or_create_store_key(root: &Path) -> Result<[u8; 32], StoreError> {
@@ -1507,15 +1570,17 @@ impl DurableStore {
     /// an append/synchronization failure when durability cannot be established.
     pub fn append(&mut self, event: DurableEvent, recorded_at: u64) -> Result<EventId, StoreError> {
         let lock = self.log.exclusive_lock()?;
-        let (envelopes, _) = EventLog::read_all_from(&self.log.path, &self.log.key)?;
+        let (envelopes, _) = EventLog::read_all_from(&self.log.path, &self.log.key, false)?;
         let mut candidate = ReplayState::default();
-        for envelope in &envelopes {
-            candidate.apply(&envelope.event)?;
+        for stored in &envelopes {
+            candidate.apply(&stored.envelope.event)?;
         }
         candidate.apply(&event)?;
-        let id = self
-            .log
-            .append_unlocked(event, recorded_at, envelopes.last())?;
+        let id = self.log.append_unlocked(
+            event,
+            recorded_at,
+            envelopes.last().map(|stored| &stored.envelope),
+        )?;
         FileExt::unlock(&lock)?;
         self.state = candidate;
         Ok(id)
@@ -1551,6 +1616,31 @@ fn checksum_for(
         recorded_at: u64,
         previous_checksum: Option<&'a str>,
         event: &'a DurableEvent,
+    }
+    let bytes = serde_json::to_vec(&Payload {
+        schema,
+        id,
+        recorded_at,
+        previous_checksum,
+        event,
+    })?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn checksum_for_raw_event(
+    schema: &str,
+    id: EventId,
+    recorded_at: u64,
+    previous_checksum: Option<&str>,
+    event: &RawValue,
+) -> Result<String, serde_json::Error> {
+    #[derive(Serialize)]
+    struct Payload<'a> {
+        schema: &'a str,
+        id: EventId,
+        recorded_at: u64,
+        previous_checksum: Option<&'a str>,
+        event: &'a RawValue,
     }
     let bytes = serde_json::to_vec(&Payload {
         schema,
@@ -1690,6 +1780,99 @@ mod tests {
         let serialized = fs::read_to_string(root.path().join("events.jsonl")).unwrap();
         assert!(serialized.contains(EncryptedEventRecord::SCHEMA));
         assert!(!serialized.contains("legacy visible body"));
+    }
+
+    #[test]
+    fn canonical_checksum_accepts_equivalent_json_formatting() {
+        let root = tempdir().unwrap();
+        let event = DurableEvent::PersonaCreated(Persona {
+            id: PersonaId::parse("00000000-0000-4000-8000-000000000010").unwrap(),
+            public_key: NostrPublicKey::parse("npub-author").unwrap(),
+            display_name: "Alice".to_owned(),
+            reddit_account: None,
+        });
+        let id = EventId::new();
+        let checksum = checksum_for(EventEnvelope::SCHEMA, id, 10, None, &event).unwrap();
+        let reformatted = serde_json::to_string(&serde_json::json!({
+            "schema": EventEnvelope::SCHEMA,
+            "id": id,
+            "recorded_at": 10,
+            "previous_checksum": null,
+            "event": serde_json::to_value(&event).unwrap(),
+            "checksum": checksum,
+        }))
+        .unwrap();
+        let raw: RawEventEnvelope = serde_json::from_str(&reformatted).unwrap();
+        assert_ne!(
+            checksum_for_raw_event(
+                &raw.schema,
+                raw.id,
+                raw.recorded_at,
+                raw.previous_checksum.as_deref(),
+                &raw.event,
+            )
+            .unwrap(),
+            raw.checksum
+        );
+        fs::write(root.path().join("events.jsonl"), format!("{reformatted}\n")).unwrap();
+
+        let events = EventLog::open(root.path()).unwrap().read_all().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].checksum, raw.checksum);
+        assert_eq!(
+            EventLog::open(root.path()).unwrap().read_all().unwrap(),
+            events
+        );
+    }
+
+    #[test]
+    fn opening_a_pre_external_source_log_preserves_its_valid_checksum() {
+        let root = tempdir().unwrap();
+        let first_checksum = "88a01f1acf3fcb0a832e5b8ec5527f6c9ea15693a4fff9f5eb94d1cda9fc6876";
+        let second_checksum = "533881cd0a925cd615017208f9a318f40cbaa87b8f9da026446ba45477dc2d8d";
+        let log = concat!(
+            r#"{"schema":"hydra-event/v1","id":"00000000-0000-4000-8000-000000000001","recorded_at":10,"previous_checksum":null,"event":{"type":"persona_created","data":{"id":"00000000-0000-4000-8000-000000000010","public_key":"npub-author","display_name":"Alice","reddit_account":null}},"checksum":"88a01f1acf3fcb0a832e5b8ec5527f6c9ea15693a4fff9f5eb94d1cda9fc6876"}"#,
+            "\n",
+            r#"{"schema":"hydra-event/v1","id":"00000000-0000-4000-8000-000000000002","recorded_at":11,"previous_checksum":"88a01f1acf3fcb0a832e5b8ec5527f6c9ea15693a4fff9f5eb94d1cda9fc6876","event":{"type":"native_object_changed","data":{"head":{"anchor":"note1anchor","author":"npub-author","kind":"post","title":"Title","body":"legacy body","communities":["science"],"root":null,"parent":null,"edited_at":11},"outbound":[]}},"checksum":"533881cd0a925cd615017208f9a318f40cbaa87b8f9da026446ba45477dc2d8d"}"#,
+            "\n"
+        );
+        fs::write(root.path().join("events.jsonl"), log).unwrap();
+
+        let log = EventLog::open(root.path()).unwrap();
+        let events = log.read_all().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].checksum, first_checksum);
+        assert_eq!(events[1].checksum, second_checksum);
+        let DurableEvent::NativeObjectChanged { head, .. } = &events[1].event else {
+            panic!("second fixture record should be a native object");
+        };
+        assert_eq!(head.external_root, None);
+        assert_eq!(head.external_parent, None);
+        assert_eq!(head.external_source, None);
+        drop(log);
+
+        let encrypted = fs::read_to_string(root.path().join("events.jsonl")).unwrap();
+        assert!(encrypted.contains(EncryptedEventRecord::SCHEMA));
+        assert!(!encrypted.contains("legacy body"));
+        assert_eq!(
+            EventLog::open(root.path()).unwrap().read_all().unwrap(),
+            events
+        );
+    }
+
+    #[test]
+    fn a_tampered_pre_external_source_record_is_still_rejected() {
+        let root = tempdir().unwrap();
+        let line = concat!(
+            r#"{"schema":"hydra-event/v1","id":"00000000-0000-0000-0000-000000000001","recorded_at":10,"previous_checksum":null,"event":{"type":"native_object_changed","data":{"head":{"anchor":"note1anchor","author":"npub-author","kind":"post","title":"Title","body":"tampered body","communities":["science"],"root":null,"parent":null,"edited_at":10},"outbound":[]}},"checksum":"f0c6e14b7303f9427db2a942ee307e673c0a2e2c113e8e9df7cc92b89e7d09d9"}"#,
+            "\n"
+        );
+        fs::write(root.path().join("events.jsonl"), line).unwrap();
+
+        assert!(matches!(
+            EventLog::open(root.path()),
+            Err(StoreError::InvalidChecksum { line: 1 })
+        ));
     }
 
     #[test]
@@ -1886,6 +2069,15 @@ mod tests {
         assert_eq!(result, None);
         assert!(timed_out);
         assert!(started.elapsed() < Duration::from_millis(150));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_platform_keyring_runs_on_the_calling_thread() {
+        let caller = thread::current().id();
+        let observed = try_platform_keyring(|| Some(thread::current().id()));
+
+        assert_eq!(observed, Some(caller));
     }
 
     #[test]
