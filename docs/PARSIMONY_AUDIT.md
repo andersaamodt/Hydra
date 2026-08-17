@@ -36,3 +36,5 @@ Theurgy owns the generic runtime envelope contract and future institutional rele
 ## Simplification result
 
 The audit removed duplicate local READMEs, a dead narrow-window layout, decorative capitalization and button motion, an unsupported network-routing claim, and a false Reddacted restoration transition. The later anti-AI-GUI pass also removed permanent product explanations, title/subtitle duplication, boxed empty states, decorative gradients and blur, pill inflation, selection rails, and nested card chrome while retaining accessible focus outlines and task-specific help. It added no new service or framework; the only compatibility addition is a declarative Stonr profile with a signed-publication test.
+
+The 2026-08-17 language pass used Phronesis `fb6c5286e64f5368732ba39401640fa7acc4e57c`. It removed the window slogan, synthetic reassurance, rhetorical empty states, personified error and safety messages, conversational action labels, and routine refresh narration. Privacy consequences, projection boundaries, destructive-action warnings, storage format details, and unfamiliar Nostr concepts remain as concise task-specific exceptions.

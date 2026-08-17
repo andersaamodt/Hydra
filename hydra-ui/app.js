@@ -101,7 +101,7 @@ function extractState(result) {
   return result?.data?.snapshot?.data ?? result?.data ?? result?.snapshot?.data ?? result;
 }
 
-async function refresh({ quiet = false } = {}) {
+async function refresh() {
   if (session.busy) return;
   setBusy(true);
   try {
@@ -115,7 +115,6 @@ async function refresh({ quiet = false } = {}) {
     session.companions = { checked: true, bookClubInstalled: Boolean(companions.bookClubInstalled) };
     render();
     finishBoot();
-    if (!quiet) toast("Hydra is up to date on this device.");
   } catch (error) {
     renderUnavailable(error);
   } finally {
@@ -248,7 +247,7 @@ async function openHydraLink(value) {
       } else {
         setRoute("reddit");
       }
-      toast("Opened the Reddit object through Hydra. Browsing alone remains transient.");
+      toast("Reddit object opened. Browsing data remains transient.");
       return;
     }
     if (link.hostname === "nostr") {
@@ -259,12 +258,12 @@ async function openHydraLink(value) {
       session.openNostr.items = [resolved.result.item];
       session.openNostr.loaded = true;
       setRoute("open-nostr");
-      toast("Opened a verified portable Nostr event. It remains transient until you keep or use it.");
+      toast("Verified Nostr event opened. It remains transient until saved or used.");
       return;
     }
-    toast("Hydra received a portable link, but this build does not recognize its destination.", true);
+    toast("Unsupported Hydra link destination.", true);
   } catch {
-    toast("Hydra rejected an invalid deep link.", true);
+    toast("Invalid Hydra link.", true);
   }
 }
 
@@ -441,9 +440,9 @@ function renderFeed() {
   const list = element("div", { class: "content-list" });
   if (posts.length === 0) {
     list.append(emptyState(
-      community ? `Nothing durable in /h/${community} yet` : "Your feed is quiet—in a good way",
-      community ? "Start the conversation here or check the Reddit chamber." : "Follow a persona, subscribe to a community, or write a post.",
-      community ? "Post here" : "Create your first post",
+      community ? `No posts in /h/${community}` : "No posts in My Feed",
+      community ? "The Reddit tab may contain posts from the corresponding subreddit." : "Follow a persona or subscribe to a community to add posts.",
+      "New post",
       () => showComposer(community),
     ));
   } else {
@@ -514,7 +513,7 @@ function postCard(post, lens, community) {
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(post.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(post) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(post) }),
-      element("button", { type: "button", class: "text-action", text: "Why this?", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
+      element("button", { type: "button", class: "text-action", text: "Feed reason", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
     ]),
   ]);
   return element("article", { class: "post-card" }, [vote, main]);
@@ -717,7 +716,7 @@ async function loadRedditThread(post) {
     session.reddit.threadRoot = post.fullname;
     session.reddit.threadItems = result.result?.items ?? [post];
     resetRedditThreadRefresh();
-    toast("Loaded the current Reddit thread transiently. Hydra-only replies remain linked by their external parent.");
+    toast("Current Reddit thread loaded transiently. Hydra-only replies remain linked by their external parent.");
     renderFeed();
   } catch (error) {
     if (epoch === session.reddit.requestEpoch) toast(readableError(error), true);
@@ -764,8 +763,8 @@ function scheduleRedditThreadRefresh() {
 
 function showRedditReply(item) {
   const persona = activePersona(session.state);
-  modal("Reply from Hydra", `Hydra remains canonical. Reddit receives a projection only if selected and available.`, element("div", {}, [
-    field("Reply", "textarea", "body", "", "Locks, bans, and a missing Reddit account never prevent the Hydra reply.", { required: true }),
+  modal("Reply from Hydra", "The reply is stored in Hydra. A Reddit projection is optional.", element("div", {}, [
+    field("Reply", "textarea", "body", "", "The reply is stored in Hydra even when Reddit projection is unavailable.", { required: true }),
     toggle("Also project this reply to Reddit", "crosspost", configuredCrosspostDefault("comment", validCommunity(item.subreddit || session.community)), `As u/${persona.redditUsername || "linked account"} to exact Reddit target ${item.fullname}. This publicly links the accounts.`),
   ]), { submitLabel: "Post Hydra reply", onSubmit: async (data) => {
     const rootItem = session.reddit.threadItems.find((entry) => entry.fullname === session.reddit.threadRoot) || item;
@@ -783,7 +782,7 @@ function showRedditReply(item) {
     closeModal();
     session.state = extractState(await runtime("state"));
     resetRedditThreadRefresh();
-    toast(data.get("crosspost") ? "Reply saved in Hydra and projected to Reddit." : "Hydra-only reply saved. Reddit cannot remove it.");
+    toast(data.get("crosspost") ? "Reply saved in Hydra and projected to Reddit." : "Reply saved in Hydra only.");
     renderFeed();
   } });
 }
@@ -866,7 +865,7 @@ function openNostrCard(item) {
       ]),
       element("p", { class: "post-body", text: item.body || "This event has no text body." }),
       element("div", { class: "post-actions" }, [
-        actionButton("Categorize for me", () => showNostrCategorize(item)),
+        actionButton("Categorize locally", () => showNostrCategorize(item)),
         actionButton("Share to /h/", () => showNostrCuration(item), "primary-button"),
       ]),
     ]),
@@ -946,7 +945,7 @@ async function keepNostrEvent(item) {
 
 function openBookClub(url) {
   if (typeof url !== "string" || !url.startsWith("bookclub://nostr/")) {
-    toast("Hydra rejected an invalid Book Club handoff.", true);
+    toast("Invalid Book Club handoff.", true);
     return;
   }
   window.location.assign(url);
@@ -976,7 +975,7 @@ async function loadOpenNostr() {
 
 function showNostrCategorize(item) {
   const persona = activePersona(session.state);
-  modal("Categorize for me", "This private assignment changes only your local Hydra view.", field("Hydra topics", "text", "communities", item.topics?.join(", ") ?? "", "Separate /h/ topic names with commas.", { required: true, placeholder: "science, biology" }), {
+  modal("Categorize locally", "This private assignment changes only the selected persona’s local view.", field("Hydra topics", "text", "communities", item.topics?.join(", ") ?? "", "Separate /h/ topic names with commas.", { required: true, placeholder: "science, biology" }), {
     submitLabel: "Save locally",
     onSubmit: (data) => mutate("nostr.categorize_local", { persona_id: persona.id, event_json: item.event, communities: parseCommunities(data.get("communities")) }, "Private topic assignment saved."),
   });
@@ -1017,7 +1016,7 @@ function renderRedditBridge() {
       actionButton("Install Firefox companion", installFirefox),
     ]),
     element("section", { class: "context-card" }, [
-      element("h2", { text: "Bring your Reddit writing" }),
+      element("h2", { text: "Import Reddit writing" }),
       element("p", { text: "Import only your posts and comments from Reddit’s official account-data export. Other export files are ignored." }),
       actionButton("Import official data export", showRedditExportImport, "primary-button"),
     ]),
@@ -1061,7 +1060,7 @@ function renderRedditBridge() {
 }
 
 function showRedditExportImport() {
-  modal("Import your Reddit writing", "Choose the ZIP Reddit supplied, or its extracted folder. Hydra reads only posts.csv and comments.csv.", element("div", { class: "community-actions" }, [
+  modal("Import Reddit writing", "Choose the Reddit account-data ZIP or its extracted folder. Only posts.csv and comments.csv are read.", element("div", { class: "community-actions" }, [
     actionButton("Choose ZIP", () => chooseRedditExport(false), "primary-button"),
     actionButton("Choose extracted folder", () => chooseRedditExport(true)),
   ]), { submitLabel: "Close", onSubmit: closeModal });
@@ -1082,13 +1081,13 @@ async function chooseRedditExport(directory) {
       element("small", { class: "field-help", text: `${item.kind} · ${item.subreddit ? `/r/${item.subreddit}` : "unknown community"}` }),
     ]),
   ]));
-  modal("Import your Reddit writing", `${result.posts ?? 0} posts and ${result.comments ?? 0} comments found. Hydra ignores messages, votes, IP logs, and every other export file.`, element("div", {}, [
+  modal("Import Reddit writing", `${result.posts ?? 0} posts and ${result.comments ?? 0} comments found. Messages, votes, IP logs, and other export files are ignored.`, element("div", {}, [
     ...checklist,
     toggle("Publish imported writing to Nostr", "publish", false, "Off keeps the imported posts and comments only in this local Hydra library."),
   ]), { submitLabel: "Import selected writing", onSubmit: (data) => {
     const selected = data.getAll("selected").map(String);
     if (!selected.length) throw new Error("Select at least one post or comment to import.");
-    return mutate("reddit.export.import", { persona_id: persona.id, path, selected, publish: Boolean(data.get("publish")) }, "Your selected Reddit writing was imported.");
+    return mutate("reddit.export.import", { persona_id: persona.id, path, selected, publish: Boolean(data.get("publish")) }, "Selected Reddit writing imported.");
   } });
 }
 
@@ -1195,8 +1194,8 @@ function renderSettings() {
     ]),
     element("div", { class: "modal-actions" }, [actionButton("Save settings", null, "primary-button")]),
     element("section", { class: "context-card" }, [
-      element("h2", { text: "Where Hydra keeps your data" }),
-      element("p", { text: "Everything Hydra keeps locally lives under this folder. Synced posts, comments, subscriptions, and history are stored in an encrypted event log—not as loose Markdown files." }),
+      element("h2", { text: "Local data storage" }),
+      element("p", { text: "All local data is under this folder. Synced posts, comments, subscriptions, and history are stored in an encrypted event log—not as loose Markdown files." }),
       element("p", { class: "source-link", text: storage.root }),
       element("div", { class: "post-actions" }, [
         actionButton("Open Hydra data folder", () => openStorageFolder("data"), "primary-button"),
@@ -1204,7 +1203,7 @@ function renderSettings() {
       ]),
       storage.mediaExists
         ? element("p", { text: "Preserved attachments are separate content-addressed files in the media folder." })
-        : element("p", { text: "There is no preserved media folder yet. Hydra creates it when it first preserves an attachment. Hydra does not currently make a separate folder for each persona’s posts." }),
+        : element("p", { text: "No preserved media folder exists yet. It is created when the first attachment is preserved. Posts are not stored in separate persona folders." }),
     ]),
     drafts.length ? element("section", { class: "context-card" }, [
       element("h2", { text: `Private drafts (${drafts.length})` }),
@@ -1223,11 +1222,11 @@ function renderSettings() {
     ]),
     element("section", { class: "context-card" }, [
       element("h2", { text: "People" }),
-      element("p", { text: `${session.state.followCount ?? 0} follows · ${session.state.blockCount ?? 0} blocks. Public declarations remain signed claims, never Hydra judgments.` }),
+      element("p", { text: `${session.state.followCount ?? 0} follows · ${session.state.blockCount ?? 0} blocks. Public declarations are signed claims, not moderation decisions.` }),
       element("div", { class: "post-actions" }, [
         actionButton("Follow a persona", showFollowEditor),
         actionButton("Publish a follow set", showFollowSetEditor),
-        actionButton("Block for me", showBlockEditor, "danger-button"),
+        actionButton("Block locally", showBlockEditor, "danger-button"),
       ]),
       ...follows.map((item) => element("div", { class: "readiness-row" }, [
         element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: item.public ? "Public follow" : "Private follow" })]),
@@ -1252,7 +1251,7 @@ function renderSettings() {
     ]),
     element("section", { class: "context-card" }, [
       element("h2", { text: "Local defenses" }),
-      element("p", { text: "Encrypted filters alter only this persona’s lens. They do not remove events from Nostr or pretend to moderate a community." }),
+      element("p", { text: "Encrypted filters alter only this persona’s lens and do not remove events from Nostr or moderate a community." }),
       actionButton("Add local filter", showLocalFilterEditor),
       ...filters.map((item) => element("div", { class: "readiness-row" }, [
         element("div", {}, [element("strong", { text: item.value }), element("p", { text: `${item.kind} filter` })]),
@@ -1288,7 +1287,7 @@ function renderWelcome() {
 function renderUnavailable(error) {
   finishBoot();
   document.querySelector("#app").setAttribute("aria-busy", "false");
-  view.replaceChildren(viewHeader("Hydra could not open"), element("div", { class: "content-list" }, [emptyState("Local runtime unavailable", readableError(error), "Try again", () => refresh({ quiet: true }))]));
+  view.replaceChildren(viewHeader("Hydra could not open"), element("div", { class: "content-list" }, [emptyState("Local runtime unavailable", readableError(error), "Try again", refresh)]));
   contextPanel.replaceChildren();
 }
 
@@ -1338,8 +1337,8 @@ function modal(title, subtitle, body, { submitLabel = "Continue", onSubmit, dang
 function closeModal() { modalRoot.replaceChildren(); }
 
 function showPersonaCreator() {
-  modal("Create a Hydra persona", "One genuine Nostr identity. No email, approval, or public link to your other personas.", element("div", {}, [
-    field("Display name", "text", "display_name", "", "This name is stable across Hydra for this persona.", { required: true, placeholder: "How should this persona appear?" }),
+  modal("Create a Hydra persona", "Creates one Nostr identity without an email address or a public link to other personas.", element("div", {}, [
+    field("Display name", "text", "display_name", "", "This name is stable across Hydra for this persona.", { required: true, placeholder: "Display name" }),
   ]), { submitLabel: "Create persona", onSubmit: (data) => mutate("persona.create", { display_name: data.get("display_name") }, "Persona created locally and queued for publication.") });
 }
 
@@ -1381,7 +1380,7 @@ function showPostComposer(draft = null, defaultCommunity = null) {
   const body = element("div", {}, [
     field("Title", "text", "title", draft?.title ?? "", "", { required: true }),
     field("Communities", "text", "communities", draft?.communities?.join(", ") || defaultCommunity || "", "Separate several ownerless /h/ coordinates with commas.", { required: true, placeholder: "science, biology" }),
-    field("Post", "textarea", "body", draft?.body ?? "", "Hydra is canonical; Reddit receives only an optional rendered projection.", { required: true }),
+    field("Post", "textarea", "body", draft?.body ?? "", "The post is stored in Hydra. A Reddit projection is optional.", { required: true }),
     toggle("Crosspost to Reddit", "crosspost", configuredCrosspostDefault("post", defaultCommunity), "Off by default. Attribution is also off unless selected later."),
     actionButton("Save encrypted draft", async () => {
       const data = new FormData(modalRoot.querySelector("form"));
@@ -1423,7 +1422,7 @@ function showPostProjection(anchor, communities) {
     }
     closeModal();
     session.state = extractState(await runtime("state"));
-    toast(failures.length ? `Hydra is safe; some Reddit copies failed: ${failures.join(" · ")}` : "Every selected Reddit projection is live.", failures.length > 0);
+    toast(failures.length ? `Post saved in Hydra. Reddit projection failures: ${failures.join(" · ")}` : "Selected Reddit projections published.", failures.length > 0);
     render();
   } });
 }
@@ -1462,7 +1461,7 @@ function showReply(parent) {
       element("small", { class: "field-help", text: target.direct ? "Exact Reddit counterpart of this parent." : "Nearest projected ancestor; selecting it deliberately changes the Reddit reply point." }),
     ]),
   ]));
-  modal("Reply in Hydra", `Replying as ${persona.displayName}. Hydra always saves first; Reddit projection is optional.`, element("div", {}, [
+  modal("Reply in Hydra", `Replying as ${persona.displayName}. The reply is saved in Hydra before any optional Reddit projection.`, element("div", {}, [
     field("Reply", "textarea", "body", "", "Thread locks and subreddit bans do not prevent this Hydra reply.", { required: true }),
     targets.length && persona.redditLinked
       ? element("section", { class: "context-card" }, [
@@ -1491,7 +1490,7 @@ function showReply(parent) {
     }
     closeModal();
     session.state = extractState(await runtime("state"));
-    toast(failures.length ? `Hydra reply is safe; some Reddit projections failed: ${failures.join(" · ")}` : data.getAll("reddit_parent").length ? "Reply saved in Hydra and projected to every selected Reddit parent." : "Hydra-only reply saved.", failures.length > 0);
+    toast(failures.length ? `Reply saved in Hydra. Reddit projection failures: ${failures.join(" · ")}` : data.getAll("reddit_parent").length ? "Reply saved in Hydra and projected to every selected Reddit parent." : "Reply saved in Hydra only.", failures.length > 0);
     render();
   } });
 }
@@ -1536,10 +1535,10 @@ function showEdit(object) {
 
 function showDisown(object) {
   const persona = activePersona(session.state);
-  modal("Request relay deletion", "This publishes a standard NIP-09 disowning request for the immutable anchor and current editable head. Relays and other users may retain prior events, so Hydra does not promise universal deletion.", field("Optional reason", "textarea", "reason", "", "Publicly signed with this persona; maximum 500 characters."), {
+  modal("Request relay deletion", "This publishes a standard NIP-09 disowning request for the immutable anchor and current editable head. Relays and other users may retain prior events; deletion is not guaranteed.", field("Optional reason", "textarea", "reason", "", "Publicly signed with this persona; maximum 500 characters."), {
     submitLabel: "Publish disowning request",
     danger: true,
-    onSubmit: (data) => mutate("object.disown", { persona_id: persona.id, anchor: object.anchor, reason: data.get("reason") || null }, "NIP-09 request queued. Hydra retains the local signed history and does not claim universal erasure."),
+    onSubmit: (data) => mutate("object.disown", { persona_id: persona.id, anchor: object.anchor, reason: data.get("reason") || null }, "NIP-09 request queued. Local signed history retained; universal deletion is not guaranteed."),
   });
 }
 
@@ -1599,7 +1598,7 @@ function showVoteViews(object) {
     ["Trusted score", object.trustedScore ?? 0, "Current stances from this persona and personas it follows."],
     ["Reddit-linked score", object.redditLinkedScore ?? 0, "Current stances from locally verified Reddit-linked personas."],
   ];
-  modal("Hydra vote views", "No one score is the authoritative will of the network. These are transparent interpretations of signed events.", element("div", { class: "content-list" }, rows.map(([label, value, detail]) => element("section", { class: "context-card" }, [
+  modal("Hydra vote views", "These scores are interpretations of signed reaction events; no score is authoritative.", element("div", { class: "content-list" }, rows.map(([label, value, detail]) => element("section", { class: "context-card" }, [
     element("div", { class: "meta-line" }, [element("strong", { text: label }), element("span", { class: "vote-score", text: String(value) })]),
     element("p", { text: detail }),
   ]))), { submitLabel: "Close", onSubmit: closeModal });
@@ -1637,19 +1636,19 @@ function showVoteReview() {
     element("h3", { text: `Recent votes (${recent.length})` }),
     ...recent.map(renderEntry),
   ] : [element("p", { text: "This persona has no votes to review yet." })]);
-  modal("Vote-review queue", "Leave any item unchanged by closing this view. Repeat votes remain visible as temporal recognition rather than global karma.", body, { submitLabel: "Done", onSubmit: closeModal });
+  modal("Vote-review queue", "Closing this view leaves votes unchanged. Repeat votes remain in the event history.", body, { submitLabel: "Done", onSubmit: closeModal });
 }
 
 async function react(target, value) {
   const persona = activePersona(session.state);
-  try { await mutate("reaction.set", { persona_id: persona.id, target, value }, value === "0" ? "Current stance reset; vote history retained." : "Hydra stance recorded."); } catch { /* toast already shown */ }
+  try { await mutate("reaction.set", { persona_id: persona.id, target, value }, value === "0" ? "Current stance reset; vote history retained." : "Stance recorded."); } catch { /* toast already shown */ }
 }
 
 function showMessageComposer(recipient = "") {
   const persona = activePersona(session.state);
   const initialRecipient = typeof recipient === "string" ? recipient : "";
   modal("New private message", `Sending as ${persona.displayName} using NIP-17.`, element("div", {}, [
-    field("Recipient npub or hex key", "text", "recipient", initialRecipient, "Messages address public personas, never hidden keyrings.", { required: true }),
+    field("Recipient npub or hex key", "text", "recipient", initialRecipient, "Messages use public persona keys.", { required: true }),
     field("Message", "textarea", "body", "", "Nostr private messaging is interoperable, not promised as an invulnerable high-security messenger.", { required: true }),
   ]), { submitLabel: "Send message", onSubmit: (data) => mutate("message.send", { persona_id: persona.id, recipient: data.get("recipient"), body: data.get("body"), recipient_relays: [] }, "Private message wrapped and queued for the recipient’s inbox relays.") });
 }
@@ -1661,7 +1660,7 @@ function showMessageComposerTo(recipient) {
 function showFollowEditor() {
   const persona = activePersona(session.state);
   modal("Follow a persona", "Follows belong to this public persona. Choose whether the relationship is public or privately encrypted.", element("div", {}, [
-    field("Persona npub or hex key", "text", "target", "", "Hydra does not expose a hidden person behind public personas.", { required: true }),
+    field("Persona npub or hex key", "text", "target", "", "Enter a public Nostr persona key.", { required: true }),
     toggle("Publish this follow", "public", true, "Turn this off to keep the follow in this persona’s encrypted local/private list."),
   ]), { submitLabel: "Follow", onSubmit: (data) => mutate("follow.set", { persona_id: persona.id, target: data.get("target"), public: Boolean(data.get("public")), following: true }, "Follow updated for this persona.") });
 }
@@ -1675,7 +1674,7 @@ function showPersonaProfile(publicKey) {
   const comments = authored.filter((item) => item.kind === "comment");
   const followSets = (session.state.publicFollowSets ?? []).filter((item) => item.personaId === known?.id);
   const alreadyFollowed = (session.state.follows ?? []).some((item) => item.personaId === active.id && item.target === publicKey);
-  modal(known?.displayName ?? "Nostr persona", "A public persona is the terminal social identity. Hydra exposes no hidden person or local keyring behind it.", element("div", { class: "content-list" }, [
+  modal(known?.displayName ?? "Nostr persona", "Public Nostr identity. Private identity and local credential information are not displayed.", element("div", { class: "content-list" }, [
     element("p", { class: "evidence-note", text: publicKey }),
     known?.redditProof ? element("p", { class: "evidence-note", text: `Optional public Reddit proof: ${known.redditProof}` }) : null,
     element("p", { text: `${posts.length} posts · ${comments.length} comments · ${norms.length} norm statements. Counts are secondary context, not a reputation score.` }),
@@ -1689,7 +1688,7 @@ function showPersonaProfile(publicKey) {
 
 function showFollowSetEditor(existing = null) {
   const persona = activePersona(session.state);
-  modal("Publish a curated follow set", "Only the public personas explicitly listed here are disclosed. Hydra never derives or exposes relationships from your local keyring.", element("div", {}, [
+  modal("Publish a curated follow set", "Only the listed public personas are disclosed. Local keyring relationships are not included.", element("div", {}, [
     field("Stable identifier", "text", "identifier", existing?.identifier ?? "recommended", "Used as the NIP-51 addressable list identifier. Keep it stable when revising this set.", { required: true }),
     field("Public title", "text", "title", existing?.title ?? "Recommended personas", "Visible to compatible Nostr clients.", { required: true }),
     field("Persona keys", "textarea", "members", (existing?.members ?? []).join("\n"), "One npub or hex key per line. Publish a deliberately small, affirmative disclosure.", { required: true }),
@@ -1701,11 +1700,11 @@ function showFollowSetEditor(existing = null) {
 
 function showBlockEditor() {
   const persona = activePersona(session.state);
-  modal("Block for me", "Hydra hides this persona from your local view. It cannot honestly claim to prevent them from seeing public Nostr events.", element("div", {}, [
+  modal("Block locally", "This hides the persona from the selected local view. Public Nostr events remain visible to the blocked persona.", element("div", {}, [
     field("Persona npub or hex key", "text", "target", "", "The target remains capable of reading public content.", { required: true }),
-    toggle("Publish this block", "public", false, "A public block is your signed statement, not a ban or Hydra verdict."),
+    toggle("Publish this block", "public", false, "Publishing creates a signed block statement; it does not ban the target."),
     field("Public reason", "textarea", "reason", "", "Optional. Published only when the public-block switch is on."),
-  ]), { submitLabel: "Block for me", danger: true, onSubmit: (data) => mutate("block.set", { persona_id: persona.id, target: data.get("target"), public: Boolean(data.get("public")), blocked: true, reason: data.get("reason") || null }, "Block applied to this persona’s lens.") });
+  ]), { submitLabel: "Block locally", danger: true, onSubmit: (data) => mutate("block.set", { persona_id: persona.id, target: data.get("target"), public: Boolean(data.get("public")), blocked: true, reason: data.get("reason") || null }, "Block applied to this persona’s lens.") });
 }
 
 function showLocalFilterEditor() {
@@ -1719,7 +1718,7 @@ function showLocalFilterEditor() {
 function showBackupExport() {
   const persona = activePersona(session.state);
   if (!desktopDialog) { toast("The desktop file chooser is unavailable.", true); return; }
-  modal("Back up this persona", `Create a passphrase-encrypted archive for ${persona.displayName}. Hydra does not upload it.`, element("div", {}, [
+  modal("Back up this persona", `Create a passphrase-encrypted archive for ${persona.displayName}. The archive is stored only at the selected location.`, element("div", {}, [
     field("Backup passphrase", "password", "passphrase", "", "Use at least 12 characters. Losing it makes the archive unreadable.", { required: true }),
     field("Confirm passphrase", "password", "confirmation", "", "Hydra verifies the encrypted archive before reporting success.", { required: true }),
   ]), { submitLabel: "Choose archive location", onSubmit: async (data) => {
@@ -1785,7 +1784,7 @@ function showContinuity(post) {
     actionButton("Attach Big Stick record", () => { closeModal(); showBigStick(projection); }),
     actionButton("Reddact from Reddit", () => { closeModal(); showReddact(projection); }, "danger-button"),
   ]);
-  modal("Continuity", "Reddit is a projection. Hydra’s signed record remains canonical.", body, { submitLabel: "Close", onSubmit: closeModal });
+  modal("Continuity", "The signed Hydra record is the source; Reddit contains a projected copy.", body, { submitLabel: "Close", onSubmit: closeModal });
 }
 
 function archiveLevelValues() {
@@ -1856,7 +1855,7 @@ function showSearchResults(query, result, network = false) {
       try { showSearchResults(query, await runtime("search.network", { query, limit: 50 }), true); } catch (error) { toast(readableError(error), true); }
     }, "primary-button") : null,
   ]);
-  modal(network ? "Nostr network search" : "Local search", network ? "Results came from selected relays and remain transient until you interact." : "Your encrypted local memory is searched first.", body, { submitLabel: "Close", onSubmit: closeModal });
+  modal(network ? "Nostr network search" : "Local search", network ? "Results came from selected relays and remain transient until used." : "Search covers encrypted local data.", body, { submitLabel: "Close", onSubmit: closeModal });
 }
 
 async function showRawEvidence() {
@@ -1899,7 +1898,7 @@ document.querySelector("#sync-button").addEventListener("click", async () => {
 });
 document.querySelector("#persona-button").addEventListener("click", () => activePersona(session.state) ? showPersonaMenu() : showPersonaCreator());
 document.querySelector("#add-community").addEventListener("click", () => {
-  modal("Open a community", "Hydra communities are ownerless topic places. No one grants membership.", field("Community", "text", "community", "", "Use a bare name or /h/name.", { required: true, placeholder: "science" }), { submitLabel: "Open /h/", onSubmit: (data) => {
+  modal("Open a community", "Hydra communities are ownerless topics without membership approval.", field("Community", "text", "community", "", "Use a bare name or /h/name.", { required: true, placeholder: "science" }), { submitLabel: "Open /h/", onSubmit: (data) => {
     const community = validCommunity(data.get("community"));
     if (!community) throw new Error("Use letters, numbers, or underscores only.");
     closeModal(); setRoute("community", community);
@@ -1922,8 +1921,8 @@ document.addEventListener("keydown", (event) => {
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || session.busy || modalRoot.childElementCount) return;
-  refresh({ quiet: true });
+  refresh();
   if (session.reddit.threadRoot) resetRedditThreadRefresh();
 });
 
-refresh({ quiet: true }).then(listenForHydraLinks).catch((error) => toast(readableError(error), true));
+refresh().then(listenForHydraLinks).catch((error) => toast(readableError(error), true));

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
 const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
+const tauri = await readFile(new URL("../../apps/desktop/tauri/tauri.conf.json", import.meta.url), "utf8");
 
 test("light mode supplies semantic surfaces instead of inheriting dark literals", () => {
   for (const variable of ["--nav-ink", "--bar", "--card-hover", "--body-ink", "--modal"]) {
@@ -19,7 +20,8 @@ test("light mode supplies semantic surfaces instead of inheriting dark literals"
 });
 
 test("the permanent shell avoids AI-generated interface foibles", () => {
-  assert.doesNotMatch(index, /<small>I’m with the banned\.<\/small>/);
+  assert.match(index, /<title>Hydra<\/title>/);
+  assert.match(tauri, /"title": "Hydra"/);
   assert.doesNotMatch(app, /Your living memory|No rulers, only lenses|view-kicker|view-subtitle|empty-mark/);
   assert.match(app, /function viewHeader\(title, extras = \[\]\)/);
   assert.doesNotMatch(styles, /radial-gradient|linear-gradient|backdrop-filter|border-radius:\s*999px/);
@@ -83,12 +85,34 @@ test("themes and chamber tabs honor desktop input contracts", () => {
 });
 
 test("Settings explains and opens Hydra's actual local storage", () => {
-  assert.match(app, /Where Hydra keeps your data/);
+  assert.match(app, /Local data storage/);
   assert.match(app, /encrypted event log—not as loose Markdown files/);
   assert.match(app, /Open Hydra data folder/);
   assert.match(app, /storage\.mediaExists \? actionButton\("Open preserved media folder"/);
   assert.match(app, /runtime\("storage\.open", \{ folder \}\)/);
-  assert.match(app, /does not currently make a separate folder for each persona/);
+  assert.match(app, /Posts are not stored in separate persona folders/);
+});
+
+test("interface copy stays functional instead of adopting a persona", () => {
+  const interfaceCopy = `${index}\n${tauri}\n${app}`;
+  for (const phrase of [
+    "I’m with the banned",
+    "Your feed is quiet",
+    "in a good way",
+    "Why this?",
+    "Categorize for me",
+    "Hydra is safe",
+    "Hydra reply is safe",
+    "authoritative will of the network",
+    "temporal recognition rather than global karma",
+    "cannot honestly claim",
+    "No one grants membership",
+  ]) {
+    assert.equal(interfaceCopy.includes(phrase), false, phrase);
+  }
+  assert.match(app, /No posts in My Feed/);
+  assert.match(app, /Feed reason/);
+  assert.match(app, /Block locally/);
 });
 
 test("background Reddit refresh cannot overwrite a newer interaction", () => {

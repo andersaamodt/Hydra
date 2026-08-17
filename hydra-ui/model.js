@@ -166,7 +166,7 @@ export function whyShown(object, lens, community) {
   if (lens === "top") return `Current Hydra score ${object.currentScore ?? 0}`;
   if (lens === "discussed") return `${object.discussionCount ?? 0} replies`;
   if (lens === "controversial") return `Balanced positive and negative reactions`;
-  if (lens === "revisited") return "In your Revisit memory";
+  if (lens === "revisited") return "Saved for Revisit";
   if (lens === "recovered") return "Recovered from an external source";
-  return "Recent activity in your feed";
+  return "Recent activity";
 }

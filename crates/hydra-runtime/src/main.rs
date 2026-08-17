@@ -1572,7 +1572,7 @@ fn readiness_views(root: &Path, store: &DurableStore, settings: &Settings) -> Ve
     vec![
         ReadinessView {
             id: "local-storage",
-            label: "Local memory",
+            label: "Local storage",
             state: "ready",
             required: true,
             detail: local_storage_detail(root, active_persona),
