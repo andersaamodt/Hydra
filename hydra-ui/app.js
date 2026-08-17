@@ -1120,6 +1120,17 @@ function settingsGroup(title, children, open = false) {
   ]);
 }
 
+async function openStorageFolder(folder) {
+  setBusy(true);
+  try {
+    await runtime("storage.open", { folder });
+  } catch (error) {
+    toast(readableError(error), true);
+  } finally {
+    setBusy(false);
+  }
+}
+
 function renderSettings() {
   const settings = session.state.settings ?? {};
   const persona = activePersona(session.state);
@@ -1136,6 +1147,7 @@ function renderSettings() {
   const blocks = (session.state.blocks ?? []).filter((item) => item.personaId === persona.id);
   const filters = (session.state.filters ?? []).filter((item) => item.personaId === persona.id);
   const drafts = (session.state.drafts ?? []).filter((item) => item.personaId === persona.id);
+  const storage = session.state.storage ?? { root: session.state.durableRoot, media: `${session.state.durableRoot}/media`, mediaExists: false };
   const feedWeights = { followed: 100, communities: 100, replies: 100, revisit: 100, ...(settings.feed_source_weights ?? {}) };
   const body = element("form", { class: "form-page", onsubmit: saveSettings }, [
     field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
@@ -1182,6 +1194,18 @@ function renderSettings() {
       field("Reddacted preservation level", "select", "reddacted_archive_level", settings.continuity?.reddacted_archive_level ?? "item", "", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
     ]),
     element("div", { class: "modal-actions" }, [actionButton("Save settings", null, "primary-button")]),
+    element("section", { class: "context-card" }, [
+      element("h2", { text: "Where Hydra keeps your data" }),
+      element("p", { text: "Everything Hydra keeps locally lives under this folder. Synced posts, comments, subscriptions, and history are stored in an encrypted event log—not as loose Markdown files." }),
+      element("p", { class: "source-link", text: storage.root }),
+      element("div", { class: "post-actions" }, [
+        actionButton("Open Hydra data folder", () => openStorageFolder("data"), "primary-button"),
+        storage.mediaExists ? actionButton("Open preserved media folder", () => openStorageFolder("media")) : null,
+      ]),
+      storage.mediaExists
+        ? element("p", { text: "Preserved attachments are separate content-addressed files in the media folder." })
+        : element("p", { text: "There is no preserved media folder yet. Hydra creates it when it first preserves an attachment. Hydra does not currently make a separate folder for each persona’s posts." }),
+    ]),
     drafts.length ? element("section", { class: "context-card" }, [
       element("h2", { text: `Private drafts (${drafts.length})` }),
       element("p", { text: "Drafts are encrypted, persona-bound, and never sent to a relay or public media server." }),

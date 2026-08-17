@@ -87,6 +87,7 @@ struct StateEnvelope<'a> {
 struct HydraState<'a> {
     schema: &'static str,
     durable_root: String,
+    storage: StorageView,
     personas: Vec<PersonaView<'a>>,
     drafts: Vec<DraftView<'a>>,
     objects: Vec<ObjectView<'a>>,
@@ -116,6 +117,14 @@ struct HydraState<'a> {
     continuity_workflows: Vec<ContinuityWorkflowView>,
     settings: Settings,
     readiness: Vec<ReadinessView>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageView {
+    root: String,
+    media: String,
+    media_exists: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -505,6 +514,12 @@ struct PreserveMediaInput {
     source_path: String,
     mime_type: String,
     original_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenStorageInput {
+    folder: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1123,6 +1138,63 @@ fn launch_external(target: &str) -> Result<(), RuntimeError> {
     }
 }
 
+fn storage_view(root: &Path) -> StorageView {
+    let media = root.join("media");
+    let media_exists =
+        fs::symlink_metadata(&media).is_ok_and(|metadata| metadata.file_type().is_dir());
+    StorageView {
+        root: root.display().to_string(),
+        media: media.display().to_string(),
+        media_exists,
+    }
+}
+
+fn storage_folder(root: &Path, folder: &str) -> Result<PathBuf, RuntimeError> {
+    let target = match folder {
+        "data" => root.to_path_buf(),
+        "media" => root.join("media"),
+        _ => {
+            return Err(RuntimeError::InvalidInput(
+                "storage folder must be data or media".to_owned(),
+            ));
+        }
+    };
+    let metadata = fs::symlink_metadata(&target).map_err(|_| {
+        RuntimeError::InvalidInput(match folder {
+            "media" => "No preserved media folder exists yet".to_owned(),
+            _ => "Hydra's local data folder is unavailable".to_owned(),
+        })
+    })?;
+    if !metadata.file_type().is_dir() {
+        return Err(RuntimeError::InvalidInput(
+            "Hydra will only open a real local data folder".to_owned(),
+        ));
+    }
+    Ok(target)
+}
+
+fn launch_folder(target: &Path) -> Result<(), RuntimeError> {
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("/usr/bin/open");
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("explorer.exe");
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = Command::new("xdg-open");
+    command.arg(target);
+    let status = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(RuntimeError::InvalidInput(
+            "Hydra could not open the requested local folder".to_owned(),
+        ))
+    }
+}
+
 fn native_error(message: &str) -> serde_json::Value {
     serde_json::json!({
         "ok": false,
@@ -1161,6 +1233,7 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     let data = HydraState {
         schema: "hydra-state/v1",
         durable_root: root.display().to_string(),
+        storage: storage_view(root),
         personas,
         drafts,
         objects,
@@ -2157,6 +2230,7 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "message.send" => send_message_action(root, input).await,
         "community.subscribe" => community_subscription_action(root, input),
         "media.preserve" => preserve_media_action(root, input),
+        "storage.open" => storage_open_action(root, input),
         "backup.export" => backup_export_action(root, input),
         "backup.restore" => backup_restore_action(root, input),
         "settings.update" => settings_update_action(root, input),
@@ -2195,6 +2269,17 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "sync.now" => sync_action(root, input),
         other => Err(RuntimeError::UnknownAction(other.to_owned())),
     }
+}
+
+fn storage_open_action(root: &Path, input: &str) -> Result<(), RuntimeError> {
+    let input: OpenStorageInput = serde_json::from_str(input)?;
+    let target = storage_folder(root, &input.folder)?;
+    launch_folder(&target)?;
+    print_action_result(
+        "storage.open",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": false, "opened": input.folder}),
+    )
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -4891,6 +4976,24 @@ fn unix_now() -> u64 {
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+
+    #[test]
+    fn local_storage_view_only_offers_a_real_media_directory() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+
+        let initial = storage_view(root);
+        assert_eq!(initial.root, root.display().to_string());
+        assert_eq!(initial.media, root.join("media").display().to_string());
+        assert!(!initial.media_exists);
+        assert!(storage_folder(root, "media").is_err());
+
+        fs::create_dir(root.join("media")).unwrap();
+        assert!(storage_view(root).media_exists);
+        assert_eq!(storage_folder(root, "data").unwrap(), root);
+        assert_eq!(storage_folder(root, "media").unwrap(), root.join("media"));
+        assert!(storage_folder(root, "other").is_err());
+    }
 
     #[test]
     fn structured_local_search_preserves_explicit_scope() {

@@ -82,6 +82,15 @@ test("themes and chamber tabs honor desktop input contracts", () => {
   assert.match(styles, /\.discussion-toolbar\s*\{[^}]*flex-wrap:\s*wrap/s);
 });
 
+test("Settings explains and opens Hydra's actual local storage", () => {
+  assert.match(app, /Where Hydra keeps your data/);
+  assert.match(app, /encrypted event log—not as loose Markdown files/);
+  assert.match(app, /Open Hydra data folder/);
+  assert.match(app, /storage\.mediaExists \? actionButton\("Open preserved media folder"/);
+  assert.match(app, /runtime\("storage\.open", \{ folder \}\)/);
+  assert.match(app, /does not currently make a separate folder for each persona/);
+});
+
 test("background Reddit refresh cannot overwrite a newer interaction", () => {
   assert.match(app, /epoch !== session\.reddit\.requestEpoch/);
   assert.match(app, /session\.busy \|\| modalRoot\.childElementCount \|\| document\.hidden/);
