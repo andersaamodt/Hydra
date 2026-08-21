@@ -21,9 +21,13 @@ import {
 const invoke = window.__TAURI__?.core?.invoke;
 const deepLink = window.__TAURI__?.deepLink;
 const desktopDialog = window.__TAURI__?.dialog;
+const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
+document.documentElement.classList.toggle("settings-window", isSettingsWindow);
+document.body.classList.toggle("settings-window", isSettingsWindow);
 const session = {
   state: null,
-  route: "feed",
+  route: isSettingsWindow ? "settings" : "feed",
+  settingsTab: "general",
   community: null,
   chamber: "hydra",
   lens: "new",
@@ -233,6 +237,17 @@ function setRoute(route, community = null) {
   render();
 }
 
+async function openSettings() {
+  if (invoke) {
+    try {
+      if (await invoke("open_settings_window")) return;
+    } catch (error) {
+      toast(readableError(error), true);
+    }
+  }
+  setRoute("settings");
+}
+
 async function openHydraLink(value) {
   try {
     if (typeof value !== "string" || value.length > 8192) throw new Error("Link is too large");
@@ -312,6 +327,12 @@ async function handleHydraLinks(links) {
 
 function render() {
   document.documentElement.dataset.theme = session.state?.settings?.theme ?? "system";
+  if (isSettingsWindow) {
+    if (activePersona(session.state)) renderSettings();
+    else renderWelcome();
+    renderPendingJudgmentCallout();
+    return;
+  }
   renderBrand();
   renderPersona();
   renderCommunities();
@@ -1746,11 +1767,72 @@ async function saveThemeChoice(event) {
   }
 }
 
-function settingsGroup(title, children, open = false) {
-  return element("details", { class: "settings-group", open: open ? "open" : null }, [
-    element("summary", { text: title }),
-    element("div", { class: "settings-group-body" }, children),
-  ]);
+const SETTINGS_TABS = [
+  ["general", "⚙", "General"],
+  ["network", "⌁", "Network"],
+  ["feed", "☷", "Feed"],
+  ["reddit", "↗", "Reddit"],
+  ["data", "▣", "Data"],
+  ["people", "♙", "People"],
+];
+
+function selectSettingsTab(id, focus = false) {
+  if (!SETTINGS_TABS.some(([tabId]) => tabId === id)) return;
+  session.settingsTab = id;
+  document.querySelectorAll(".settings-tab").forEach((tab) => {
+    const selected = tab.dataset.settingsTab === id;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    tab.classList.toggle("is-active", selected);
+    if (selected && focus) tab.focus();
+  });
+  document.querySelectorAll(".settings-pane").forEach((pane) => {
+    pane.hidden = pane.dataset.settingsPane !== id;
+  });
+}
+
+function settingsTabs() {
+  const tabs = SETTINGS_TABS.map(([id, icon, label]) => element("button", {
+    id: `settings-tab-${id}`,
+    type: "button",
+    role: "tab",
+    class: `settings-tab${session.settingsTab === id ? " is-active" : ""}`,
+    dataset: { settingsTab: id },
+    "aria-controls": `settings-pane-${id}`,
+    "aria-selected": session.settingsTab === id,
+    tabindex: session.settingsTab === id ? "0" : "-1",
+    onclick: () => selectSettingsTab(id),
+  }, [
+    element("span", { class: "settings-tab-icon", "aria-hidden": "true", text: icon }),
+    element("span", { text: label }),
+  ]));
+  return element("div", {
+    class: "settings-tabs",
+    role: "tablist",
+    "aria-label": "Settings sections",
+    onkeydown: (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const current = SETTINGS_TABS.findIndex(([id]) => id === session.settingsTab);
+      const next = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? SETTINGS_TABS.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+      selectSettingsTab(SETTINGS_TABS[next][0], true);
+    },
+  }, tabs);
+}
+
+function settingsPane(id, children) {
+  return element("section", {
+    id: `settings-pane-${id}`,
+    class: "settings-pane",
+    role: "tabpanel",
+    dataset: { settingsPane: id },
+    hidden: session.settingsTab !== id,
+    "aria-labelledby": `settings-tab-${id}`,
+  }, children);
 }
 
 async function openStorageFolder(folder) {
@@ -1793,10 +1875,17 @@ function renderSettings() {
   const drafts = (session.state.drafts ?? []).filter((item) => item.personaId === persona.id);
   const storage = session.state.storage ?? { root: session.state.durableRoot, media: `${session.state.durableRoot}/media`, mediaExists: false };
   const feedWeights = { followed: 100, communities: 100, replies: 100, revisit: 100, ...(settings.feed_source_weights ?? {}) };
-  const body = element("form", { class: "form-page", onsubmit: saveSettings }, [
-    field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
-    field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
-    settingsGroup("Advanced settings", [
+  const body = element("form", { class: "form-page settings-page", onsubmit: saveSettings }, [
+    settingsTabs(),
+    settingsPane("general", [
+      field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
+      field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
+      element("section", { class: "context-card" }, [
+        element("h2", { text: "Privacy" }),
+        element("p", { text: "Personas are pseudonymous, not guaranteed anonymous. Timing, relays, media servers, IP addresses, writing style, and mistakes can correlate separate keys. Telemetry is off by default." }),
+      ]),
+    ]),
+    settingsPane("network", [
       element("h2", { class: "settings-subheading", text: "Nostr and media" }),
       toggle(
         "Show Book Club cross-links",
@@ -1818,12 +1907,16 @@ function renderSettings() {
       toggle("Preserve media copies", "media_copy", settings.media_copy_enabled !== false, "Off retains URLs and text without copying files."),
       field("Maximum copied media (MiB)", "number", "max_media_mib", Math.round((settings.max_media_bytes ?? 26214400) / 1048576), "", { min: 1 }),
       field("Content-addressed blob servers", "textarea", "blob_servers", blobServers, "Optional; local preservation never depends on them."),
+    ]),
+    settingsPane("feed", [
       element("h2", { class: "settings-subheading", text: "My Feed sources" }),
       element("p", { text: "Relative local weights; equal values have equal priority." }),
       field("Followed personas", "number", "feed_followed", feedWeights.followed, "", { min: 0, max: 200 }),
       field("Subscribed communities", "number", "feed_communities", feedWeights.communities, "", { min: 0, max: 200 }),
       field("Replies involving me", "number", "feed_replies", feedWeights.replies, "", { min: 0, max: 200 }),
       field("Revisit memory", "number", "feed_revisit", feedWeights.revisit, "", { min: 0, max: 200 }),
+    ]),
+    settingsPane("reddit", [
       element("h2", { class: "settings-subheading", text: "Reddit projection" }),
       toggle("Crosspost to Reddit by default", "crosspost", Boolean(settings.crosspost_default), "The composer always allows an override."),
       field("This persona’s default", "select", "persona_crosspost", crosspostOverride(settings.persona_crosspost_defaults?.[persona.id]), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
@@ -1837,8 +1930,8 @@ function renderSettings() {
       toggle("Enable Reddacted", "reddacted_enabled", settings.continuity?.reddacted_enabled !== false, "One-way withdrawal of Hydra-originated Reddit projections."),
       field("Reddacted preservation level", "select", "reddacted_archive_level", settings.continuity?.reddacted_archive_level ?? "item", "", { values: [["item", "Item only"], ["ancestors", "Hydra item + Hydra ancestors"], ["visible_siblings", "Hydra context currently loaded"], ["loaded_thread", "Hydra thread currently loaded"]] }),
     ]),
-    element("div", { class: "modal-actions" }, [actionButton("Save settings", null, "primary-button")]),
-    element("section", { class: "context-card" }, [
+    settingsPane("data", [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "Local data storage" }),
       element("p", { text: "All local data is under this folder. Synced posts, comments, subscriptions, and history are stored in an encrypted event log—not as loose Markdown files." }),
       element("p", { class: "source-link", text: storage.root }),
@@ -1861,11 +1954,9 @@ function renderSettings() {
         ]),
       ])),
     ]) : null,
-    element("section", { class: "context-card" }, [
-      element("h2", { text: "Privacy" }),
-      element("p", { text: "Personas are pseudonymous, not guaranteed anonymous. Timing, relays, media servers, IP addresses, writing style, and mistakes can correlate separate keys. Telemetry is off by default." }),
     ]),
-    element("section", { class: "context-card" }, [
+    settingsPane("people", [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "People" }),
       element("p", { text: `${session.state.followCount ?? 0} follows · ${session.state.blockCount ?? 0} blocks · ${session.state.silenceCount ?? 0} silences. Public declarations are signed claims, not moderation decisions.` }),
       element("div", { class: "post-actions" }, [
@@ -1927,7 +2018,7 @@ function renderSettings() {
         actionButton("Stop following silences", () => mutate("silence_source.set", { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank, enabled: false }, "Silence source removed.")),
       ])),
     ]),
-    element("section", { class: "context-card" }, [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "Content judgments" }),
       element("p", { text: `${session.state.hideCount ?? 0} hides · ${session.state.removalCount ?? 0} community removals. These judgments change this persona’s view without deleting events.` }),
       element("div", { class: "post-actions" }, [
@@ -1953,12 +2044,12 @@ function renderSettings() {
       ...hideSources.map((item) => contentSourceRow(item, "hide")),
       ...removalSources.map((item) => contentSourceRow(item, "removal")),
     ]),
-    element("section", { class: "context-card" }, [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "Vote review" }),
       element("p", { text: "Revisit recent and old stances without erasing their history. Reaffirmation remains subject to the 18-hour credit interval." }),
       actionButton("Review my votes", showVoteReview),
     ]),
-    element("section", { class: "context-card" }, [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "Local defenses" }),
       element("p", { text: "Encrypted filters alter only this persona’s lens and do not remove events from Nostr or moderate a community." }),
       actionButton("Add local filter", showLocalFilterEditor),
@@ -1967,18 +2058,20 @@ function renderSettings() {
         actionButton("Remove", () => mutate("filter.set", { persona_id: persona.id, kind: item.kind, value: item.value, enabled: false }, "Local filter removed.")),
       ])),
     ]),
-    element("section", { class: "context-card" }, [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "Encrypted persona archive" }),
       element("p", { text: "Exports include this persona’s key, signed events, durable memory, projection mappings, media manifests, and relay receipts—but no other local persona’s secret." }),
       actionButton("Back up this persona", showBackupExport, "primary-button"),
     ]),
-    element("section", { class: "context-card" }, [
+      element("section", { class: "context-card" }, [
       element("h2", { text: "Raw local evidence" }),
       element("p", { text: "Inspect the verified append-only ledger even when a local lens hides an item. Encrypted private payloads remain ciphertext." }),
       actionButton("Inspect raw events", showRawEvidence),
+      ]),
     ]),
+    element("div", { class: "settings-actions" }, [actionButton("Save settings", null, "primary-button")]),
   ]);
-  view.replaceChildren(header, body);
+  view.replaceChildren(...(isSettingsWindow ? [body] : [header, body]));
 }
 
 function renderWelcome() {
@@ -2693,7 +2786,10 @@ async function preserveMedia(object) {
   }
 }
 
-document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => setRoute(button.dataset.nav)));
+document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.nav === "settings") void openSettings();
+  else setRoute(button.dataset.nav);
+}));
 document.querySelector("#compose-button").addEventListener("click", () => showComposer(session.community));
 document.querySelector("#sync-button").addEventListener("click", async () => {
   try { await mutate("sync.now", {}, "Relay and active Reddit synchronization completed."); } catch { /* toast shown */ }
@@ -2718,6 +2814,7 @@ document.querySelector("#global-search").addEventListener("keydown", async (even
 document.addEventListener("keydown", (event) => {
   const editable = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target?.isContentEditable;
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.querySelector("#global-search").focus(); }
+  else if (event.metaKey && event.key === ",") { event.preventDefault(); void openSettings(); }
   else if (editable && (event.metaKey || event.ctrlKey || event.altKey)) return;
   if (event.key === "Escape") closeModal();
 });

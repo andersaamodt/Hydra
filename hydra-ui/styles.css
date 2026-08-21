@@ -262,10 +262,28 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 
 .form-page { max-width: 720px; margin: 0 auto; padding: 30px 28px 70px; }
 .form-page h2 { font: 600 22px Georgia, serif; }
-.settings-group { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.settings-group > summary { color: var(--ink); cursor: pointer; font-weight: 700; }
-.settings-group-body { padding-top: 4px; }
 .form-page .settings-subheading { margin: 24px 0 4px; font: 700 15px/1.3 system-ui, sans-serif; }
+.settings-page { max-width: 760px; padding-top: 0; }
+.settings-tabs { position: sticky; top: 0; z-index: 4; display: flex; justify-content: center; gap: 5px; margin: 0 -28px 22px; padding: 9px 18px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.settings-tab { min-width: 74px; display: grid; justify-items: center; gap: 3px; padding: 5px 10px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; font-size: 11px; }
+.settings-tab:hover { color: var(--ink); background: var(--shade); }
+.settings-tab.is-active { border-color: var(--line); color: var(--ink); background: var(--panel-2); }
+.settings-tab-icon { font-size: 20px; line-height: 1; }
+.settings-pane { min-height: 390px; }
+.settings-pane[hidden] { display: none; }
+.settings-pane > .settings-subheading:first-child { margin-top: 2px; }
+.settings-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; margin: 22px -28px -70px; padding: 12px 28px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+
+.settings-window .app-shell { display: block; height: 100vh; }
+html.settings-window,
+body.settings-window { min-width: 0; min-height: 0; }
+.settings-window .topbar,
+.settings-window .sidebar,
+.settings-window .context-panel,
+.settings-window .skip-link { display: none; }
+.settings-window .main-panel { width: 100%; height: 100vh; overflow: auto; background: var(--panel); }
+.settings-window .settings-page { min-height: 100%; }
+.settings-window .settings-tabs { padding-inline: 18px; }
 .field { display: grid; gap: 6px; margin: 14px 0; }
 .field > span { color: var(--field-ink); font-size: 12px; font-weight: 650; }
 .field input, .field textarea, .field select { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px 11px; color: var(--ink); background: rgba(255,255,255,.035); outline: 0; }

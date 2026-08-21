@@ -11,6 +11,8 @@ use serde_json::Value;
 use std::process::Command as ProcessCommand;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
+#[cfg(target_os = "macos")]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::{
     ShellExt,
     process::{CommandChild, CommandEvent},
@@ -37,6 +39,38 @@ struct CompanionStatus {
 fn companion_status() -> CompanionStatus {
     CompanionStatus {
         book_club_installed: book_club_installed(),
+    }
+}
+
+#[tauri::command]
+fn open_settings_window(app: AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(window) = app.get_webview_window("settings") {
+            window.show().map_err(|error| error.to_string())?;
+            window.set_focus().map_err(|error| error.to_string())?;
+            return Ok(true);
+        }
+
+        WebviewWindowBuilder::new(
+            &app,
+            "settings",
+            WebviewUrl::App("index.html?window=settings".into()),
+        )
+        .title("Hydra Settings")
+        .inner_size(760.0, 680.0)
+        .min_inner_size(640.0, 520.0)
+        .maximizable(false)
+        .center()
+        .build()
+        .map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(false)
     }
 }
 
@@ -332,7 +366,8 @@ fn main() {
             runtime_state,
             runtime_status,
             runtime_action,
-            companion_status
+            companion_status,
+            open_settings_window
         ])
         .run(tauri::generate_context!())
         .expect("Hydra desktop application failed");

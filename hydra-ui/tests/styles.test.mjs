@@ -6,6 +6,8 @@ const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8")
 const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
 const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const tauri = await readFile(new URL("../../apps/desktop/tauri/tauri.conf.json", import.meta.url), "utf8");
+const desktop = await readFile(new URL("../../apps/desktop/tauri/src/main.rs", import.meta.url), "utf8");
+const capability = await readFile(new URL("../../apps/desktop/tauri/capabilities/default.json", import.meta.url), "utf8");
 
 test("light mode supplies semantic surfaces instead of inheriting dark literals", () => {
   for (const variable of ["--nav-ink", "--bar", "--card-hover", "--body-ink", "--modal"]) {
@@ -25,9 +27,8 @@ test("the permanent shell avoids AI-generated interface foibles", () => {
   assert.doesNotMatch(app, /Your living memory|No rulers, only lenses|view-kicker|view-subtitle|empty-mark/);
   assert.match(app, /function viewHeader\(title, extras = \[\]\)/);
   assert.doesNotMatch(styles, /radial-gradient|linear-gradient|backdrop-filter|border-radius:\s*999px/);
-  assert.match(app, /function settingsGroup\(title, children, open = false\)/);
-  assert.match(app, /settingsGroup\("Advanced settings"/);
-  assert.equal((app.match(/settingsGroup\(/g) ?? []).length, 2);
+  assert.doesNotMatch(app, /Advanced settings/);
+  assert.match(app, /function settingsPane\(id, children\)/);
   assert.match(app, /if \(session\.openNostr\.loaded\) surfaces\.push\(controls\)/);
 });
 
@@ -96,6 +97,20 @@ test("Settings explains and opens Hydra's actual local storage", () => {
   assert.match(app, /storage\.mediaExists \? actionButton\("Open preserved media folder"/);
   assert.match(app, /runtime\("storage\.open", \{ folder \}\)/);
   assert.match(app, /Posts are not stored in separate persona folders/);
+});
+
+test("macOS Settings opens in one dedicated window with horizontal keyboard tabs", () => {
+  assert.match(desktop, /fn open_settings_window\(app: AppHandle\)/);
+  assert.match(desktop, /WebviewWindowBuilder::new\([\s\S]*"settings"[\s\S]*index\.html\?window=settings/);
+  assert.match(desktop, /get_webview_window\("settings"\)/);
+  assert.match(capability, /"windows": \["main", "settings"\]/);
+  assert.match(app, /const SETTINGS_TABS = \[/);
+  assert.match(app, /role: "tablist"/);
+  assert.match(app, /role: "tabpanel"/);
+  assert.match(app, /\["ArrowLeft", "ArrowRight", "Home", "End"\]/);
+  assert.match(app, /event\.metaKey && event\.key === ","/);
+  assert.match(styles, /\.settings-tabs\s*\{[^}]*display:\s*flex/);
+  assert.match(styles, /\.settings-window \.sidebar/);
 });
 
 test("interface copy stays functional instead of adopting a persona", () => {
