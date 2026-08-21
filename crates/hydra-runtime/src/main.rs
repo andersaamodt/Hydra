@@ -639,6 +639,7 @@ struct SettingsUpdateInput {
     persona_crosspost_defaults: Option<BTreeMap<String, bool>>,
     community_crosspost_defaults: Option<BTreeMap<String, bool>>,
     content_crosspost_defaults: Option<BTreeMap<String, bool>>,
+    community_appearances: Option<BTreeMap<String, hydra_store::CommunityAppearanceSetting>>,
     media_copy_enabled: Option<bool>,
     max_media_bytes: Option<u64>,
     persona_blob_servers: Option<BTreeMap<String, Vec<String>>>,
@@ -4166,6 +4167,9 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     }
     if let Some(value) = input.content_crosspost_defaults {
         settings.content_crosspost_defaults = value;
+    }
+    if let Some(value) = input.community_appearances {
+        settings.community_appearances = value;
     }
     if let Some(value) = input.media_copy_enabled {
         settings.media_copy_enabled = value;

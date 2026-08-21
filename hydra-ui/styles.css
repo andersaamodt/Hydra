@@ -130,8 +130,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .topbar { grid-column: 1 / -1; display: grid; grid-template-columns: 230px minmax(280px, 610px) 1fr; align-items: center; gap: 22px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: #07100d; z-index: 5; }
 .brand { display: flex; align-items: center; gap: 11px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
 .brand-mark { width: 40px; height: 40px; display: block; border-radius: 8px; }
-.brand strong, .persona-copy strong, .persona-copy small { display: block; }
+.brand strong, .brand small, .persona-copy strong, .persona-copy small { display: block; }
 .brand strong { font: 700 19px/1.05 Georgia, serif; letter-spacing: .02em; }
+.brand small { margin-bottom: 2px; color: var(--muted); font-size: 10px; line-height: 1; }
 .search-box { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: rgba(255,255,255,.045); }
 .search-box:focus-within { border-color: rgba(108,224,167,.58); }
 .search-box input { flex: 1; min-width: 0; border: 0; outline: 0; color: var(--ink); background: transparent; }
@@ -192,6 +193,16 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .blocked-placeholder p { margin: 6px 0 10px; overflow-wrap: anywhere; }
 .pending-judgment-label { border: 0; padding: 0; color: var(--ink); background: transparent; cursor: pointer; font: inherit; font-weight: 700; }
 .pending-judgment-recall { position: fixed; z-index: 69; border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; color: var(--muted); background: var(--modal); box-shadow: 0 5px 18px rgba(0,0,0,.24); cursor: pointer; font-size: 10px; }
+.is-pending-hide { outline: 1px dashed rgba(127,127,127,.22); outline-offset: -1px; }
+.post-card.is-pending-hide > .vote-column,
+.post-card.is-pending-hide .post-main > :not(.post-actions),
+.comment.is-pending-hide > :not(.post-actions),
+.discussion.is-pending-hide > .meta-line,
+.discussion.is-pending-hide > h1,
+.discussion.is-pending-hide > .discussion-body { opacity: .16; filter: blur(1.2px); }
+.is-pending-hide .post-actions > :not(.judgment-origin),
+.discussion.is-pending-hide > .discussion-toolbar > :not(.judgment-origin) { opacity: .14; filter: blur(.8px); pointer-events: none; }
+.is-pending-hide .judgment-origin { position: relative; z-index: 1; opacity: 1; filter: none; }
 .reddit-card.is-focused { outline: 2px solid var(--accent); outline-offset: 3px; }
 .vote-column { display: flex; flex-direction: column; align-items: center; padding: 13px 6px; border-right: 1px solid var(--line); background: var(--shade); }
 .vote-button { width: 30px; height: 27px; border: 0; border-radius: 7px; color: #81958a; background: transparent; cursor: pointer; }
@@ -207,6 +218,11 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .post-body { display: -webkit-box; margin: 0; overflow: hidden; color: var(--body-ink); font-size: 13px; line-height: 1.52; unicode-bidi: plaintext; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .community-chip, .state-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 2px; border: 0; color: var(--chip-ink); background: transparent; font-size: 10px; }
 .community-tools { display: grid; gap: 10px; margin: 16px 24px 0; padding: 0 0 14px; border-bottom: 1px solid var(--line); }
+.community-image-preview { display: flex; align-items: center; gap: 12px; margin: 8px 0 18px; }
+.community-image-preview img { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; }
+.community-image-preview small, .community-image-preview strong { display: block; }
+.community-image-preview small { color: var(--muted); font-size: 10px; }
+.community-image-preview strong { font: 700 19px/1.1 Georgia, serif; }
 .community-actions, .post-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .norm-field summary { cursor: pointer; color: var(--muted); }
 .norm-card { margin-top: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -290,7 +306,8 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 
 @media (prefers-reduced-motion: no-preference) {
   button, .post-card { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
-  .judgment-callout { animation: judgment-callout-arrive .16s ease-out; }
+  .is-pending-hide > *, .is-pending-hide .post-actions > * { transition: opacity 2.4s ease, filter 2.4s ease; }
+  .judgment-callout { animation: judgment-callout-arrive .8s .18s ease-out both; }
 }
 
 @keyframes judgment-callout-arrive {

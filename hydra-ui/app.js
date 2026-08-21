@@ -34,6 +34,7 @@ const session = {
   revealedBlocks: new Set(),
   confirmingReveals: new Set(),
   pendingJudgment: null,
+  communityImages: new Map(),
   busy: false,
 };
 
@@ -308,6 +309,7 @@ async function handleHydraLinks(links) {
 
 function render() {
   document.documentElement.dataset.theme = session.state?.settings?.theme ?? "system";
+  renderBrand();
   renderPersona();
   renderCommunities();
   renderContext();
@@ -319,6 +321,76 @@ function render() {
   else if (session.route === "settings") renderSettings();
   else renderFeed();
   renderPendingJudgmentCallout();
+}
+
+function topicIdenticon(topic) {
+  let hash = 2166136261;
+  for (const character of topic) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0;
+  const hue = hash % 360;
+  const cells = Array.from({ length: 15 }, (_, index) => ((hash >>> (index % 24)) & 1) ? index : null).filter((value) => value !== null);
+  const mirrored = cells.flatMap((index) => {
+    const row = Math.floor(index / 3);
+    const column = index % 3;
+    return column === 2 ? [[column, row]] : [[column, row], [4 - column, row]];
+  });
+  const squares = mirrored.map(([x, y]) => `<rect x="${x * 20}" y="${y * 20}" width="20" height="20"/>`).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="18" fill="hsl(${hue} 32% 18%)"/><g fill="hsl(${(hue + 38) % 360} 72% 70%)">${squares}</g></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function renderBrand() {
+  const brand = document.querySelector(".brand");
+  const mark = brand.querySelector(".brand-mark");
+  const domain = brand.querySelector("small");
+  const name = brand.querySelector("strong");
+  const community = session.route === "community" ? session.community : null;
+  if (community) {
+    const appearance = session.state?.settings?.community_appearances?.[community];
+    const verified = appearance && session.communityImages.get(`${community}:${appearance.sha256}`);
+    mark.src = verified || topicIdenticon(community);
+    mark.alt = appearance?.alt || `${community} community identicon`;
+    domain.hidden = false;
+    domain.textContent = "/h/";
+    name.textContent = community;
+    brand.setAttribute("aria-label", `${community} community`);
+    if (appearance && !verified) void verifyCommunityImage(community, appearance);
+  } else {
+    mark.src = "hydra-icon.png";
+    mark.alt = "";
+    domain.hidden = true;
+    name.textContent = "Hydra";
+    brand.setAttribute("aria-label", "Hydra home");
+  }
+}
+
+async function verifyCommunityImage(community, appearance) {
+  const key = `${community}:${appearance.sha256}`;
+  if (session.communityImages.has(key)) return;
+  session.communityImages.set(key, null);
+  try {
+    const response = await fetch(appearance.url, { credentials: "omit", referrerPolicy: "no-referrer" });
+    if (!response.ok || Number(response.headers.get("content-length") || 0) > 5 * 1024 * 1024) throw new Error("image unavailable");
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.length;
+      if (length > 5 * 1024 * 1024) { await reader.cancel(); throw new Error("image too large"); }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((value) => value.toString(16).padStart(2, "0")).join("");
+    if (digest !== appearance.sha256) throw new Error("image hash mismatch");
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: appearance.mime_type }));
+    session.communityImages.set(key, objectUrl);
+    if (session.route === "community" && session.community === community) renderBrand();
+  } catch {
+    session.communityImages.set(key, false);
+  }
 }
 
 function renderPersona() {
@@ -466,6 +538,7 @@ function renderCommunityTools(community) {
     element("div", { class: "community-actions" }, [
       actionButton(subscription ? "Unsubscribe" : "Subscribe privately", () => setCommunitySubscription(community, !subscription, false), subscription ? "quiet-button" : "primary-button"),
       actionButton(subscription?.public ? "Subscription is public" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
+      actionButton("Community image", () => showCommunityAppearanceEditor(community)),
       actionButton("Propose a norm", () => showNormComposer(community)),
     ]),
     element("details", { class: "norm-field" }, [
@@ -483,6 +556,37 @@ function renderCommunityTools(community) {
   ]);
 }
 
+function showCommunityAppearanceEditor(community) {
+  const current = session.state.settings?.community_appearances?.[community];
+  const verified = current && session.communityImages.get(`${community}:${current.sha256}`);
+  modal("Community image", `Choose how ${community} appears to you. The bare topic name does not change.`, element("div", {}, [
+    element("div", { class: "community-image-preview" }, [
+      element("img", { src: verified || topicIdenticon(community), alt: current?.alt || `${community} community identicon` }),
+      element("div", {}, [element("small", { text: "/h/" }), element("strong", { text: community })]),
+    ]),
+    field("HTTPS image URL", "url", "url", current?.url ?? "", "Leave this empty to return to the deterministic topic identicon."),
+    field("SHA-256", "text", "sha256", current?.sha256 ?? "", "The downloaded bytes must match this content hash."),
+    field("MIME type", "select", "mime_type", current?.mime_type ?? "image/png", "", { values: [["image/png", "PNG"], ["image/jpeg", "JPEG"], ["image/webp", "WebP"]] }),
+    field("Width", "number", "width", current?.width ?? 256, "Pixels; maximum 4096.", { min: 1, max: 4096 }),
+    field("Height", "number", "height", current?.height ?? 256, "Pixels; maximum 4096.", { min: 1, max: 4096 }),
+    field("Alt text", "text", "alt", current?.alt ?? `${community} community image`, "Describe the image rather than the community."),
+    element("p", { class: "evidence-note", text: "Published appearance choices are signed, replaceable Flocking records; this local choice takes precedence in your view." }),
+  ]), { submitLabel: current ? "Save local choice" : "Use image locally", onSubmit: (data) => {
+    const appearances = { ...(session.state.settings?.community_appearances ?? {}) };
+    const url = String(data.get("url") ?? "").trim();
+    if (!url) delete appearances[community];
+    else appearances[community] = {
+      url,
+      sha256: String(data.get("sha256") ?? "").trim().toLowerCase(),
+      mime_type: String(data.get("mime_type")),
+      width: Number(data.get("width")),
+      height: Number(data.get("height")),
+      alt: String(data.get("alt") ?? "").trim(),
+    };
+    return mutate("settings.update", { community_appearances: appearances }, url ? "Community image saved locally." : "Deterministic community identicon restored.");
+  } });
+}
+
 function emptyState(title, body, action, onAction) {
   return element("div", { class: "empty-state" }, [
     element("h2", { text: title }),
@@ -493,7 +597,8 @@ function emptyState(title, body, action, onAction) {
 
 function postCard(post, lens, community) {
   const effect = judgmentEffect(post, community);
-  if (effect && !session.revealedBlocks.has(post.anchor)) {
+  const pendingHide = effect?.pending && effect.kind === "hide";
+  if (effect && !pendingHide && !session.revealedBlocks.has(post.anchor)) {
     return blockedPlaceholder(post, "Post", effect);
   }
   const origin = provenance(post);
@@ -528,7 +633,7 @@ function postCard(post, lens, community) {
       element("button", { type: "button", class: "text-action", text: "Feed reason", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
     ]),
   ]);
-  return element("article", { class: "post-card" }, [vote, main]);
+  return element("article", { class: `post-card${pendingHide ? " is-pending-hide" : ""}` }, [vote, main]);
 }
 
 function renderDiscussion(anchor) {
@@ -537,11 +642,12 @@ function renderDiscussion(anchor) {
   const origin = provenance(post);
   const comments = commentsFor(session.state, anchor);
   const effect = judgmentEffect(post, session.community);
-  if (effect && !session.revealedBlocks.has(post.anchor)) {
+  const pendingHide = effect?.pending && effect.kind === "hide";
+  if (effect && !pendingHide && !session.revealedBlocks.has(post.anchor)) {
     view.replaceChildren(element("button", { type: "button", class: "back-button", text: "← Back to feed", onclick: () => { session.selected = null; render(); } }), blockedPlaceholder(post, "Post", effect));
     return;
   }
-  const article = element("article", { class: "discussion" }, [
+  const article = element("article", { class: `discussion${pendingHide ? " is-pending-hide" : ""}` }, [
     element("button", { type: "button", class: "back-button", text: "← Back to feed", onclick: () => { session.selected = null; render(); } }),
     element("div", { class: "meta-line" }, [
       element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
@@ -581,12 +687,13 @@ function renderDiscussion(anchor) {
 
 function commentView(comment) {
   const effect = judgmentEffect(comment, session.community);
-  if (effect && !session.revealedBlocks.has(comment.anchor)) {
+  const pendingHide = effect?.pending && effect.kind === "hide";
+  if (effect && !pendingHide && !session.revealedBlocks.has(comment.anchor)) {
     return blockedPlaceholder(comment, "Comment", effect, `margin-left:${Math.min(comment.depth, 6) * 22}px`);
   }
   const persona = activePersona(session.state);
   const origin = provenance(comment);
-  return element("article", { class: "comment", style: `margin-left:${Math.min(comment.depth, 6) * 22}px` }, [
+  return element("article", { class: `comment${pendingHide ? " is-pending-hide" : ""}`, style: `margin-left:${Math.min(comment.depth, 6) * 22}px` }, [
     element("div", { class: "meta-line" }, [
       element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
       element("button", { type: "button", class: "text-action", text: comment.author, onclick: () => showPersonaProfile(comment.author) }),
@@ -728,9 +835,10 @@ function reopenPendingJudgmentCallout(event, kind, target) {
 
 function instantJudgmentButton(label, kind, target, onAction, className = "text-action") {
   const reveal = (event) => reopenPendingJudgmentCallout(event, kind, target);
+  const pendingOrigin = session.pendingJudgment?.kind === kind && session.pendingJudgment?.target === target;
   return element("button", {
     type: "button",
-    class: className,
+    class: `${className}${pendingOrigin ? " judgment-origin" : ""}`,
     text: label,
     disabled: session.busy,
     onpointerenter: reveal,

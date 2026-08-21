@@ -131,4 +131,18 @@ test("one-click judgments use a pausable anchored grace-period callout", () => {
   assert.match(styles, /\.judgment-callout::before/);
   assert.match(styles, /@keyframes judgment-callout-arrive/);
   assert.doesNotMatch(app, /text: "Hide…"/);
+  assert.match(app, /pendingHide.*effect\?\.pending/s);
+  assert.match(styles, /\.is-pending-hide/);
+  assert.match(styles, /transition: opacity 2\.4s ease, filter 2\.4s ease/);
+  assert.match(styles, /judgment-callout-arrive \.8s \.18s/);
+});
+
+test("community routes replace app branding with the bare topic identity", () => {
+  assert.match(app, /function renderBrand\(\)/);
+  assert.match(app, /domain\.textContent = "\/h\/"/);
+  assert.match(app, /name\.textContent = community/);
+  assert.match(app, /topicIdenticon\(community\)/);
+  assert.match(app, /community_appearances/);
+  assert.match(app, /showCommunityAppearanceEditor/);
+  assert.match(styles, /\.community-image-preview/);
 });

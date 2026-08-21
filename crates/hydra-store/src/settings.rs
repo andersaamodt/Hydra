@@ -71,6 +71,17 @@ impl Default for ContinuitySettings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct CommunityAppearanceSetting {
+    pub url: String,
+    pub sha256: String,
+    pub mime_type: String,
+    pub width: u32,
+    pub height: u32,
+    pub alt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Settings {
     pub relays: Vec<String>,
     #[serde(default)]
@@ -104,6 +115,8 @@ pub struct Settings {
     pub reddit_export_imports: BTreeMap<String, BTreeSet<String>>,
     #[serde(default)]
     pub local_topic_assignments: BTreeMap<String, BTreeMap<String, Vec<String>>>,
+    #[serde(default)]
+    pub community_appearances: BTreeMap<String, CommunityAppearanceSetting>,
     #[serde(default = "default_media_copy_enabled")]
     pub media_copy_enabled: bool,
     #[serde(default = "default_max_media_bytes")]
@@ -195,6 +208,7 @@ impl Default for Settings {
             content_crosspost_defaults: BTreeMap::new(),
             reddit_export_imports: BTreeMap::new(),
             local_topic_assignments: BTreeMap::new(),
+            community_appearances: BTreeMap::new(),
             media_copy_enabled: default_media_copy_enabled(),
             max_media_bytes: default_max_media_bytes(),
             persona_blob_servers: BTreeMap::new(),
@@ -289,6 +303,29 @@ impl Settings {
     }
 
     fn validate_local_records(&self) -> Result<(), StoreError> {
+        if self.community_appearances.len() > 10_000
+            || self.community_appearances.iter().any(|(topic, image)| {
+                hydra_domain::CommunityKey::parse(topic).is_err()
+                    || !image.url.starts_with("https://")
+                    || image.url.len() > 2_048
+                    || image.sha256.len() != 64
+                    || !image.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    || !matches!(
+                        image.mime_type.as_str(),
+                        "image/png" | "image/jpeg" | "image/webp"
+                    )
+                    || image.width == 0
+                    || image.height == 0
+                    || image.width > 4_096
+                    || image.height > 4_096
+                    || image.alt.trim().is_empty()
+                    || image.alt.len() > 280
+            })
+        {
+            return Err(StoreError::InvalidSettings(
+                "community appearance metadata is invalid".to_owned(),
+            ));
+        }
         if self.reddit_export_imports.values().any(|items| {
             items.len() > 500_000
                 || items.iter().any(|item| {

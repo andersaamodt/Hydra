@@ -33,7 +33,9 @@ use thiserror::Error;
 
 mod settings;
 
-pub use settings::{PersonaRelaySettings, ReadinessProbe, Settings, SettingsStore};
+pub use settings::{
+    CommunityAppearanceSetting, PersonaRelaySettings, ReadinessProbe, Settings, SettingsStore,
+};
 
 /// Runs a blocking platform-keyring operation without allowing a missing
 /// desktop credential service to stall Hydra's local encrypted fallback.

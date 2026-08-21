@@ -45,8 +45,8 @@ chacha20poly1305 = "0.10"
 csv = "1"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 time = { version = "0.3", features = ["parsing"] }
-flocking-core = { git = "https://github.com/andersaamodt/flocking", rev = "dcc403a95eee3053cf720a1476562077d575c2ce" }
-flocking-nostr = { git = "https://github.com/andersaamodt/flocking", rev = "dcc403a95eee3053cf720a1476562077d575c2ce" }
+flocking-core = { git = "https://github.com/andersaamodt/flocking", rev = "50fc1b1" }
+flocking-nostr = { git = "https://github.com/andersaamodt/flocking", rev = "50fc1b1" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

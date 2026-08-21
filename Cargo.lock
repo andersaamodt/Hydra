@@ -1449,7 +1449,7 @@ dependencies = [
 [[package]]
 name = "flocking-core"
 version = "0.1.0"
-source = "git+https://github.com/andersaamodt/flocking?rev=dcc403a95eee3053cf720a1476562077d575c2ce#dcc403a95eee3053cf720a1476562077d575c2ce"
+source = "git+https://github.com/andersaamodt/flocking?rev=50fc1b1#50fc1b1b70b8ed0540806ef1d8c5ec9c6deba4fc"
 dependencies = [
  "serde",
  "serde_json",
@@ -1460,7 +1460,7 @@ dependencies = [
 [[package]]
 name = "flocking-nostr"
 version = "0.1.0"
-source = "git+https://github.com/andersaamodt/flocking?rev=dcc403a95eee3053cf720a1476562077d575c2ce#dcc403a95eee3053cf720a1476562077d575c2ce"
+source = "git+https://github.com/andersaamodt/flocking?rev=50fc1b1#50fc1b1b70b8ed0540806ef1d8c5ec9c6deba4fc"
 dependencies = [
  "flocking-core",
  "nostr",
