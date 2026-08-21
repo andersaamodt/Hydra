@@ -13,11 +13,12 @@ use std::{
 };
 
 use hydra_app::{
-    ArchiveService, BackupService, CreateComment, CreateExternalComment, CreateNorm, CreatePost,
-    CurateEvent, DiscussionService, DraftService, EditObject, ImportAuthoredPost, ImportService,
-    MessagingService, PersonaService, PlatformSecretStore, PreserveAndPublishMedia, PrivateState,
-    ProjectionService, PublishFollowSet, ReactToObject, RemoveRevisit, RequestObjectDisowning,
-    SendDirectMessage, SetBlock, SetCommunitySubscription, SetFollow, SetLocalFilter, SetRevisit,
+    ArchiveService, BackupService, BlockJudgmentAction, CreateComment, CreateExternalComment,
+    CreateNorm, CreatePost, CurateEvent, DiscussionService, DraftService, EditObject,
+    ImportAuthoredPost, ImportService, MessagingService, PersonaService, PlatformSecretStore,
+    PreserveAndPublishMedia, PrivateState, ProjectionService, PublishFollowSet, ReactToObject,
+    RemoveRevisit, RequestObjectDisowning, SendDirectMessage, SetBlockSource,
+    SetCommunitySubscription, SetFlockingBlock, SetFollow, SetLocalFilter, SetRevisit,
     SocialService, SyncService, private_state,
 };
 use hydra_domain::{
@@ -98,6 +99,8 @@ struct HydraState<'a> {
     follows: Vec<SocialView>,
     public_follow_sets: Vec<PublicFollowSetView<'a>>,
     blocks: Vec<SocialView>,
+    block_exceptions: Vec<SocialView>,
+    block_sources: Vec<BlockSourceView>,
     filters: Vec<FilterView<'a>>,
     visible_anchors: Vec<String>,
     feed_orders: BTreeMap<&'static str, Vec<String>>,
@@ -204,6 +207,8 @@ struct ObjectView<'a> {
     reddit_projected: bool,
     disowned: bool,
     edited_at: u64,
+    block: Option<BlockEffectView>,
+    topic_blocks: BTreeMap<String, BlockEffectView>,
 }
 
 #[derive(Debug, Serialize)]
@@ -265,6 +270,30 @@ struct SocialView {
     target: String,
     public: bool,
     reason: Option<String>,
+    scope: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BlockSourceView {
+    persona_id: String,
+    source: String,
+    global: bool,
+    topics: Vec<String>,
+    rank: u32,
+    completeness: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BlockEffectView {
+    uncertain: bool,
+    inherited: bool,
+    source: Option<String>,
+    event_id: Option<String>,
+    reason: Option<String>,
+    scope: Option<String>,
+    why: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -481,6 +510,21 @@ struct BlockInput {
     public: bool,
     blocked: bool,
     reason: Option<String>,
+    #[serde(default)]
+    topic: Option<String>,
+    #[serde(default)]
+    action: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlockSourceInput {
+    persona_id: String,
+    source: String,
+    global: bool,
+    #[serde(default)]
+    topics: Vec<String>,
+    rank: u32,
+    enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1223,6 +1267,9 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     let follows = follow_views(&store, &private_states);
     let public_follow_sets = public_follow_set_views(&store);
     let blocks = block_views(&store, &private_states);
+    let block_count = blocks.len();
+    let block_exceptions = unblock_views(&store, &private_states);
+    let block_sources = block_source_views(&private_states);
     let filters = filter_views(&private_states);
     let (visible_anchors, feed_orders, my_feed_order) =
         lens_views(&store, &settings, &private_states);
@@ -1244,6 +1291,8 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
         follows,
         public_follow_sets,
         blocks,
+        block_exceptions,
+        block_sources,
         filters,
         visible_anchors,
         feed_orders,
@@ -1267,17 +1316,7 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
                 .flat_map(|state| state.follows.values())
                 .filter(|follow| follow.following)
                 .count(),
-        block_count: store
-            .state()
-            .blocks
-            .values()
-            .filter(|block| block.blocked)
-            .count()
-            + private_states
-                .iter()
-                .flat_map(|state| state.blocks.values())
-                .filter(|block| block.blocked)
-                .count(),
+        block_count,
         message_request_count,
         media_count: store.state().media.len(),
         archive_count: store.state().archive_manifests.len(),
@@ -1411,11 +1450,12 @@ fn object_views<'a>(
         .active_persona_id
         .as_deref()
         .and_then(|persona| settings.local_topic_assignments.get(persona));
+    let block_context = active_persona_id(store, settings).zip(private_states.first());
     store
         .state()
         .heads
         .current_heads()
-        .map(|head| object_view(store, settings, local_topics, &trusted, head))
+        .map(|head| object_view(store, settings, local_topics, &trusted, block_context, head))
         .collect()
 }
 
@@ -1424,8 +1464,35 @@ fn object_view<'a>(
     settings: &Settings,
     local_topics: Option<&BTreeMap<String, Vec<String>>>,
     trusted: &BTreeSet<&NostrPublicKey>,
+    block_context: Option<(PersonaId, &PrivateState)>,
     head: &'a hydra_domain::ObjectHead,
 ) -> ObjectView<'a> {
+    let communities = object_communities(head, local_topics);
+    let block = block_context.and_then(|(persona, private)| {
+        block_effect_view(hydra_lens::block_decision(
+            store,
+            private,
+            persona,
+            &head.author,
+            None,
+        ))
+    });
+    let topic_blocks = block_context.map_or_else(BTreeMap::new, |(persona, private)| {
+        communities
+            .iter()
+            .filter_map(|topic| {
+                let community = CommunityKey::parse(topic).ok()?;
+                let effect = block_effect_view(hydra_lens::block_decision(
+                    store,
+                    private,
+                    persona,
+                    &head.author,
+                    Some(&community),
+                ))?;
+                Some((topic.clone(), effect))
+            })
+            .collect()
+    });
     ObjectView {
         anchor: head.anchor.as_str(),
         author: head.author.as_str(),
@@ -1436,7 +1503,7 @@ fn object_view<'a>(
         },
         title: head.title.as_deref(),
         body: head.body.as_str(),
-        communities: object_communities(head, local_topics),
+        communities,
         root: head.root.as_ref().map(AnchorId::as_str),
         parent: head.parent.as_ref().map(AnchorId::as_str),
         external_root: head
@@ -1473,6 +1540,8 @@ fn object_view<'a>(
             .filter(|candidate| candidate.root.as_ref() == Some(&head.anchor))
             .count(),
         controversy: runtime_controversy(store, &head.anchor),
+        block,
+        topic_blocks,
         durability: durability_state(
             store,
             &head.anchor,
@@ -2067,6 +2136,7 @@ fn follow_views(store: &DurableStore, private: &[PrivateState]) -> Vec<SocialVie
             target: item.target.to_string(),
             public: true,
             reason: None,
+            scope: "global".to_owned(),
         })
         .collect::<Vec<_>>();
     views.extend(private.iter().flat_map(|state| {
@@ -2079,6 +2149,7 @@ fn follow_views(store: &DurableStore, private: &[PrivateState]) -> Vec<SocialVie
                 target: item.target.to_string(),
                 public: false,
                 reason: None,
+                scope: "global".to_owned(),
             })
     }));
     views
@@ -2110,6 +2181,7 @@ fn block_views(store: &DurableStore, private: &[PrivateState]) -> Vec<SocialView
             target: item.target.to_string(),
             public: true,
             reason: item.reason.clone(),
+            scope: "global".to_owned(),
         })
         .collect::<Vec<_>>();
     views.extend(private.iter().flat_map(|state| {
@@ -2122,9 +2194,127 @@ fn block_views(store: &DurableStore, private: &[PrivateState]) -> Vec<SocialView
                 target: item.target.to_string(),
                 public: false,
                 reason: item.reason.clone(),
+                scope: "global".to_owned(),
             })
     }));
+    views.extend(flocking_block_views(
+        store,
+        private,
+        flocking_core::Action::Block,
+    ));
+    let mut seen = BTreeSet::new();
+    views.retain(|view| {
+        seen.insert((
+            view.persona_id.clone(),
+            view.target.clone(),
+            view.public,
+            view.scope.clone(),
+        ))
+    });
     views
+}
+
+fn unblock_views(store: &DurableStore, private: &[PrivateState]) -> Vec<SocialView> {
+    flocking_block_views(store, private, flocking_core::Action::Unblock)
+}
+
+fn flocking_block_views(
+    store: &DurableStore,
+    private: &[PrivateState],
+    action: flocking_core::Action,
+) -> Vec<SocialView> {
+    let mut judgments = store.state().flocking_judgments.clone();
+    judgments.extend(private.iter().flat_map(|state| {
+        state
+            .flocking_judgments
+            .values()
+            .map(|record| record.judgment.clone())
+    }));
+    flocking_core::canonical_current(&judgments)
+        .into_iter()
+        .filter_map(|judgment| block_judgment_view(store, &judgment, action))
+        .collect()
+}
+
+fn block_judgment_view(
+    store: &DurableStore,
+    judgment: &flocking_core::Judgment,
+    action: flocking_core::Action,
+) -> Option<SocialView> {
+    if judgment.faculty != flocking_core::Faculty::Block || judgment.action != action {
+        return None;
+    }
+    let flocking_core::Target::Person(target) = &judgment.target else {
+        return None;
+    };
+    let persona_id = store.state().personas.iter().find_map(|persona| {
+        (hydra_nostr::flocking_public_key(&persona.public_key)
+            .ok()
+            .as_ref()
+            == Some(&judgment.author))
+        .then_some(persona.id)
+    })?;
+    Some(SocialView {
+        persona_id: persona_id.to_string(),
+        target: target.to_string(),
+        public: judgment.evidence != flocking_core::JudgmentEvidence::Local,
+        reason: judgment.reason.clone(),
+        scope: judgment.scope.to_string(),
+    })
+}
+
+fn block_effect_view(decision: hydra_lens::BlockDecision) -> Option<BlockEffectView> {
+    decision.excluded.then_some(BlockEffectView {
+        uncertain: decision.uncertain,
+        inherited: decision.inherited,
+        source: decision.source,
+        event_id: decision.event_id,
+        reason: decision.reason,
+        scope: decision.scope,
+        why: decision.why,
+    })
+}
+
+fn block_source_views(private: &[PrivateState]) -> Vec<BlockSourceView> {
+    private
+        .iter()
+        .filter_map(|state| state.flocking_profile.as_ref())
+        .flat_map(|profile| {
+            profile.config.sources.iter().filter_map(|source| {
+                let grant = source
+                    .grants
+                    .iter()
+                    .find(|grant| grant.faculty == flocking_core::Faculty::Block)?;
+                let relevant = profile.source_states.iter().filter(|state| {
+                    state.source == source.pubkey && state.faculty == flocking_core::Faculty::Block
+                });
+                let completeness = relevant
+                    .map(|state| state.completeness)
+                    .min_by_key(|state| match state {
+                        flocking_core::Completeness::Unknown => 0,
+                        flocking_core::Completeness::Stale => 1,
+                        flocking_core::Completeness::Complete => 2,
+                    })
+                    .unwrap_or(flocking_core::Completeness::Unknown);
+                Some(BlockSourceView {
+                    persona_id: profile.persona.to_string(),
+                    source: source.pubkey.to_string(),
+                    global: grant.global,
+                    topics: grant
+                        .topics
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
+                    rank: grant.rank.unwrap_or(1),
+                    completeness: match completeness {
+                        flocking_core::Completeness::Complete => "complete",
+                        flocking_core::Completeness::Stale => "stale",
+                        flocking_core::Completeness::Unknown => "unknown",
+                    },
+                })
+            })
+        })
+        .collect()
 }
 
 fn filter_views(private: &[PrivateState]) -> Vec<FilterView<'_>> {
@@ -2226,6 +2416,7 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "follow.set" => follow_action(root, input),
         "follow_set.publish" => publish_follow_set_action(root, input),
         "block.set" => block_action(root, input),
+        "block_source.set" => block_source_action(root, input),
         "filter.set" => local_filter_action(root, input),
         "message.send" => send_message_action(root, input).await,
         "community.subscribe" => community_subscription_action(root, input),
@@ -4503,19 +4694,55 @@ fn block_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let persona = PersonaId::parse(&input.persona_id)?;
     let settings = SettingsStore::new(root).load()?;
     let mut store = DurableStore::open(root)?;
-    SocialService::new(PlatformSecretStore).set_block(
+    let action = match input.action.as_deref() {
+        Some("block") | None if input.blocked => BlockJudgmentAction::Block,
+        Some("unblock") | None => BlockJudgmentAction::Unblock,
+        Some("withdraw") => BlockJudgmentAction::Withdraw,
+        Some(other) => {
+            return Err(RuntimeError::InvalidInput(format!(
+                "unknown block judgment action {other}"
+            )));
+        }
+    };
+    SocialService::new(PlatformSecretStore).set_flocking_block(
         &mut store,
-        &SetBlock {
+        &SetFlockingBlock {
             persona_id: persona,
             target: NostrPublicKey::parse(input.target)?,
+            topic: input.topic.map(CommunityKey::parse).transpose()?,
             public: input.public,
-            blocked: input.blocked,
+            action,
             reason: input.reason,
             relays: settings.write_relays_for(persona).to_vec(),
             changed_at: unix_now(),
         },
     )?;
     print_changed("block.set")
+}
+
+fn block_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: BlockSourceInput = serde_json::from_str(input)?;
+    let persona = PersonaId::parse(&input.persona_id)?;
+    let topics = input
+        .topics
+        .into_iter()
+        .map(CommunityKey::parse)
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let mut store = DurableStore::open(root)?;
+    SocialService::new(PlatformSecretStore).set_block_source(
+        &mut store,
+        &SetBlockSource {
+            persona_id: persona,
+            source: NostrPublicKey::parse(input.source)?,
+            global: input.global,
+            topics,
+            rank: input.rank,
+            enabled: input.enabled,
+            completeness: flocking_core::Completeness::Unknown,
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("block_source.set")
 }
 
 fn local_filter_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
@@ -4638,6 +4865,9 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
                 ImportService::receive_public(&mut store, &event.as_json(), unix_now())?;
             }
         }
+        if let Some(persona) = active_persona {
+            sync_flocking_block_sources(&mut store, &settings, persona).await?;
+        }
         synchronize_recent_reddit_projections(&mut store, &settings);
         let personas = store
             .state()
@@ -4678,6 +4908,62 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
         unix_now(),
     )?;
     result
+}
+
+async fn sync_flocking_block_sources(
+    store: &mut DurableStore,
+    settings: &Settings,
+    persona: PersonaId,
+) -> Result<(), RuntimeError> {
+    let profile = private_state(&PlatformSecretStore, store, persona)?.flocking_profile;
+    let block_sources = profile
+        .into_iter()
+        .flat_map(|profile| profile.config.sources)
+        .filter_map(|source| {
+            let grant = source
+                .grants
+                .into_iter()
+                .find(|grant| grant.faculty == flocking_core::Faculty::Block)?;
+            Some((source.pubkey, grant))
+        })
+        .collect::<Vec<_>>();
+    if block_sources.is_empty() {
+        return Ok(());
+    }
+    let relays = allowed_read_relays(settings, store, persona)?;
+    if relays.is_empty() {
+        return Ok(());
+    }
+    let sources = block_sources
+        .iter()
+        .map(|(source, _)| source.clone())
+        .collect::<Vec<_>>();
+    let mut events = hydra_nostr::fetch_flocking_block_events(&relays, &sources).await?;
+    events.sort_by_key(|event| event.created_at);
+    for event in events {
+        ImportService::receive_public(store, &event.as_json(), unix_now())?;
+    }
+    for (source, grant) in block_sources {
+        let topics = grant
+            .topics
+            .iter()
+            .map(|topic| CommunityKey::parse(topic.as_str()))
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        SocialService::new(PlatformSecretStore).set_block_source(
+            store,
+            &SetBlockSource {
+                persona_id: persona,
+                source: NostrPublicKey::parse(source.to_string())?,
+                global: grant.global,
+                topics,
+                rank: grant.rank.unwrap_or(1),
+                enabled: true,
+                completeness: flocking_core::Completeness::Complete,
+                changed_at: unix_now(),
+            },
+        )?;
+    }
+    Ok(())
 }
 
 fn synchronize_recent_reddit_projections(store: &mut DurableStore, settings: &Settings) {

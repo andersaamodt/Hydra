@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use flocking_core::{Config as FlockingConfig, Judgment, SourceState};
 use serde::{Deserialize, Serialize};
 
 use crate::{AnchorId, CommunityKey, DomainError, NostrPublicKey, PersonaId};
@@ -263,6 +264,59 @@ pub struct BlockRecord {
     pub changed_at: u64,
 }
 
+/// Encrypted persona-local configuration for voluntarily followed judgments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlockingProfile {
+    pub persona: PersonaId,
+    pub config: FlockingConfig,
+    pub source_states: Vec<SourceState>,
+    pub changed_at: u64,
+}
+
+impl FlockingProfile {
+    /// Revalidates the portable configuration and its declared source inputs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid configuration or a source state outside
+    /// one of its grants.
+    pub fn validate(&self) -> Result<(), DomainError> {
+        self.config
+            .validate()
+            .map_err(|_| DomainError::InvalidFlocking)?;
+        for state in &self.source_states {
+            let Some(grant) = self.config.grant(&state.source, state.faculty) else {
+                return Err(DomainError::InvalidFlocking);
+            };
+            if !grant.enables(&state.scope) {
+                return Err(DomainError::InvalidFlocking);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One direct Flocking judgment authored locally or queued for publication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlockingJudgmentRecord {
+    pub persona: PersonaId,
+    pub public: bool,
+    pub judgment: Judgment,
+}
+
+impl FlockingJudgmentRecord {
+    /// Revalidates one direct judgment before it affects a persona's view.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid Flocking tuple or action.
+    pub fn validate(&self) -> Result<(), DomainError> {
+        self.judgment
+            .validate()
+            .map_err(|_| DomainError::InvalidFlocking)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalFilterKind {
@@ -350,6 +404,8 @@ pub enum PrivateRecord {
     DirectMessage(DirectMessageRecord),
     CommunitySubscription(CommunitySubscription),
     LocalFilter(LocalFilterRecord),
+    FlockingProfile(FlockingProfile),
+    FlockingJudgment(FlockingJudgmentRecord),
 }
 
 impl PrivateRecord {
@@ -376,6 +432,8 @@ impl PrivateRecord {
             Self::DirectMessage(item) => item.validate(),
             Self::CommunitySubscription(_) => Ok(()),
             Self::LocalFilter(item) => item.validate(),
+            Self::FlockingProfile(item) => item.validate(),
+            Self::FlockingJudgment(item) => item.validate(),
         }
     }
 }
@@ -389,6 +447,8 @@ pub struct PrivateState {
     pub messages: Vec<DirectMessageRecord>,
     pub subscriptions: BTreeMap<crate::CommunityKey, CommunitySubscription>,
     pub filters: BTreeMap<(LocalFilterKind, String), LocalFilterRecord>,
+    pub flocking_profile: Option<FlockingProfile>,
+    pub flocking_judgments: BTreeMap<String, FlockingJudgmentRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

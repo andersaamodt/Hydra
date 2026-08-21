@@ -32,4 +32,6 @@ pub enum DomainError {
     InvalidOperationId,
     #[error("projection identifier is invalid")]
     InvalidProjectionId,
+    #[error("Flocking state is invalid")]
+    InvalidFlocking,
 }

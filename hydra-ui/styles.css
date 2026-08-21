@@ -188,6 +188,8 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .post-card { display: grid; grid-template-columns: 48px minmax(0,1fr); border-bottom: 1px solid var(--line); background: transparent; overflow: hidden; }
 .post-card.open-nostr-card { grid-template-columns: minmax(0,1fr); }
 .post-card:hover { background: var(--card-hover); }
+.blocked-placeholder { margin: 0; padding: 16px; border-bottom: 1px solid var(--line); color: var(--muted); background: rgba(127,127,127,.055); }
+.blocked-placeholder p { margin: 6px 0 10px; overflow-wrap: anywhere; }
 .reddit-card.is-focused { outline: 2px solid var(--accent); outline-offset: 3px; }
 .vote-column { display: flex; flex-direction: column; align-items: center; padding: 13px 6px; border-right: 1px solid var(--line); background: var(--shade); }
 .vote-button { width: 30px; height: 27px; border: 0; border-radius: 7px; color: #81958a; background: transparent; cursor: pointer; }

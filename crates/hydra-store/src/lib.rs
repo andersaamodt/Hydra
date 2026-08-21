@@ -1004,6 +1004,7 @@ pub struct ReplayState {
     pub blocks: BTreeMap<(PersonaId, NostrPublicKey), BlockRecord>,
     pub subscriptions: BTreeMap<(PersonaId, CommunityKey), CommunitySubscription>,
     pub received_events: BTreeMap<String, String>,
+    pub flocking_judgments: Vec<flocking_core::Judgment>,
     pub media: BTreeMap<(AnchorId, String), MediaManifest>,
 }
 
@@ -1107,9 +1108,15 @@ impl ReplayState {
                 heads,
                 reactions,
                 public_projections,
-            } => {
-                self.apply_remote_event(event_id, event_json, heads, reactions, public_projections)
-            }
+                flocking_judgments,
+            } => self.apply_remote_event(
+                event_id,
+                event_json,
+                heads,
+                reactions,
+                public_projections,
+                flocking_judgments,
+            ),
             DurableEvent::MediaPreserved(manifest)
             | DurableEvent::MediaPreservedFor { manifest, .. } => self.apply_media(manifest),
             DurableEvent::MediaPublished {
@@ -1145,6 +1152,9 @@ impl ReplayState {
                 outbound,
             } => self.apply_subscription(subscription, outbound),
             DurableEvent::BlockChanged { block, outbound } => self.apply_block(block, outbound),
+            DurableEvent::FlockingJudgmentChanged { record, outbound } => {
+                self.apply_flocking_judgment(record, outbound)
+            }
             DurableEvent::ArchiveCaptured(manifest) => self.apply_archive_manifest(manifest),
             DurableEvent::ProjectionChanged {
                 projection,
@@ -1353,6 +1363,7 @@ impl ReplayState {
         heads: &[ObjectHead],
         reactions: &[ReactionRecord],
         public_projections: &[PublicProjectionRecord],
+        flocking_judgments: &[flocking_core::Judgment],
     ) -> Result<(), DomainError> {
         if event_id.is_empty() || event_json.is_empty() {
             return Err(DomainError::Empty);
@@ -1392,8 +1403,24 @@ impl ReplayState {
                 })
                 .or_insert_with(|| projection.clone());
         }
+        self.flocking_judgments
+            .extend(flocking_judgments.iter().cloned());
         self.received_events
             .insert(event_id.to_owned(), event_json.to_owned());
+        Ok(())
+    }
+
+    fn apply_flocking_judgment(
+        &mut self,
+        record: &hydra_domain::FlockingJudgmentRecord,
+        outbound: &[OutboundEvent],
+    ) -> Result<(), DomainError> {
+        if !self.personas.contains(record.persona) || !record.public {
+            return Err(DomainError::InvalidFlocking);
+        }
+        record.validate()?;
+        self.flocking_judgments.push(record.judgment.clone());
+        self.apply_outbound(outbound);
         Ok(())
     }
 

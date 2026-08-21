@@ -3,8 +3,9 @@ use uuid::Uuid;
 
 use crate::{
     ArchiveManifest, BlockRecord, CommunitySubscription, ContinuityWorkflow, DeliveryState,
-    EncryptedPrivateRecord, FollowRecord, MediaManifest, ObjectHead, OperationId, OperationState,
-    OutboundEvent, Persona, Projection, PublicFollowSet, PublicProjectionRecord, ReactionRecord,
+    EncryptedPrivateRecord, FlockingJudgmentRecord, FollowRecord, MediaManifest, ObjectHead,
+    OperationId, OperationState, OutboundEvent, Persona, Projection, PublicFollowSet,
+    PublicProjectionRecord, ReactionRecord,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,6 +73,8 @@ pub enum DurableEvent {
         reactions: Vec<ReactionRecord>,
         #[serde(default)]
         public_projections: Vec<PublicProjectionRecord>,
+        #[serde(default)]
+        flocking_judgments: Vec<flocking_core::Judgment>,
     },
     MediaPreserved(MediaManifest),
     MediaPreservedFor {
@@ -118,6 +121,10 @@ pub enum DurableEvent {
     },
     BlockChanged {
         block: BlockRecord,
+        outbound: Vec<OutboundEvent>,
+    },
+    FlockingJudgmentChanged {
+        record: FlockingJudgmentRecord,
         outbound: Vec<OutboundEvent>,
     },
     OperationChanged {
@@ -214,6 +221,7 @@ impl DurableEvent {
                 heads,
                 reactions,
                 public_projections,
+                flocking_judgments,
             } => {
                 if event_id.is_empty()
                     || event_id.len() > 128
@@ -223,6 +231,7 @@ impl DurableEvent {
                     || heads.len() > 8
                     || reactions.len() > 8
                     || public_projections.len() > 8
+                    || flocking_judgments.len() > 512
                 {
                     return Err(crate::DomainError::InvalidObjectShape);
                 }
@@ -234,6 +243,11 @@ impl DurableEvent {
                 }
                 for projection in public_projections {
                     projection.validate()?;
+                }
+                for judgment in flocking_judgments {
+                    judgment
+                        .validate()
+                        .map_err(|_| crate::DomainError::InvalidFlocking)?;
                 }
                 Ok(())
             }
@@ -315,6 +329,13 @@ impl DurableEvent {
             Self::BlockChanged { block, outbound } => {
                 crate::NostrPublicKey::parse(block.target.as_str().to_owned())?;
                 block.validate()?;
+                validate_outbound(outbound)
+            }
+            Self::FlockingJudgmentChanged { record, outbound } => {
+                record.validate()?;
+                if !record.public {
+                    return Err(crate::DomainError::InvalidFlocking);
+                }
                 validate_outbound(outbound)
             }
             Self::OperationChanged { .. } | Self::ContinuityWorkflowChanged(_) => Ok(()),

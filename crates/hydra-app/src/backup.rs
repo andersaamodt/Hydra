@@ -237,6 +237,7 @@ fn event_belongs_to_persona(
             subscription.persona == persona_id
         }
         DurableEvent::BlockChanged { block, .. } => block.persona == persona_id,
+        DurableEvent::FlockingJudgmentChanged { record, .. } => record.persona == persona_id,
         DurableEvent::MediaPreserved(_)
         | DurableEvent::DeliveryRecorded { .. }
         | DurableEvent::OperationChanged { .. }
@@ -262,6 +263,9 @@ fn outbound_ids(event: &DurableEvent) -> Vec<String> {
         | DurableEvent::FollowChanged { outbound, .. }
         | DurableEvent::CommunitySubscriptionChanged { outbound, .. }
         | DurableEvent::BlockChanged { outbound, .. } => {
+            outbound.iter().map(|item| item.event_id.clone()).collect()
+        }
+        DurableEvent::FlockingJudgmentChanged { outbound, .. } => {
             outbound.iter().map(|item| item.event_id.clone()).collect()
         }
         DurableEvent::ProjectionChanged { outbound, .. } => {

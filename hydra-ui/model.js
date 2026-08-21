@@ -75,7 +75,8 @@ export function commentsFor(state, root) {
   const visible = new Set(state?.visibleAnchors ?? all.map((object) => object.anchor));
   const children = new Map();
   for (const object of all) {
-    if (object.kind !== "comment" || object.root !== root || !visible.has(object.anchor)) continue;
+    const isBlocked = Boolean(object.block) || Object.keys(object.topicBlocks ?? {}).length > 0;
+    if (object.kind !== "comment" || object.root !== root || (!visible.has(object.anchor) && !isBlocked)) continue;
     const parent = object.parent ?? root;
     const values = children.get(parent) ?? [];
     values.push(object);

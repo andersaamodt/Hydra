@@ -1447,6 +1447,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "flocking-core"
+version = "0.1.0"
+source = "git+https://github.com/andersaamodt/flocking?rev=dcc403a95eee3053cf720a1476562077d575c2ce#dcc403a95eee3053cf720a1476562077d575c2ce"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "flocking-nostr"
+version = "0.1.0"
+source = "git+https://github.com/andersaamodt/flocking?rev=dcc403a95eee3053cf720a1476562077d575c2ce#dcc403a95eee3053cf720a1476562077d575c2ce"
+dependencies = [
+ "flocking-core",
+ "nostr",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "fluent"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2098,6 +2119,8 @@ name = "hydra-app"
 version = "1.0.0"
 dependencies = [
  "age",
+ "flocking-core",
+ "flocking-nostr",
  "hydra-archive",
  "hydra-domain",
  "hydra-lens",
@@ -2145,6 +2168,7 @@ dependencies = [
 name = "hydra-domain"
 version = "1.0.0"
 dependencies = [
+ "flocking-core",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -2155,8 +2179,11 @@ dependencies = [
 name = "hydra-lens"
 version = "1.0.0"
 dependencies = [
+ "flocking-core",
  "hydra-domain",
+ "hydra-nostr",
  "hydra-store",
+ "tempfile",
 ]
 
 [[package]]
@@ -2186,6 +2213,8 @@ name = "hydra-nostr"
 version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
+ "flocking-core",
+ "flocking-nostr",
  "hydra-domain",
  "hydra-protocol",
  "nostr",
@@ -2239,6 +2268,7 @@ dependencies = [
 name = "hydra-runtime"
 version = "1.0.0"
 dependencies = [
+ "flocking-core",
  "hydra-app",
  "hydra-domain",
  "hydra-lens",
@@ -2261,6 +2291,7 @@ version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
+ "flocking-core",
  "fs2",
  "hydra-domain",
  "keyring",

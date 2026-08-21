@@ -61,6 +61,7 @@ runtime action draft.save "$(jq -cn --arg persona "$alice" \
   '{id:"alice-private",persona_id:$persona,kind:"post",title:"Alice",body:"private",communities:["science"],parent:null}')" >/dev/null
 runtime action persona.create '{"display_name":"Bob"}' >/dev/null
 bob=$(runtime state | jq -r '.data.personas[] | select(.displayName == "Bob") | .id')
+bob_key=$(runtime state | jq -r '.data.personas[] | select(.displayName == "Bob") | .publicKey')
 runtime action draft.save "$(jq -cn --arg persona "$bob" \
   '{id:"bob-private",persona_id:$persona,kind:"post",title:"Bob",body:"private",communities:["science"],parent:null}')" >/dev/null
 runtime action persona.switch "$(jq -cn --arg persona "$bob" '{persona_id:$persona}')" >/dev/null
@@ -72,6 +73,24 @@ runtime action persona.switch "$(jq -cn --arg persona "$alice" '{persona_id:$per
 switched=$(runtime state)
 [ "$(printf '%s' "$switched" | jq -r '.data.drafts | length')" -eq 1 ]
 [ "$(printf '%s' "$switched" | jq -r '.data.drafts[0].id')" = "alice-private" ]
+
+runtime action block.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,blocked:true,action:"block",topic:"science",reason:"Remembered locally"}')" >/dev/null
+blocked=$(runtime state)
+block_target=$(printf '%s' "$blocked" | jq -r '.data.blocks[0].target')
+[ "${#block_target}" -eq 64 ]
+[ "$(printf '%s' "$blocked" | jq -r '.data.blocks[0].scope')" = "topic:science" ]
+[ "$(printf '%s' "$blocked" | jq -r '.data.blocks[0].reason')" = "Remembered locally" ]
+runtime action block_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
+  '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
+[ "$(runtime state | jq -r '.data.blockSources[0].completeness')" = "unknown" ]
+runtime action block.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,blocked:false,action:"unblock",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq '.data.blocks | length')" -eq 0 ]
+[ "$(runtime state | jq -r '.data.blockExceptions[0].scope')" = "topic:science" ]
+runtime action block.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,blocked:false,action:"withdraw",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq '.data.blockExceptions | length')" -eq 0 ]
 
 (
   cd "$theurgy_root"

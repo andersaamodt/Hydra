@@ -54,6 +54,33 @@ impl FeedLens {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct FeedService;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockDecision {
+    pub excluded: bool,
+    pub uncertain: bool,
+    pub inherited: bool,
+    pub source: Option<String>,
+    pub event_id: Option<String>,
+    pub reason: Option<String>,
+    pub scope: Option<String>,
+    pub why: Option<String>,
+}
+
+impl BlockDecision {
+    fn allowed() -> Self {
+        Self {
+            excluded: false,
+            uncertain: false,
+            inherited: false,
+            source: None,
+            event_id: None,
+            reason: None,
+            scope: None,
+            why: None,
+        }
+    }
+}
+
 impl FeedService {
     #[must_use]
     pub fn public_feed(store: &DurableStore, lens: FeedLens) -> Vec<ObjectHead> {
@@ -92,7 +119,7 @@ impl FeedService {
             .heads
             .current_heads()
             .filter(|head| head.kind != ObjectKind::Comment)
-            .filter(|head| Self::visible(store, private, persona, settings, head))
+            .filter(|head| passes_non_block_filters(store, private, settings, head))
             .filter(|head| match lens {
                 FeedLens::Following | FeedLens::Trusted => followed.contains(&head.author),
                 FeedLens::Revisited => revisited.contains(&head.anchor),
@@ -135,7 +162,7 @@ impl FeedService {
             .heads
             .current_heads()
             .filter(|head| head.kind != ObjectKind::Comment)
-            .filter(|head| Self::visible(store, private, persona, settings, head))
+            .filter(|head| passes_non_block_filters(store, private, settings, head))
             .filter_map(|head| {
                 let weights = &settings.feed_source_weights;
                 let mut weight =
@@ -178,55 +205,75 @@ impl FeedService {
         settings: &Settings,
         head: &ObjectHead,
     ) -> bool {
-        if blocked_authors(store, private, persona).contains(&head.author) {
-            return false;
-        }
-        if settings.spam_filter_threshold > 0 && spam_score(head) >= settings.spam_filter_threshold
-        {
-            return false;
-        }
-        !private.filters.values().any(|filter| {
-            if !filter.enabled {
-                return false;
-            }
-            let value = filter.value.to_lowercase();
-            match filter.kind {
-                hydra_domain::LocalFilterKind::Word => format!(
-                    "{}\n{}",
-                    head.title.as_deref().unwrap_or_default(),
-                    head.body.as_str()
-                )
-                .to_lowercase()
-                .contains(&value),
-                hydra_domain::LocalFilterKind::Topic => head
-                    .communities
-                    .iter()
-                    .any(|community| community.as_str().eq_ignore_ascii_case(&value)),
-                hydra_domain::LocalFilterKind::Thread => {
-                    head.anchor.as_str() == filter.value
-                        || head
-                            .root
-                            .as_ref()
-                            .is_some_and(|root| root.as_str() == filter.value)
-                }
-                hydra_domain::LocalFilterKind::Media => store.state().media.values().any(|media| {
-                    media.object == head.anchor
-                        && (media.mime_type.to_lowercase().contains(&value)
-                            || media.sha256.to_lowercase().contains(&value)
-                            || media
-                                .original_url
-                                .as_deref()
-                                .is_some_and(|url| url.to_lowercase().contains(&value))
-                            || media
-                                .blob_urls
-                                .iter()
-                                .any(|url| url.to_lowercase().contains(&value)))
-                }),
-                // Relay filters are enforced before network reads.
-                hydra_domain::LocalFilterKind::Relay => false,
-            }
-        })
+        Self::visible_in(store, private, persona, settings, head, None)
     }
+
+    #[must_use]
+    pub fn visible_in(
+        store: &DurableStore,
+        private: &PrivateState,
+        persona: PersonaId,
+        settings: &Settings,
+        head: &ObjectHead,
+        community: Option<&CommunityKey>,
+    ) -> bool {
+        if block_decision(store, private, persona, &head.author, community).excluded {
+            return false;
+        }
+        passes_non_block_filters(store, private, settings, head)
+    }
+}
+
+fn passes_non_block_filters(
+    store: &DurableStore,
+    private: &PrivateState,
+    settings: &Settings,
+    head: &ObjectHead,
+) -> bool {
+    if settings.spam_filter_threshold > 0 && spam_score(head) >= settings.spam_filter_threshold {
+        return false;
+    }
+    !private.filters.values().any(|filter| {
+        if !filter.enabled {
+            return false;
+        }
+        let value = filter.value.to_lowercase();
+        match filter.kind {
+            hydra_domain::LocalFilterKind::Word => format!(
+                "{}\n{}",
+                head.title.as_deref().unwrap_or_default(),
+                head.body.as_str()
+            )
+            .to_lowercase()
+            .contains(&value),
+            hydra_domain::LocalFilterKind::Topic => head
+                .communities
+                .iter()
+                .any(|community| community.as_str().eq_ignore_ascii_case(&value)),
+            hydra_domain::LocalFilterKind::Thread => {
+                head.anchor.as_str() == filter.value
+                    || head
+                        .root
+                        .as_ref()
+                        .is_some_and(|root| root.as_str() == filter.value)
+            }
+            hydra_domain::LocalFilterKind::Media => store.state().media.values().any(|media| {
+                media.object == head.anchor
+                    && (media.mime_type.to_lowercase().contains(&value)
+                        || media.sha256.to_lowercase().contains(&value)
+                        || media
+                            .original_url
+                            .as_deref()
+                            .is_some_and(|url| url.to_lowercase().contains(&value))
+                        || media
+                            .blob_urls
+                            .iter()
+                            .any(|url| url.to_lowercase().contains(&value)))
+            }),
+            // Relay filters are enforced before network reads.
+            hydra_domain::LocalFilterKind::Relay => false,
+        }
+    })
 }
 
 fn persona_public_key(store: &DurableStore, persona: PersonaId) -> Option<&NostrPublicKey> {
@@ -247,19 +294,181 @@ fn thread_involves_persona(
     })
 }
 
-fn blocked_authors(
+/// Evaluates the selected persona's effective block for one author and topic.
+#[must_use]
+pub fn block_decision(
     store: &DurableStore,
     private: &PrivateState,
     persona: PersonaId,
-) -> BTreeSet<NostrPublicKey> {
-    store
-        .state()
-        .blocks
-        .values()
-        .filter(|item| item.persona == persona && item.blocked)
-        .chain(private.blocks.values().filter(|item| item.blocked))
-        .map(|item| item.target.clone())
-        .collect()
+    author: &NostrPublicKey,
+    community: Option<&CommunityKey>,
+) -> BlockDecision {
+    let Some(persona_record) = store.state().personas.get(persona) else {
+        return uncertain_decision("The active persona is unavailable.", None);
+    };
+    let Ok(persona_key) = hydra_nostr::flocking_public_key(&persona_record.public_key) else {
+        return uncertain_decision("The active persona key is invalid.", None);
+    };
+    let Ok(author_key) = hydra_nostr::flocking_public_key(author) else {
+        return uncertain_decision("The author's public key is invalid.", None);
+    };
+    let config = private.flocking_profile.as_ref().map_or_else(
+        || flocking_core::Config {
+            version: flocking_core::CONFIG_VERSION.to_owned(),
+            persona: persona_key.clone(),
+            sources: Vec::new(),
+            local_pin_dismissals: Vec::new(),
+        },
+        |profile| profile.config.clone(),
+    );
+    if config.persona != persona_key {
+        return uncertain_decision(
+            "The judgment configuration belongs to another persona.",
+            None,
+        );
+    }
+    let source_states = private
+        .flocking_profile
+        .as_ref()
+        .map_or(&[][..], |profile| profile.source_states.as_slice());
+    let judgments = block_judgments(store, private, persona, &persona_key);
+    let topic = match community {
+        Some(community) => match flocking_core::Topic::parse(community.as_str()) {
+            Ok(topic) => Some(topic),
+            Err(_) => return uncertain_decision("The community topic is invalid.", None),
+        },
+        None => None,
+    };
+    let context = flocking_core::Context { topic };
+    let target = flocking_core::Target::Person(author_key);
+    let evaluation = flocking_core::evaluate(
+        flocking_core::EvaluationInput {
+            config: &config,
+            judgments: &judgments,
+            source_states,
+            context: &context,
+        },
+        flocking_core::Faculty::Block,
+        &target,
+    );
+    let Ok(evaluation) = evaluation else {
+        return uncertain_decision("The effective block could not be evaluated.", None);
+    };
+    decision_from_evaluation(evaluation, &persona_key, &target, &judgments)
+}
+
+fn block_judgments(
+    store: &DurableStore,
+    private: &PrivateState,
+    persona: PersonaId,
+    persona_key: &flocking_core::PublicKey,
+) -> Vec<flocking_core::Judgment> {
+    let mut judgments = store.state().flocking_judgments.clone();
+    judgments.extend(
+        private
+            .flocking_judgments
+            .values()
+            .map(|record| record.judgment.clone()),
+    );
+    judgments.extend(
+        store
+            .state()
+            .blocks
+            .values()
+            .filter(|item| item.persona == persona && item.blocked)
+            .chain(private.blocks.values().filter(|item| item.blocked))
+            .filter_map(|item| {
+                let target = hydra_nostr::flocking_public_key(&item.target).ok()?;
+                Some(flocking_core::Judgment {
+                    author: persona_key.clone(),
+                    faculty: flocking_core::Faculty::Block,
+                    scope: flocking_core::Scope::Global,
+                    target: flocking_core::Target::Person(target),
+                    action: flocking_core::Action::Block,
+                    created_at: item.changed_at,
+                    event_id: None,
+                    since: None,
+                    reason: item.reason.clone(),
+                    evidence: flocking_core::JudgmentEvidence::Local,
+                })
+            }),
+    );
+    judgments
+}
+
+fn decision_from_evaluation(
+    evaluation: flocking_core::Evaluation,
+    persona_key: &flocking_core::PublicKey,
+    target: &flocking_core::Target,
+    judgments: &[flocking_core::Judgment],
+) -> BlockDecision {
+    match evaluation {
+        flocking_core::Evaluation::Indeterminate { unknown, stale } => {
+            let source = unknown.first().map(|state| state.source.to_string());
+            uncertain_decision(
+                if stale {
+                    "Block status is uncertain because source data is stale or missing."
+                } else {
+                    "Block status is uncertain because source data is missing."
+                },
+                source,
+            )
+        }
+        flocking_core::Evaluation::Determinate {
+            effective: None, ..
+        } => BlockDecision::allowed(),
+        flocking_core::Evaluation::Determinate {
+            effective: Some(effective),
+            ..
+        } => {
+            let reason = flocking_core::canonical_current(judgments)
+                .into_iter()
+                .find(|judgment| {
+                    judgment.author == effective.evidence.author
+                        && judgment.faculty == effective.faculty
+                        && judgment.scope == effective.scope
+                        && &judgment.target == target
+                        && judgment.action == effective.action
+                        && judgment.event_id == effective.evidence.event_id
+                })
+                .and_then(|judgment| judgment.reason.clone());
+            let inherited = &effective.evidence.author != persona_key;
+            let source = inherited.then(|| effective.evidence.author.to_string());
+            let scope = Some(effective.scope.to_string());
+            let why = if effective.value {
+                Some(if let Some(source) = &source {
+                    format!("Blocked through {source}.")
+                } else {
+                    "Blocked by your direct judgment.".to_owned()
+                })
+            } else {
+                None
+            };
+            BlockDecision {
+                excluded: effective.value,
+                uncertain: effective.certainty == flocking_core::Certainty::Stale,
+                inherited,
+                source,
+                event_id: effective.evidence.event_id.map(|id| id.to_string()),
+                reason,
+                scope,
+                why,
+            }
+        }
+    }
+}
+
+fn uncertain_decision(why: &str, source: Option<String>) -> BlockDecision {
+    BlockDecision {
+        excluded: true,
+        uncertain: true,
+        inherited: source.is_some(),
+        source,
+        event_id: None,
+        reason: None,
+        scope: None,
+        why: Some(why.to_owned()),
+    }
 }
 
 #[must_use]
@@ -414,7 +623,8 @@ fn controversy(store: &DurableStore, target: &AnchorId) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use hydra_domain::{ContentBody, ObjectHead};
+    use hydra_domain::{ContentBody, DurableEvent, FlockingProfile, ObjectHead, Persona};
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -439,5 +649,99 @@ mod tests {
         };
         assert!(spam_score(&head) > 0);
         assert!(spam_score(&head) <= 100);
+    }
+
+    #[test]
+    fn followed_block_exposes_provenance_and_hides_conservatively() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let persona_id = PersonaId::new();
+        let persona_key = NostrPublicKey::parse(
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        )
+        .unwrap();
+        let source_key = NostrPublicKey::parse(
+            "c6047f9441ed7d6d3045406e95c07cd85a85ac7985c31c6346d2261a36e39c44",
+        )
+        .unwrap();
+        let target_key = NostrPublicKey::parse(
+            "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        )
+        .unwrap();
+        store
+            .append(
+                DurableEvent::PersonaCreated(Persona {
+                    id: persona_id,
+                    public_key: persona_key.clone(),
+                    display_name: "Alice".to_owned(),
+                    reddit_account: None,
+                }),
+                1,
+            )
+            .unwrap();
+        let persona = hydra_nostr::flocking_public_key(&persona_key).unwrap();
+        let source = hydra_nostr::flocking_public_key(&source_key).unwrap();
+        let target = hydra_nostr::flocking_public_key(&target_key).unwrap();
+        let judgment = flocking_core::Judgment {
+            author: source.clone(),
+            faculty: flocking_core::Faculty::Block,
+            scope: flocking_core::Scope::Global,
+            target: flocking_core::Target::Person(target),
+            action: flocking_core::Action::Block,
+            created_at: 2,
+            event_id: Some(flocking_core::EventId::parse("1".repeat(64)).unwrap()),
+            since: None,
+            reason: Some("Repeated impersonation".to_owned()),
+            evidence: flocking_core::JudgmentEvidence::FlockingEvent,
+        };
+        store
+            .append(
+                DurableEvent::RemoteEventReceived {
+                    event_id: "1".repeat(64),
+                    event_json: "{}".to_owned(),
+                    heads: Vec::new(),
+                    reactions: Vec::new(),
+                    public_projections: Vec::new(),
+                    flocking_judgments: vec![judgment],
+                },
+                2,
+            )
+            .unwrap();
+        let private = PrivateState {
+            flocking_profile: Some(FlockingProfile {
+                persona: persona_id,
+                config: flocking_core::Config {
+                    version: flocking_core::CONFIG_VERSION.to_owned(),
+                    persona,
+                    sources: vec![flocking_core::Source {
+                        pubkey: source.clone(),
+                        grants: vec![flocking_core::FacultyGrant {
+                            faculty: flocking_core::Faculty::Block,
+                            global: true,
+                            topics: BTreeSet::new(),
+                            rank: Some(1),
+                        }],
+                        reverse_blocks: None,
+                    }],
+                    local_pin_dismissals: Vec::new(),
+                },
+                source_states: vec![flocking_core::SourceState {
+                    source: source.clone(),
+                    faculty: flocking_core::Faculty::Block,
+                    scope: flocking_core::Scope::Global,
+                    completeness: flocking_core::Completeness::Complete,
+                }],
+                changed_at: 2,
+            }),
+            ..PrivateState::default()
+        };
+
+        let decision = block_decision(&store, &private, persona_id, &target_key, None);
+
+        assert!(decision.excluded);
+        assert!(decision.inherited);
+        assert_eq!(decision.source.as_deref(), Some(source.as_str()));
+        assert_eq!(decision.reason.as_deref(), Some("Repeated impersonation"));
+        assert!(!decision.uncertain);
     }
 }

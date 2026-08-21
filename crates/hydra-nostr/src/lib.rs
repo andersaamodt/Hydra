@@ -34,6 +34,94 @@ pub const CANON_NAMESPACE: &str = "dev.wizardry.canon";
 pub const CANON_SCHEMA_VERSION: &str = "2";
 pub const CANON_RECORD_KIND: u16 = 30_078;
 
+/// Converts Hydra's accepted Nostr key representation to Flocking's canonical
+/// lowercase hexadecimal representation.
+///
+/// # Errors
+///
+/// Returns an error when the Hydra boundary value is not a valid Nostr key.
+pub fn flocking_public_key(
+    value: &NostrPublicKey,
+) -> Result<flocking_core::PublicKey, ProtocolError> {
+    let key = PublicKey::parse(value.as_str()).map_err(nostr_error)?;
+    flocking_core::PublicKey::parse(key.to_string())
+        .map_err(|error| ProtocolError::Nostr(error.to_string()))
+}
+
+/// Parses one canonical Flocking event or a faithful NIP-51 block fallback.
+///
+/// # Errors
+///
+/// Returns an error for a malformed or unauthentic event on either supported
+/// boundary.
+pub fn received_flocking_judgments(
+    event: &Event,
+) -> Result<Vec<flocking_core::Judgment>, ProtocolError> {
+    match event.kind.as_u16() {
+        flocking_core::JUDGMENT_KIND => flocking_nostr::parse_judgment(event)
+            .map(|judgment| vec![judgment])
+            .map_err(|error| ProtocolError::Nostr(error.to_string())),
+        10_000 => flocking_nostr::nip51_block_fallback(event)
+            .map_err(|error| ProtocolError::Nostr(error.to_string())),
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Builds and signs one canonical Flocking judgment event.
+///
+/// # Errors
+///
+/// Returns an error for invalid semantics or signing failure.
+pub fn flocking_judgment_event(
+    signer: &impl EventSigner,
+    judgment: &flocking_core::Judgment,
+) -> Result<Event, ProtocolError> {
+    let builder = flocking_nostr::judgment_event_builder(judgment)
+        .map_err(|error| ProtocolError::Nostr(error.to_string()))?;
+    signer.sign(builder)
+}
+
+/// Fetches canonical block judgments and NIP-51 fallback lists for configured
+/// sources.
+///
+/// # Errors
+///
+/// Returns an error for invalid relay URLs, source keys, or relay-pool failure.
+pub async fn fetch_flocking_block_events(
+    relays: &[String],
+    sources: &[flocking_core::PublicKey],
+) -> Result<Vec<Event>, ProtocolError> {
+    if relays.is_empty() || sources.is_empty() {
+        return Ok(Vec::new());
+    }
+    let client = Client::builder().build();
+    for relay in relays {
+        client
+            .add_relay(relay)
+            .await
+            .map_err(|error| ProtocolError::Relay(error.to_string()))?;
+    }
+    client.connect().await;
+    let authors = sources
+        .iter()
+        .map(|source| PublicKey::parse(source.as_str()).map_err(nostr_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    let events = client
+        .fetch_events(
+            Filter::new().authors(authors).kinds([
+                Kind::Custom(flocking_core::JUDGMENT_KIND),
+                Kind::Custom(10_000),
+            ]),
+            Duration::from_secs(8),
+        )
+        .await
+        .map_err(|error| ProtocolError::Relay(error.to_string()))?
+        .into_iter()
+        .collect();
+    client.disconnect().await;
+    Ok(events)
+}
+
 #[derive(Debug, Error)]
 pub enum ProtocolError {
     #[error("post title cannot be empty")]
@@ -3015,6 +3103,47 @@ mod tests {
         let interests = public_interests(&keys, &communities(), 23).unwrap();
         assert_eq!(interests.kind, Kind::Interests);
         assert!(interests.as_json().contains("[\"t\",\"science\"]"));
+    }
+
+    #[test]
+    fn canonical_flocking_block_round_trips_through_a_signed_event() {
+        let keys = Keys::generate();
+        let target_keys = Keys::generate();
+        let author = flocking_public_key(
+            &NostrPublicKey::parse(keys.public_key().to_bech32().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let target = flocking_public_key(
+            &NostrPublicKey::parse(target_keys.public_key().to_bech32().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let judgment = flocking_core::Judgment {
+            author,
+            faculty: flocking_core::Faculty::Block,
+            scope: flocking_core::Scope::Topic(flocking_core::Topic::parse("science").unwrap()),
+            target: flocking_core::Target::Person(target),
+            action: flocking_core::Action::Block,
+            created_at: 42,
+            event_id: None,
+            since: None,
+            reason: Some("Persistent derailment".to_owned()),
+            evidence: flocking_core::JudgmentEvidence::Local,
+        };
+
+        let event = flocking_judgment_event(&keys, &judgment).unwrap();
+        let parsed = received_flocking_judgments(&event).unwrap();
+
+        assert_eq!(event.kind, Kind::Custom(flocking_core::JUDGMENT_KIND));
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].author, judgment.author);
+        assert_eq!(parsed[0].scope, judgment.scope);
+        assert_eq!(parsed[0].target, judgment.target);
+        assert_eq!(parsed[0].action, flocking_core::Action::Block);
+        assert_eq!(parsed[0].reason, judgment.reason);
+        assert_eq!(
+            parsed[0].event_id.as_ref().map(ToString::to_string),
+            Some(event.id.to_hex())
+        );
     }
 
     #[test]

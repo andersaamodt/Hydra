@@ -23,6 +23,8 @@ age.workspace = true
 tar.workspace = true
 tempfile.workspace = true
 url.workspace = true
+flocking-core.workspace = true
+flocking-nostr.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

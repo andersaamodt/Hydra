@@ -15,10 +15,11 @@ pub use hydra_domain::PrivateState;
 use hydra_domain::{
     AnchorId, ArchiveManifest, BlockRecord, CommunityKey, CommunitySubscription, ContentBody,
     DeliveryState, DirectMessageRecord, DomainError, DraftRecord, DurableEvent,
-    EncryptedPrivateRecord, ExternalId, FollowRecord, LocalFilterKind, LocalFilterRecord,
-    MediaManifest, MessageDirection, NostrPublicKey, ObjectHead, ObjectKind, OutboundEvent,
-    Persona, PersonaId, PrivateRecord, Projection, PublicFollowSet, PublicProjectionRecord,
-    ReactionRecord, ReactionValue, RevisitIntent, RevisitRecord,
+    EncryptedPrivateRecord, ExternalId, FlockingJudgmentRecord, FlockingProfile, FollowRecord,
+    LocalFilterKind, LocalFilterRecord, MediaManifest, MessageDirection, NostrPublicKey,
+    ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId, PrivateRecord, Projection,
+    PublicFollowSet, PublicProjectionRecord, ReactionRecord, ReactionValue, RevisitIntent,
+    RevisitRecord,
 };
 pub use hydra_lens::{FeedLens, FeedService};
 use hydra_media::{BlossomClient, MediaStore};
@@ -170,6 +171,8 @@ pub enum AppError {
     Backup(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("Flocking failed: {0}")]
+    Flocking(String),
 }
 
 pub trait SecretStore {
@@ -356,13 +359,14 @@ impl ImportService {
                 | Kind::Thread
                 | Kind::Comment
                 | Kind::LongFormTextNote
-                | Kind::Custom(20..=22)
+                | Kind::Custom(20..=22 | 10_000)
                 | Kind::Repost
                 | Kind::GenericRepost
                 | Kind::Reaction
                 | Kind::Label
         ) && event.kind != Kind::Custom(hydra_nostr::OBJECT_HEAD_KIND)
             && event.kind != Kind::Custom(hydra_nostr::PROJECTION_RECORD_KIND)
+            && event.kind != Kind::Custom(flocking_core::JUDGMENT_KIND)
             && !hydra_nostr::is_reading_surface_event(&event)
         {
             return Ok(Vec::new());
@@ -385,6 +389,7 @@ impl ImportService {
                         heads: Vec::new(),
                         reactions: Vec::new(),
                         public_projections: Vec::new(),
+                        flocking_judgments: Vec::new(),
                     },
                     recorded_at,
                 )?;
@@ -398,6 +403,7 @@ impl ImportService {
                 heads: materialized.heads.clone(),
                 reactions: materialized.reactions,
                 public_projections: materialized.public_projections,
+                flocking_judgments: materialized.flocking_judgments,
             },
             recorded_at,
         )?;
@@ -409,6 +415,7 @@ struct PublicMaterialization {
     heads: Vec<ObjectHead>,
     reactions: Vec<ReactionRecord>,
     public_projections: Vec<PublicProjectionRecord>,
+    flocking_judgments: Vec<flocking_core::Judgment>,
 }
 
 fn materialize_public_event(
@@ -419,6 +426,7 @@ fn materialize_public_event(
     let heads = received_heads(store, event)?;
     let reactions = remote_reactions(store, event, &heads)?;
     let mut public_projections = Vec::new();
+    let flocking_judgments = hydra_nostr::received_flocking_judgments(event)?;
     if let Some(projection) = hydra_nostr::received_projection_record(event)? {
         match projection_anchor_author(store, event, &heads, &projection)? {
             Some(author) if author == projection.author => public_projections.push(projection),
@@ -445,6 +453,7 @@ fn materialize_public_event(
         heads,
         reactions,
         public_projections,
+        flocking_judgments,
     })
 }
 
@@ -1445,6 +1454,35 @@ pub struct SetBlock {
     pub changed_at: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockJudgmentAction {
+    Block,
+    Unblock,
+    Withdraw,
+}
+
+pub struct SetFlockingBlock {
+    pub persona_id: PersonaId,
+    pub target: NostrPublicKey,
+    pub topic: Option<CommunityKey>,
+    pub public: bool,
+    pub action: BlockJudgmentAction,
+    pub reason: Option<String>,
+    pub relays: Vec<String>,
+    pub changed_at: u64,
+}
+
+pub struct SetBlockSource {
+    pub persona_id: PersonaId,
+    pub source: NostrPublicKey,
+    pub global: bool,
+    pub topics: BTreeSet<CommunityKey>,
+    pub rank: u32,
+    pub enabled: bool,
+    pub completeness: flocking_core::Completeness,
+    pub changed_at: u64,
+}
+
 pub struct SetLocalFilter {
     pub persona_id: PersonaId,
     pub kind: LocalFilterKind,
@@ -1751,6 +1789,200 @@ impl<S: SecretStore> SocialService<S> {
             )?;
         }
         Ok(block)
+    }
+
+    /// Updates one direct Flocking block judgment without mutating inherited
+    /// state. Published global judgments also update the faithful NIP-51 mirror.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid identity, scope, reason, signing, or
+    /// encrypted/durable persistence.
+    pub fn set_flocking_block(
+        &self,
+        store: &mut DurableStore,
+        request: &SetFlockingBlock,
+    ) -> Result<FlockingJudgmentRecord, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let author = hydra_nostr::flocking_public_key(&persona.public_key)?;
+        let target = hydra_nostr::flocking_public_key(&request.target)?;
+        let scope = request.topic.as_ref().map_or_else(
+            || Ok(flocking_core::Scope::Global),
+            |topic| {
+                flocking_core::Topic::parse(topic.as_str())
+                    .map(flocking_core::Scope::Topic)
+                    .map_err(|error| AppError::Flocking(error.to_string()))
+            },
+        )?;
+        let action = match request.action {
+            BlockJudgmentAction::Block => flocking_core::Action::Block,
+            BlockJudgmentAction::Unblock => flocking_core::Action::Unblock,
+            BlockJudgmentAction::Withdraw => flocking_core::Action::Withdraw,
+        };
+        let reason = request
+            .reason
+            .as_ref()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let local = flocking_core::Judgment {
+            author,
+            faculty: flocking_core::Faculty::Block,
+            scope,
+            target: flocking_core::Target::Person(target),
+            action,
+            created_at: request.changed_at,
+            event_id: None,
+            since: None,
+            reason,
+            evidence: flocking_core::JudgmentEvidence::Local,
+        };
+        local
+            .validate()
+            .map_err(|error| AppError::Flocking(error.to_string()))?;
+        if request.public {
+            let event = hydra_nostr::flocking_judgment_event(&keys, &local)?;
+            let published = hydra_nostr::received_flocking_judgments(&event)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| AppError::Flocking("signed judgment was not readable".to_owned()))?;
+            let mut outbound = vec![outbound_event(&event, &request.relays)];
+            if published.scope == flocking_core::Scope::Global {
+                let mirror = block_mirror_with_legacy(store, request.persona_id, &published)?;
+                let event = hydra_nostr::public_mute_list(&keys, &mirror, request.changed_at)?;
+                outbound.push(outbound_event(&event, &request.relays));
+            }
+            let record = FlockingJudgmentRecord {
+                persona: request.persona_id,
+                public: true,
+                judgment: published,
+            };
+            store.append(
+                DurableEvent::FlockingJudgmentChanged {
+                    record: record.clone(),
+                    outbound,
+                },
+                request.changed_at,
+            )?;
+            Ok(record)
+        } else {
+            let record = FlockingJudgmentRecord {
+                persona: request.persona_id,
+                public: false,
+                judgment: local,
+            };
+            store_private_record(
+                store,
+                &keys,
+                &PrivateRecord::FlockingJudgment(record.clone()),
+                PrivateCommit {
+                    recorded_at: request.changed_at,
+                    ..PrivateCommit::default()
+                },
+            )?;
+            Ok(record)
+        }
+    }
+
+    /// Enables or removes one source for block judgments in selected scopes.
+    /// Configuration remains encrypted and persona-local.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid keys, ranks, scopes, or persistence.
+    pub fn set_block_source(
+        &self,
+        store: &mut DurableStore,
+        request: &SetBlockSource,
+    ) -> Result<FlockingProfile, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let persona_key = hydra_nostr::flocking_public_key(&persona.public_key)?;
+        let source_key = hydra_nostr::flocking_public_key(&request.source)?;
+        let current = private_state(&self.secrets, store, request.persona_id)?;
+        let mut profile = current.flocking_profile.unwrap_or(FlockingProfile {
+            persona: request.persona_id,
+            config: flocking_core::Config {
+                version: flocking_core::CONFIG_VERSION.to_owned(),
+                persona: persona_key.clone(),
+                sources: Vec::new(),
+                local_pin_dismissals: Vec::new(),
+            },
+            source_states: Vec::new(),
+            changed_at: request.changed_at,
+        });
+        if profile.config.persona != persona_key {
+            return Err(AppError::Flocking(
+                "configuration belongs to a different persona".to_owned(),
+            ));
+        }
+        profile.config.sources.retain_mut(|source| {
+            if source.pubkey == source_key {
+                source
+                    .grants
+                    .retain(|grant| grant.faculty != flocking_core::Faculty::Block);
+            }
+            !source.grants.is_empty() || source.reverse_blocks.is_some()
+        });
+        profile.source_states.retain(|state| {
+            state.source != source_key || state.faculty != flocking_core::Faculty::Block
+        });
+        if request.enabled {
+            let topics = request
+                .topics
+                .iter()
+                .map(|topic| {
+                    flocking_core::Topic::parse(topic.as_str())
+                        .map_err(|error| AppError::Flocking(error.to_string()))
+                })
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            let grant = flocking_core::FacultyGrant {
+                faculty: flocking_core::Faculty::Block,
+                global: request.global,
+                topics: topics.clone(),
+                rank: Some(request.rank),
+            };
+            let source = profile
+                .config
+                .sources
+                .iter_mut()
+                .find(|source| source.pubkey == source_key);
+            if let Some(source) = source {
+                source.grants.push(grant);
+            } else {
+                profile.config.sources.push(flocking_core::Source {
+                    pubkey: source_key.clone(),
+                    grants: vec![grant],
+                    reverse_blocks: None,
+                });
+            }
+            if request.global {
+                profile.source_states.push(flocking_core::SourceState {
+                    source: source_key.clone(),
+                    faculty: flocking_core::Faculty::Block,
+                    scope: flocking_core::Scope::Global,
+                    completeness: request.completeness,
+                });
+            }
+            profile
+                .source_states
+                .extend(topics.into_iter().map(|topic| flocking_core::SourceState {
+                    source: source_key.clone(),
+                    faculty: flocking_core::Faculty::Block,
+                    scope: flocking_core::Scope::Topic(topic),
+                    completeness: request.completeness,
+                }));
+        }
+        profile.changed_at = request.changed_at;
+        profile.validate()?;
+        store_private_record(
+            store,
+            &keys,
+            &PrivateRecord::FlockingProfile(profile.clone()),
+            PrivateCommit {
+                recorded_at: request.changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        Ok(profile)
     }
 
     /// Updates one encrypted, persona-local content filter.
@@ -2770,6 +3002,43 @@ fn outbound_event(event: &nostr::Event, relays: &[String]) -> OutboundEvent {
     }
 }
 
+fn block_mirror_with_legacy(
+    store: &DurableStore,
+    persona: PersonaId,
+    pending: &flocking_core::Judgment,
+) -> Result<Vec<NostrPublicKey>, AppError> {
+    let mut judgments = store
+        .state()
+        .flocking_judgments
+        .iter()
+        .filter(|judgment| judgment.author == pending.author)
+        .cloned()
+        .collect::<Vec<_>>();
+    judgments.push(pending.clone());
+    let current = flocking_core::canonical_current(&judgments);
+    let mut mirror = flocking_nostr::block_mirror(&judgments, &pending.author);
+    for legacy in store
+        .state()
+        .blocks
+        .values()
+        .filter(|record| record.persona == persona && record.public && record.blocked)
+    {
+        let key = hydra_nostr::flocking_public_key(&legacy.target)?;
+        let has_canonical = current.iter().any(|judgment| {
+            judgment.faculty == flocking_core::Faculty::Block
+                && judgment.scope == flocking_core::Scope::Global
+                && judgment.target == flocking_core::Target::Person(key.clone())
+        });
+        if !has_canonical {
+            mirror.insert(key);
+        }
+    }
+    Ok(mirror
+        .into_iter()
+        .map(|key| NostrPublicKey::parse(key.to_string()))
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
 #[derive(Debug, Default)]
 struct PrivateCommit {
     source_event_id: Option<String>,
@@ -2797,6 +3066,8 @@ fn store_private_record(
             PrivateRecord::DirectMessage(item) => item.persona,
             PrivateRecord::CommunitySubscription(item) => item.persona,
             PrivateRecord::LocalFilter(item) => item.persona,
+            PrivateRecord::FlockingProfile(item) => item.persona,
+            PrivateRecord::FlockingJudgment(item) => item.persona,
         },
         ciphertext: hydra_nostr::encrypt_private(&keys.storage_keys, &plaintext)?,
         stored_at: commit.recorded_at,
@@ -2887,6 +3158,14 @@ pub fn private_state(
                 } else {
                     state.filters.remove(&key);
                 }
+            }
+            PrivateRecord::FlockingProfile(item) => {
+                state.flocking_profile = Some(item);
+            }
+            PrivateRecord::FlockingJudgment(item) => {
+                state
+                    .flocking_judgments
+                    .insert(item.judgment.address(), item);
             }
         }
     }
@@ -4033,6 +4312,141 @@ mod tests {
                 .and_then(|block| block.reason.as_deref()),
             Some(secret_reason)
         );
+    }
+
+    #[test]
+    fn flocking_blocks_are_scoped_reversible_and_source_configured() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let personas = PersonaService::new(secrets.clone());
+        let alice = personas.create(&mut store, "Alice".to_owned(), 10).unwrap();
+        let bob = personas.create(&mut store, "Bob".to_owned(), 11).unwrap();
+        let carol = personas.create(&mut store, "Carol".to_owned(), 12).unwrap();
+        let service = SocialService::new(secrets.clone());
+        let science = CommunityKey::parse("science").unwrap();
+        let reason = "private-scoped-reason";
+
+        service
+            .set_flocking_block(
+                &mut store,
+                &SetFlockingBlock {
+                    persona_id: alice.id,
+                    target: bob.public_key.clone(),
+                    topic: Some(science.clone()),
+                    public: false,
+                    action: BlockJudgmentAction::Block,
+                    reason: Some(reason.to_owned()),
+                    relays: vec!["wss://relay.example".to_owned()],
+                    changed_at: 20,
+                },
+            )
+            .unwrap();
+        service
+            .set_block_source(
+                &mut store,
+                &SetBlockSource {
+                    persona_id: alice.id,
+                    source: carol.public_key.clone(),
+                    global: true,
+                    topics: BTreeSet::from([science.clone()]),
+                    rank: 1,
+                    enabled: true,
+                    completeness: flocking_core::Completeness::Unknown,
+                    changed_at: 21,
+                },
+            )
+            .unwrap();
+
+        let private = private_state(&secrets, &store, alice.id).unwrap();
+        let current = flocking_core::canonical_current(
+            &private
+                .flocking_judgments
+                .values()
+                .map(|record| record.judgment.clone())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].scope.to_string(), "topic:science");
+        assert_eq!(current[0].reason.as_deref(), Some(reason));
+        let profile = private.flocking_profile.as_ref().unwrap();
+        assert!(
+            profile
+                .config
+                .grant(
+                    &hydra_nostr::flocking_public_key(&carol.public_key).unwrap(),
+                    flocking_core::Faculty::Block,
+                )
+                .is_some()
+        );
+        assert_eq!(profile.source_states.len(), 2);
+        assert!(
+            !std::fs::read_to_string(root.path().join("events.jsonl"))
+                .unwrap()
+                .contains(reason)
+        );
+
+        service
+            .set_flocking_block(
+                &mut store,
+                &SetFlockingBlock {
+                    persona_id: alice.id,
+                    target: bob.public_key,
+                    topic: Some(science),
+                    public: false,
+                    action: BlockJudgmentAction::Unblock,
+                    reason: None,
+                    relays: Vec::new(),
+                    changed_at: 22,
+                },
+            )
+            .unwrap();
+        let private = private_state(&secrets, &store, alice.id).unwrap();
+        let current = flocking_core::canonical_current(
+            &private
+                .flocking_judgments
+                .values()
+                .map(|record| record.judgment.clone())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(current[0].action, flocking_core::Action::Unblock);
+    }
+
+    #[test]
+    fn public_flocking_block_queues_canonical_and_nip51_events() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let personas = PersonaService::new(secrets.clone());
+        let alice = personas.create(&mut store, "Alice".to_owned(), 10).unwrap();
+        let bob = personas.create(&mut store, "Bob".to_owned(), 11).unwrap();
+        let service = SocialService::new(secrets);
+        let outbound_before = store.state().outbound.len();
+        service
+            .set_flocking_block(
+                &mut store,
+                &SetFlockingBlock {
+                    persona_id: alice.id,
+                    target: bob.public_key,
+                    topic: None,
+                    public: true,
+                    action: BlockJudgmentAction::Block,
+                    reason: Some("Public reason".to_owned()),
+                    relays: vec!["wss://relay.example".to_owned()],
+                    changed_at: 20,
+                },
+            )
+            .unwrap();
+        let new_kinds = store
+            .state()
+            .outbound
+            .values()
+            .skip(outbound_before)
+            .map(|outbound| Event::from_json(&outbound.event_json).unwrap().kind)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(store.state().outbound.len(), outbound_before + 2);
+        assert!(new_kinds.contains(&Kind::Custom(flocking_core::JUDGMENT_KIND)));
+        assert!(new_kinds.contains(&Kind::Custom(10_000)));
     }
 
     #[test]
