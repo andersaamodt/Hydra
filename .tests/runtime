@@ -114,6 +114,39 @@ runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_k
   '{persona_id:$persona,target:$target,public:false,silenced:false,action:"withdraw",topic:"science",reason:null}')" >/dev/null
 [ "$(runtime state | jq '.data.silenceExceptions | length')" -eq 0 ]
 
+content_result=$(runtime action post.create "$(jq -cn --arg persona "$alice" \
+  '{persona_id:$persona,title:"Judgment target",body:"Stable content target",communities:["science","philosophy"]}')")
+content_anchor=$(printf '%s' "$content_result" | jq -r '.result.anchor')
+runtime action hide.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
+  '{persona_id:$persona,target:$target,public:false,action:"hide",topic:"science",reason:"Not useful here"}')" >/dev/null
+hidden=$(runtime state)
+[ "$(printf '%s' "$hidden" | jq -r --arg target "$content_anchor" '.data.hides[] | select(.target == $target) | .scope')" = "topic:science" ]
+[ "$(printf '%s' "$hidden" | jq -r --arg target "$content_anchor" '.data.objects[] | select(.anchor == $target) | .topicHides.science.reason')" = "Not useful here" ]
+runtime action hide_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
+  '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
+[ "$(runtime state | jq -r '.data.hideSources[0].completeness')" = "unknown" ]
+runtime action hide.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
+  '{persona_id:$persona,target:$target,public:false,action:"unhide",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq -r '.data.hideExceptions[0].scope')" = "topic:science" ]
+runtime action hide.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
+  '{persona_id:$persona,target:$target,public:false,action:"withdraw",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq '.data.hideExceptions | length')" -eq 0 ]
+
+runtime action membership.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
+  '{persona_id:$persona,target:$target,public:false,action:"remove",topic:"science",reason:"Off topic"}')" >/dev/null
+removed=$(runtime state)
+[ "$(printf '%s' "$removed" | jq -r --arg target "$content_anchor" '.data.removals[] | select(.target == $target) | .scope')" = "topic:science" ]
+[ "$(printf '%s' "$removed" | jq -r --arg target "$content_anchor" '.data.objects[] | select(.anchor == $target) | .topicRemovals.science.reason')" = "Off topic" ]
+runtime action removal_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
+  '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
+[ "$(runtime state | jq -r '.data.removalSources[0].completeness')" = "unknown" ]
+runtime action membership.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
+  '{persona_id:$persona,target:$target,public:false,action:"restore",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq -r '.data.restorations[0].scope')" = "topic:science" ]
+runtime action membership.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
+  '{persona_id:$persona,target:$target,public:false,action:"withdraw",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq '.data.restorations | length')" -eq 0 ]
+
 (
   cd "$theurgy_root"
   runner="$theurgy_root/scripts/theurgy-cargo"

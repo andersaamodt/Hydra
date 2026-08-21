@@ -488,7 +488,7 @@ function emptyState(title, body, action, onAction) {
 }
 
 function postCard(post, lens, community) {
-  const effect = blockEffect(post, community);
+  const effect = judgmentEffect(post, community);
   if (effect && !session.revealedBlocks.has(post.anchor)) {
     return blockedPlaceholder(post, "Post", effect);
   }
@@ -519,6 +519,8 @@ function postCard(post, lens, community) {
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(post.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(post) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(post) }),
+      element("button", { type: "button", class: "text-action", text: "Hide…", onclick: () => showHideEditor(post) }),
+      community ? element("button", { type: "button", class: "text-action", text: `Remove from /h/${community}…`, onclick: () => showRemovalEditor(post, community) }) : null,
       element("button", { type: "button", class: "text-action", text: "Feed reason", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
     ]),
   ]);
@@ -530,7 +532,7 @@ function renderDiscussion(anchor) {
   if (!post) { session.selected = null; renderFeed(); return; }
   const origin = provenance(post);
   const comments = commentsFor(session.state, anchor);
-  const effect = blockEffect(post, session.community);
+  const effect = judgmentEffect(post, session.community);
   if (effect && !session.revealedBlocks.has(post.anchor)) {
     view.replaceChildren(element("button", { type: "button", class: "back-button", text: "← Back to feed", onclick: () => { session.selected = null; render(); } }), blockedPlaceholder(post, "Post", effect));
     return;
@@ -558,6 +560,8 @@ function renderDiscussion(anchor) {
       actionButton("Reset vote", () => react(post.anchor, "0")),
       actionButton("Vote views", () => showVoteViews(post)),
       actionButton("React…", () => showEmojiReaction(post)),
+      actionButton("Hide…", () => showHideEditor(post)),
+      session.community ? actionButton(`Remove from /h/${session.community}…`, () => showRemovalEditor(post, session.community)) : null,
       actionButton("Reply", () => showReply(post), "primary-button"),
       actionButton("Revisit", () => showRevisit(post)),
       post.author === activePersona(session.state)?.publicKey ? actionButton("Preserve media", () => preserveMedia(post)) : null,
@@ -572,7 +576,7 @@ function renderDiscussion(anchor) {
 }
 
 function commentView(comment) {
-  const effect = blockEffect(comment, session.community);
+  const effect = judgmentEffect(comment, session.community);
   if (effect && !session.revealedBlocks.has(comment.anchor)) {
     return blockedPlaceholder(comment, "Comment", effect, `margin-left:${Math.min(comment.depth, 6) * 22}px`);
   }
@@ -595,32 +599,50 @@ function commentView(comment) {
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(comment.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(comment) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(comment) }),
+      element("button", { type: "button", class: "text-action", text: "Hide…", onclick: () => showHideEditor(comment) }),
+      session.community ? element("button", { type: "button", class: "text-action", text: `Remove from /h/${session.community}…`, onclick: () => showRemovalEditor(comment, session.community) }) : null,
       comment.author === persona?.publicKey ? element("button", { type: "button", class: "text-action", text: "Edit", onclick: () => showEdit(comment) }) : null,
       comment.author === persona?.publicKey && !comment.disowned ? element("button", { type: "button", class: "text-action danger-button", text: "Disown…", onclick: () => showDisown(comment) }) : null,
     ]),
   ]);
 }
 
-function blockEffect(object, community) {
+function judgmentEffect(object, community) {
   const block = (community && object.topicBlocks?.[community]) || object.block;
   if (block) return { ...block, kind: "block" };
   const silence = (community && object.topicSilences?.[community]) || object.silence;
-  return silence ? { ...silence, kind: "silence" } : null;
+  if (silence) return { ...silence, kind: "silence" };
+  const hide = (community && object.topicHides?.[community]) || object.hide;
+  if (hide) return { ...hide, kind: "hide" };
+  const removal = community && object.topicRemovals?.[community];
+  return removal ? { ...removal, kind: "removal", topic: community } : null;
 }
 
 function blockedPlaceholder(object, label, effect, style = "") {
   const confirming = session.confirmingReveals.has(object.anchor);
   const silenced = effect.kind === "silence";
+  const hidden = effect.kind === "hide";
+  const removed = effect.kind === "removal";
   const cutoff = silenced && effect.cutoff ? `New activity since ${new Date(effect.cutoff * 1000).toLocaleString()} is silenced.` : null;
   const timing = effect.localTimingEvidence ? "Its signed time predates the silence, but Hydra first observed it afterward." : null;
   const explanation = [effect.why, cutoff, timing, effect.reason ? `Reason: ${effect.reason}` : null, effect.uncertain ? "Source data is incomplete, so Hydra is hiding this conservatively." : null].filter(Boolean).join(" ");
   return element("article", { class: "blocked-placeholder", style }, [
-    element("strong", { text: silenced ? `Silenced ${label.toLowerCase()}` : `${label} from blocked user` }),
+    element("strong", { text: silenced
+      ? `Silenced ${label.toLowerCase()}`
+      : hidden
+        ? `Hidden ${label.toLowerCase()}`
+        : removed
+          ? `${label} removed from /h/${effect.topic}`
+          : `${label} from blocked user` }),
     confirming
       ? element("p", { text: `${label} is from ${object.author}. Reveal now?` })
       : element("p", { text: silenced
         ? (effect.inherited ? "Hidden through a silence judgment you follow." : "Hidden by your silence judgment.")
-        : (effect.inherited ? "Hidden through a block judgment you follow." : "Hidden by your block judgment.") }),
+        : hidden
+          ? (effect.inherited ? "Hidden through a content judgment you follow." : "Hidden by your content judgment.")
+          : removed
+            ? (effect.inherited ? "Removed through a community judgment you follow." : "Removed by your community judgment.")
+            : (effect.inherited ? "Hidden through a block judgment you follow." : "Hidden by your block judgment.") }),
     element("div", { class: "post-actions" }, confirming
       ? [
           actionButton("Yes", () => { session.confirmingReveals.delete(object.anchor); session.revealedBlocks.add(object.anchor); render(); }),
@@ -629,7 +651,16 @@ function blockedPlaceholder(object, label, effect, style = "") {
       : [
           actionButton("Reveal anyway", () => { session.confirmingReveals.add(object.anchor); render(); }),
           explanation ? actionButton("Why?", () => toast(explanation)) : null,
-          actionButton(silenced ? "Unsilence…" : "Unblock…", () => silenced ? showUnsilenceEditor(object.author, effect) : showUnblockEditor(object.author, effect)),
+          actionButton(
+            silenced ? "Unsilence…" : hidden ? "Unhide…" : removed ? "Restore…" : "Unblock…",
+            () => silenced
+              ? showUnsilenceEditor(object.author, effect)
+              : hidden
+                ? showUnhideEditor(object.anchor, effect)
+                : removed
+                  ? showRestoreEditor(object.anchor, effect)
+                  : showUnblockEditor(object.author, effect),
+          ),
         ]),
   ]);
 }
@@ -1197,6 +1228,12 @@ function renderSettings() {
   const silences = (session.state.silences ?? []).filter((item) => item.personaId === persona.id);
   const silenceExceptions = (session.state.silenceExceptions ?? []).filter((item) => item.personaId === persona.id);
   const silenceSources = (session.state.silenceSources ?? []).filter((item) => item.personaId === persona.id);
+  const hides = (session.state.hides ?? []).filter((item) => item.personaId === persona.id);
+  const hideExceptions = (session.state.hideExceptions ?? []).filter((item) => item.personaId === persona.id);
+  const hideSources = (session.state.hideSources ?? []).filter((item) => item.personaId === persona.id);
+  const removals = (session.state.removals ?? []).filter((item) => item.personaId === persona.id);
+  const restorations = (session.state.restorations ?? []).filter((item) => item.personaId === persona.id);
+  const removalSources = (session.state.removalSources ?? []).filter((item) => item.personaId === persona.id);
   const filters = (session.state.filters ?? []).filter((item) => item.personaId === persona.id);
   const drafts = (session.state.drafts ?? []).filter((item) => item.personaId === persona.id);
   const storage = session.state.storage ?? { root: session.state.durableRoot, media: `${session.state.durableRoot}/media`, mediaExists: false };
@@ -1334,6 +1371,32 @@ function renderSettings() {
         ]),
         actionButton("Stop following silences", () => mutate("silence_source.set", { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank, enabled: false }, "Silence source removed.")),
       ])),
+    ]),
+    element("section", { class: "context-card" }, [
+      element("h2", { text: "Content judgments" }),
+      element("p", { text: `${session.state.hideCount ?? 0} hides · ${session.state.removalCount ?? 0} community removals. These judgments change this persona’s view without deleting events.` }),
+      element("div", { class: "post-actions" }, [
+        actionButton("Follow hides from…", () => showContentSourceEditor("hide")),
+        actionButton("Follow removals from…", () => showContentSourceEditor("removal")),
+      ]),
+      ...hides.map((item) => element("div", { class: "readiness-row" }, [
+        element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: `${item.public ? "Published hide" : "Private hide"} · ${item.scope === "global" ? "everywhere" : item.scope.replace(/^topic:/, "/h/")}${item.reason ? ` · ${item.reason}` : ""}` })]),
+        actionButton("Unhide", () => mutate("hide.set", { persona_id: persona.id, target: item.target, public: item.public, action: "unhide", topic: item.scope.startsWith("topic:") ? item.scope.slice(6) : null, reason: null }, "Hide judgment reversed.")),
+      ])),
+      ...hideExceptions.map((item) => element("div", { class: "readiness-row" }, [
+        element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: `${item.public ? "Published unhide" : "Private unhide"} · ${item.scope === "global" ? "everywhere" : item.scope.replace(/^topic:/, "/h/")}` })]),
+        actionButton("Return to followed hides", () => mutate("hide.set", { persona_id: persona.id, target: item.target, public: item.public, action: "withdraw", topic: item.scope.startsWith("topic:") ? item.scope.slice(6) : null, reason: null }, "Direct unhide withdrawn; followed judgments apply again.")),
+      ])),
+      ...removals.map((item) => element("div", { class: "readiness-row" }, [
+        element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: `${item.public ? "Published removal" : "Private removal"} · ${item.scope.replace(/^topic:/, "/h/")}${item.reason ? ` · ${item.reason}` : ""}` })]),
+        actionButton("Restore", () => mutate("membership.set", { persona_id: persona.id, target: item.target, public: item.public, action: "restore", topic: item.scope.slice(6), reason: null }, "Community membership restored.")),
+      ])),
+      ...restorations.map((item) => element("div", { class: "readiness-row" }, [
+        element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: `${item.public ? "Published restoration" : "Private restoration"} · ${item.scope.replace(/^topic:/, "/h/")}` })]),
+        actionButton("Return to followed removals", () => mutate("membership.set", { persona_id: persona.id, target: item.target, public: item.public, action: "withdraw", topic: item.scope.slice(6), reason: null }, "Direct restoration withdrawn; followed judgments apply again.")),
+      ])),
+      ...hideSources.map((item) => contentSourceRow(item, "hide")),
+      ...removalSources.map((item) => contentSourceRow(item, "removal")),
     ]),
     element("section", { class: "context-card" }, [
       element("h2", { text: "Vote review" }),
@@ -1791,6 +1854,29 @@ function showFollowSetEditor(existing = null) {
   } });
 }
 
+function showHideEditor(object) {
+  const persona = activePersona(session.state);
+  const currentTopic = session.route === "community" && session.community ? session.community : null;
+  modal("Hide this item", "This changes your view without deleting the underlying Nostr event or hiding its author’s other activity.", element("div", {}, [
+    element("p", { class: "evidence-note", text: object.title || object.body.slice(0, 160) }),
+    field("Scope", "select", "scope", currentTopic ? `topic:${currentTopic}` : "global", "A community hide applies only within that /h/ topic.", { values: [["global", "Everywhere"], ...(currentTopic ? [[`topic:${currentTopic}`, `/h/${currentTopic}`]] : [])] }),
+    toggle("Publish this hide", "public", false, "Publishing lets people who follow your hides apply the same judgment voluntarily."),
+    field("Reason", "textarea", "reason", "", "Optional. A private reason remains encrypted; a published reason is shared."),
+  ]), { submitLabel: "Hide", onSubmit: (data) => {
+    const scope = String(data.get("scope"));
+    return mutate("hide.set", { persona_id: persona.id, target: object.anchor, public: Boolean(data.get("public")), action: "hide", topic: scope.startsWith("topic:") ? scope.slice(6) : null, reason: data.get("reason") || null }, "Item hidden from this persona’s view.");
+  } });
+}
+
+function showRemovalEditor(object, topic) {
+  const persona = activePersona(session.state);
+  modal(`Remove from /h/${topic}`, "This rejects the item’s membership in this community for your view and people who follow this judgment. It remains available elsewhere.", element("div", {}, [
+    element("p", { class: "evidence-note", text: object.title || object.body.slice(0, 160) }),
+    toggle("Publish this removal", "public", false, "Publishing shares a community-membership judgment; it does not delete or globally hide the item."),
+    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
+  ]), { submitLabel: "Remove", onSubmit: (data) => mutate("membership.set", { persona_id: persona.id, target: object.anchor, public: Boolean(data.get("public")), action: "remove", topic, reason: data.get("reason") || null }, `Item removed from /h/${topic} in this persona’s view.`) });
+}
+
 function showBlockEditor(target = "") {
   const persona = activePersona(session.state);
   const currentTopic = session.route === "community" && session.community ? session.community : null;
@@ -1851,6 +1937,41 @@ function showSilenceSourceEditor() {
   } });
 }
 
+function showContentSourceEditor(kind) {
+  const persona = activePersona(session.state);
+  const removal = kind === "removal";
+  const currentTopic = session.route === "community" && session.community ? session.community : null;
+  const sources = removal ? session.state.removalSources : session.state.hideSources;
+  const nextRank = Math.max(0, ...(sources ?? []).filter((item) => item.personaId === persona.id).map((item) => Number(item.rank) || 0)) + 1;
+  const label = removal ? "removal" : "hide";
+  modal(`Follow ${label} judgments`, removal
+    ? "Choose whose community-removal judgments affect this persona’s community views."
+    : "Choose whose content-hide judgments affect this persona’s view.", element("div", {}, [
+    field("Persona npub or hex key", "text", "source", "", "This follows one person’s judgments; it does not appoint a moderator.", { required: true }),
+    removal ? null : toggle("Apply everywhere", "global", !currentTopic, "Includes all topics unless a more direct judgment applies."),
+    field("Community topics", "textarea", "topics", currentTopic ?? "", removal ? "Required; one bare topic per line." : "Optional; one bare topic per line."),
+    field("Priority", "number", "rank", nextRank, "Lower numbers take precedence when followed sources disagree.", { min: 1, required: true }),
+  ]), { submitLabel: `Follow ${label} judgments`, onSubmit: (data) => {
+    const topics = String(data.get("topics") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
+    const global = !removal && Boolean(data.get("global"));
+    if (!global && !topics.length) throw new Error("Choose everywhere or at least one community topic.");
+    return mutate(removal ? "removal_source.set" : "hide_source.set", { persona_id: persona.id, source: data.get("source"), global, topics, rank: Number(data.get("rank")), enabled: true }, `${label[0].toUpperCase()}${label.slice(1)} judgments will affect this persona’s view after source sync.`);
+  } });
+}
+
+function contentSourceRow(item, kind) {
+  const persona = activePersona(session.state);
+  const removal = kind === "removal";
+  const label = removal ? "removals" : "hides";
+  return element("div", { class: "readiness-row" }, [
+    element("div", {}, [
+      element("strong", { text: `${item.source.slice(0, 18)}…` }),
+      element("p", { text: `Following ${label} ${[item.global ? "everywhere" : null, ...(item.topics ?? []).map((topic) => `/h/${topic}`)].filter(Boolean).join(", ")} · priority ${item.rank} · ${item.completeness}` }),
+    ]),
+    actionButton(`Stop following ${label}`, () => mutate(removal ? "removal_source.set" : "hide_source.set", { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank, enabled: false }, `${label[0].toUpperCase()}${label.slice(1)} source removed.`)),
+  ]);
+}
+
 function showUnblockEditor(target, effect) {
   const persona = activePersona(session.state);
   const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : null;
@@ -1871,6 +1992,27 @@ function showUnsilenceEditor(target, effect) {
     toggle("Publish this unsilence", "public", false, "Off keeps the exception encrypted for this persona."),
     field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
   ]), { submitLabel: "Unsilence", onSubmit: (data) => mutate("silence.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), silenced: false, action: "unsilence", topic, reason: data.get("reason") || null }, "Direct unsilence applied.") });
+}
+
+function showUnhideEditor(target, effect) {
+  const persona = activePersona(session.state);
+  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : null;
+  modal("Unhide this item", "A direct unhide overrides hide judgments you follow. Independent blocks, silences, and community removals still apply.", element("div", {}, [
+    element("p", { class: "evidence-note", text: target }),
+    element("p", { text: topic ? `Scope: /h/${topic}` : "Scope: everywhere" }),
+    toggle("Publish this unhide", "public", false, "Off keeps the exception encrypted for this persona."),
+    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
+  ]), { submitLabel: "Unhide", onSubmit: (data) => mutate("hide.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), action: "unhide", topic, reason: data.get("reason") || null }, "Direct unhide applied.") });
+}
+
+function showRestoreEditor(target, effect) {
+  const persona = activePersona(session.state);
+  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : effect.topic;
+  modal(`Restore to /h/${topic}`, "A direct restoration accepts this item’s membership in the community. Independent hides and author judgments still apply.", element("div", {}, [
+    element("p", { class: "evidence-note", text: target }),
+    toggle("Publish this restoration", "public", false, "Off keeps the exception encrypted for this persona."),
+    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
+  ]), { submitLabel: "Restore", onSubmit: (data) => mutate("membership.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), action: "restore", topic, reason: data.get("reason") || null }, `Direct restoration applied in /h/${topic}.`) });
 }
 
 function showLocalFilterEditor() {

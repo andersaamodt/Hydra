@@ -1466,6 +1466,18 @@ pub struct SetPersonJudgment {
     pub changed_at: u64,
 }
 
+pub struct SetContentJudgment {
+    pub persona_id: PersonaId,
+    pub target: AnchorId,
+    pub topic: Option<CommunityKey>,
+    pub public: bool,
+    pub faculty: flocking_core::Faculty,
+    pub action: flocking_core::Action,
+    pub reason: Option<String>,
+    pub relays: Vec<String>,
+    pub changed_at: u64,
+}
+
 pub struct SetPersonSource {
     pub persona_id: PersonaId,
     pub source: NostrPublicKey,
@@ -1849,53 +1861,86 @@ impl<S: SecretStore> SocialService<S> {
         local
             .validate()
             .map_err(|error| AppError::Flocking(error.to_string()))?;
-        if request.public {
-            let event = hydra_nostr::flocking_judgment_event(&keys, &local)?;
-            let published = hydra_nostr::received_flocking_judgments(&event)?
-                .into_iter()
-                .next()
-                .ok_or_else(|| AppError::Flocking("signed judgment was not readable".to_owned()))?;
-            let mut outbound = vec![outbound_event(&event, &request.relays)];
-            if published.faculty == flocking_core::Faculty::Block
-                && published.scope == flocking_core::Scope::Global
-            {
-                let mirror = block_mirror_with_legacy(store, request.persona_id, &published)?;
-                let event = hydra_nostr::public_mute_list(&keys, &mirror, request.changed_at)?;
-                outbound.push(outbound_event(&event, &request.relays));
-            }
-            let record = FlockingJudgmentRecord {
+        persist_direct_judgment(
+            store,
+            &keys,
+            FlockingJudgmentRecord {
                 persona: request.persona_id,
-                public: true,
-                judgment: published,
-            };
-            store.append(
-                DurableEvent::FlockingJudgmentChanged {
-                    record: record.clone(),
-                    outbound,
-                },
-                request.changed_at,
-            )?;
-            Ok(record)
-        } else {
-            let record = FlockingJudgmentRecord {
-                persona: request.persona_id,
-                public: false,
+                public: request.public,
                 judgment: local,
-            };
-            store_private_record(
-                store,
-                &keys,
-                &PrivateRecord::FlockingJudgment(record.clone()),
-                PrivateCommit {
-                    recorded_at: request.changed_at,
-                    ..PrivateCommit::default()
-                },
-            )?;
-            Ok(record)
-        }
+            },
+            &request.relays,
+            request.changed_at,
+        )
     }
 
-    /// Enables or removes one source for block or silence judgments in selected scopes.
+    /// Updates one direct hide or community-membership judgment for a stable object.
+    /// The underlying object remains durable and independently inspectable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing object, invalid scope/action, signing, or persistence.
+    pub fn set_content_judgment(
+        &self,
+        store: &mut DurableStore,
+        request: &SetContentJudgment,
+    ) -> Result<FlockingJudgmentRecord, AppError> {
+        if !store.state().heads.contains(&request.target) {
+            return Err(DomainError::MissingObject.into());
+        }
+        if !matches!(
+            request.faculty,
+            flocking_core::Faculty::Hide | flocking_core::Faculty::CommunityMembership
+        ) {
+            return Err(AppError::Flocking(
+                "content judgments support only hide and community membership".to_owned(),
+            ));
+        }
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let author = hydra_nostr::flocking_public_key(&persona.public_key)?;
+        let scope = request.topic.as_ref().map_or_else(
+            || Ok(flocking_core::Scope::Global),
+            |topic| {
+                flocking_core::Topic::parse(topic.as_str())
+                    .map(flocking_core::Scope::Topic)
+                    .map_err(|error| AppError::Flocking(error.to_string()))
+            },
+        )?;
+        let event_id = flocking_core::EventId::parse(request.target.as_str())
+            .map_err(|error| AppError::Flocking(error.to_string()))?;
+        let local = flocking_core::Judgment {
+            author,
+            faculty: request.faculty,
+            scope,
+            target: flocking_core::Target::Content(flocking_core::ContentTarget::Event(event_id)),
+            action: request.action,
+            created_at: request.changed_at,
+            event_id: None,
+            since: None,
+            reason: request
+                .reason
+                .as_ref()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            evidence: flocking_core::JudgmentEvidence::Local,
+        };
+        local
+            .validate()
+            .map_err(|error| AppError::Flocking(error.to_string()))?;
+        persist_direct_judgment(
+            store,
+            &keys,
+            FlockingJudgmentRecord {
+                persona: request.persona_id,
+                public: request.public,
+                judgment: local,
+            },
+            &request.relays,
+            request.changed_at,
+        )
+    }
+
+    /// Enables or removes one ordinary judgment source in selected scopes.
     /// Configuration remains encrypted and persona-local.
     ///
     /// # Errors
@@ -1906,12 +1951,10 @@ impl<S: SecretStore> SocialService<S> {
         store: &mut DurableStore,
         request: &SetPersonSource,
     ) -> Result<FlockingProfile, AppError> {
-        if !matches!(
-            request.faculty,
-            flocking_core::Faculty::Block | flocking_core::Faculty::Silence
-        ) {
+        if !is_ordinary_source_faculty(request.faculty) {
             return Err(AppError::Flocking(
-                "person sources support only block and silence".to_owned(),
+                "ordinary sources support block, silence, hide, and community membership"
+                    .to_owned(),
             ));
         }
         let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
@@ -3022,6 +3065,53 @@ fn outbound_event(event: &nostr::Event, relays: &[String]) -> OutboundEvent {
     }
 }
 
+fn persist_direct_judgment(
+    store: &mut DurableStore,
+    keys: &PersonaSigningContext,
+    direct: FlockingJudgmentRecord,
+    relays: &[String],
+    changed_at: u64,
+) -> Result<FlockingJudgmentRecord, AppError> {
+    if !direct.public {
+        store_private_record(
+            store,
+            keys,
+            &PrivateRecord::FlockingJudgment(direct.clone()),
+            PrivateCommit {
+                recorded_at: changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        return Ok(direct);
+    }
+    let event = hydra_nostr::flocking_judgment_event(keys, &direct.judgment)?;
+    let published = hydra_nostr::received_flocking_judgments(&event)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::Flocking("signed judgment was not readable".to_owned()))?;
+    let mut outbound = vec![outbound_event(&event, relays)];
+    if published.faculty == flocking_core::Faculty::Block
+        && published.scope == flocking_core::Scope::Global
+    {
+        let mirror = block_mirror_with_legacy(store, direct.persona, &published)?;
+        let event = hydra_nostr::public_mute_list(keys, &mirror, changed_at)?;
+        outbound.push(outbound_event(&event, relays));
+    }
+    let record = FlockingJudgmentRecord {
+        persona: direct.persona,
+        public: true,
+        judgment: published,
+    };
+    store.append(
+        DurableEvent::FlockingJudgmentChanged {
+            record: record.clone(),
+            outbound,
+        },
+        changed_at,
+    )?;
+    Ok(record)
+}
+
 fn continuous_silence_cutoff(
     store: &DurableStore,
     private: &PrivateState,
@@ -3052,6 +3142,16 @@ fn continuous_silence_cutoff(
                 && judgment.action == flocking_core::Action::Silence
         })
         .and_then(|judgment| judgment.since)
+}
+
+fn is_ordinary_source_faculty(faculty: flocking_core::Faculty) -> bool {
+    matches!(
+        faculty,
+        flocking_core::Faculty::Block
+            | flocking_core::Faculty::Silence
+            | flocking_core::Faculty::Hide
+            | flocking_core::Faculty::CommunityMembership
+    )
 }
 
 fn block_mirror_with_legacy(
@@ -4572,6 +4672,103 @@ mod tests {
             .count();
         assert_eq!(store.state().outbound.len(), outbound_before + 1);
         assert_eq!(canonical_count, 1);
+    }
+
+    #[test]
+    fn content_judgments_use_stable_anchors_and_keep_removal_topic_scoped() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let personas = PersonaService::new(secrets.clone());
+        let alice = personas.create(&mut store, "Alice".to_owned(), 10).unwrap();
+        let science = CommunityKey::parse("science").unwrap();
+        let post = DiscussionService::new(secrets.clone())
+            .create_post(
+                &mut store,
+                CreatePost {
+                    persona_id: alice.id,
+                    title: "One logical object".to_owned(),
+                    body: "The judgment follows this anchor across revisions.".to_owned(),
+                    communities: vec![science.clone()],
+                    relays: Vec::new(),
+                    recorded_at: 11,
+                },
+            )
+            .unwrap();
+        let service = SocialService::new(secrets.clone());
+        service
+            .set_content_judgment(
+                &mut store,
+                &SetContentJudgment {
+                    persona_id: alice.id,
+                    target: post.anchor.clone(),
+                    topic: None,
+                    public: false,
+                    faculty: flocking_core::Faculty::Hide,
+                    action: flocking_core::Action::Hide,
+                    reason: Some("Not useful to me".to_owned()),
+                    relays: Vec::new(),
+                    changed_at: 12,
+                },
+            )
+            .unwrap();
+        let private = private_state(&secrets, &store, alice.id).unwrap();
+        let hide = private
+            .flocking_judgments
+            .values()
+            .find(|record| record.judgment.faculty == flocking_core::Faculty::Hide)
+            .unwrap();
+        assert_eq!(hide.judgment.scope, flocking_core::Scope::Global);
+        assert_eq!(
+            hide.judgment.target,
+            flocking_core::Target::Content(flocking_core::ContentTarget::Event(
+                flocking_core::EventId::parse(post.anchor.as_str()).unwrap()
+            ))
+        );
+
+        let outbound_before = store.state().outbound.len();
+        service
+            .set_content_judgment(
+                &mut store,
+                &SetContentJudgment {
+                    persona_id: alice.id,
+                    target: post.anchor.clone(),
+                    topic: Some(science),
+                    public: true,
+                    faculty: flocking_core::Faculty::CommunityMembership,
+                    action: flocking_core::Action::Remove,
+                    reason: Some("Off topic".to_owned()),
+                    relays: vec!["wss://relay.example".to_owned()],
+                    changed_at: 13,
+                },
+            )
+            .unwrap();
+        assert_eq!(store.state().outbound.len(), outbound_before + 1);
+        let removal = store
+            .state()
+            .flocking_judgments
+            .iter()
+            .find(|judgment| judgment.faculty == flocking_core::Faculty::CommunityMembership)
+            .unwrap();
+        assert_eq!(removal.scope.to_string(), "topic:science");
+
+        let error = service
+            .set_content_judgment(
+                &mut store,
+                &SetContentJudgment {
+                    persona_id: alice.id,
+                    target: post.anchor,
+                    topic: None,
+                    public: false,
+                    faculty: flocking_core::Faculty::CommunityMembership,
+                    action: flocking_core::Action::Remove,
+                    reason: None,
+                    relays: Vec::new(),
+                    changed_at: 14,
+                },
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("Flocking"));
     }
 
     #[test]

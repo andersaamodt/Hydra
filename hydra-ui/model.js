@@ -75,9 +75,11 @@ export function commentsFor(state, root) {
   const visible = new Set(state?.visibleAnchors ?? all.map((object) => object.anchor));
   const children = new Map();
   for (const object of all) {
-    const isExcluded = Boolean(object.block) || Boolean(object.silence)
+    const isExcluded = Boolean(object.block) || Boolean(object.silence) || Boolean(object.hide)
       || Object.keys(object.topicBlocks ?? {}).length > 0
-      || Object.keys(object.topicSilences ?? {}).length > 0;
+      || Object.keys(object.topicSilences ?? {}).length > 0
+      || Object.keys(object.topicHides ?? {}).length > 0
+      || Object.keys(object.topicRemovals ?? {}).length > 0;
     if (object.kind !== "comment" || object.root !== root || (!visible.has(object.anchor) && !isExcluded)) continue;
     const parent = object.parent ?? root;
     const values = children.get(parent) ?? [];

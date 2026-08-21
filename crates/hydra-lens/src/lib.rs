@@ -55,9 +55,11 @@ impl FeedLens {
 pub struct FeedService;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PersonExclusion {
+pub enum JudgmentExclusion {
     Block,
     Silence,
+    Hide,
+    CommunityRemoval,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +70,7 @@ pub enum PersonExclusion {
 pub struct VisibilityDecision {
     pub excluded: bool,
     pub uncertain: bool,
-    pub exclusion: Option<PersonExclusion>,
+    pub exclusion: Option<JudgmentExclusion>,
     pub inherited: bool,
     pub source: Option<String>,
     pub event_id: Option<String>,
@@ -325,21 +327,21 @@ pub fn block_decision(
         return uncertain_decision(
             "The active persona is unavailable.",
             None,
-            Some(PersonExclusion::Block),
+            Some(JudgmentExclusion::Block),
         );
     };
     let Ok(persona_key) = hydra_nostr::flocking_public_key(&persona_record.public_key) else {
         return uncertain_decision(
             "The active persona key is invalid.",
             None,
-            Some(PersonExclusion::Block),
+            Some(JudgmentExclusion::Block),
         );
     };
     let Ok(author_key) = hydra_nostr::flocking_public_key(author) else {
         return uncertain_decision(
             "The author's public key is invalid.",
             None,
-            Some(PersonExclusion::Block),
+            Some(JudgmentExclusion::Block),
         );
     };
     let config = private.flocking_profile.as_ref().map_or_else(
@@ -355,7 +357,7 @@ pub fn block_decision(
         return uncertain_decision(
             "The judgment configuration belongs to another persona.",
             None,
-            Some(PersonExclusion::Block),
+            Some(JudgmentExclusion::Block),
         );
     }
     let source_states = private
@@ -370,7 +372,7 @@ pub fn block_decision(
                 return uncertain_decision(
                     "The community topic is invalid.",
                     None,
-                    Some(PersonExclusion::Block),
+                    Some(JudgmentExclusion::Block),
                 );
             }
         },
@@ -392,7 +394,7 @@ pub fn block_decision(
         return uncertain_decision(
             "The effective block could not be evaluated.",
             None,
-            Some(PersonExclusion::Block),
+            Some(JudgmentExclusion::Block),
         );
     };
     decision_from_evaluation(
@@ -400,7 +402,7 @@ pub fn block_decision(
         &persona_key,
         &target,
         &judgments,
-        PersonExclusion::Block,
+        JudgmentExclusion::Block,
     )
 }
 
@@ -464,10 +466,12 @@ pub fn visibility_decision(
         None => None,
     };
     let context = flocking_core::Context { topic };
-    let target = flocking_core::Target::Person(author_key.clone());
+    let person_target = flocking_core::Target::Person(author_key.clone());
+    let logical_target = flocking_core::ContentTarget::Event(event_id);
+    let content_target = flocking_core::Target::Content(logical_target.clone());
     let contribution = flocking_core::Contribution {
         author: author_key,
-        target: flocking_core::ContentTarget::Event(event_id),
+        target: logical_target,
         created_at: head.edited_at,
         first_seen: store.state().first_seen(head),
     };
@@ -487,9 +491,9 @@ pub fn visibility_decision(
         Some(flocking_core::Exclusion::Block) => decision_from_evaluation(
             visibility.block,
             &persona_key,
-            &target,
+            &person_target,
             &judgments,
-            PersonExclusion::Block,
+            JudgmentExclusion::Block,
         ),
         Some(flocking_core::Exclusion::Silence {
             cutoff,
@@ -498,19 +502,37 @@ pub fn visibility_decision(
             let mut decision = decision_from_evaluation(
                 visibility.silence,
                 &persona_key,
-                &target,
+                &person_target,
                 &judgments,
-                PersonExclusion::Silence,
+                JudgmentExclusion::Silence,
             );
             decision.cutoff = Some(cutoff);
             decision.local_timing_evidence = local_timing_evidence;
             decision
         }
-        Some(_) => uncertain_decision(
-            "This contribution is excluded by another judgment.",
-            None,
-            None,
+        Some(flocking_core::Exclusion::Hide) => decision_from_evaluation(
+            visibility.hide,
+            &persona_key,
+            &content_target,
+            &judgments,
+            JudgmentExclusion::Hide,
         ),
+        Some(flocking_core::Exclusion::CommunityRemoval) => {
+            let Some(membership) = visibility.membership else {
+                return uncertain_decision(
+                    "Community membership could not be evaluated.",
+                    None,
+                    Some(JudgmentExclusion::CommunityRemoval),
+                );
+            };
+            decision_from_evaluation(
+                membership,
+                &persona_key,
+                &content_target,
+                &judgments,
+                JudgmentExclusion::CommunityRemoval,
+            )
+        }
         None if visibility.eligible.is_none() => uncertain_decision(
             "Visibility is uncertain because judgment data is stale or missing.",
             None,
@@ -564,7 +586,7 @@ fn decision_from_evaluation(
     persona_key: &flocking_core::PublicKey,
     target: &flocking_core::Target,
     judgments: &[flocking_core::Judgment],
-    exclusion: PersonExclusion,
+    exclusion: JudgmentExclusion,
 ) -> VisibilityDecision {
     match evaluation {
         flocking_core::Evaluation::Indeterminate { unknown, stale } => {
@@ -601,8 +623,10 @@ fn decision_from_evaluation(
             let source = inherited.then(|| effective.evidence.author.to_string());
             let scope = Some(effective.scope.to_string());
             let verb = match exclusion {
-                PersonExclusion::Block => "Blocked",
-                PersonExclusion::Silence => "Silenced",
+                JudgmentExclusion::Block => "Blocked",
+                JudgmentExclusion::Silence => "Silenced",
+                JudgmentExclusion::Hide => "Hidden",
+                JudgmentExclusion::CommunityRemoval => "Removed",
             };
             let why = if effective.value {
                 Some(if let Some(source) = &source {
@@ -633,7 +657,7 @@ fn decision_from_evaluation(
 fn uncertain_decision(
     why: &str,
     source: Option<String>,
-    exclusion: Option<PersonExclusion>,
+    exclusion: Option<JudgmentExclusion>,
 ) -> VisibilityDecision {
     VisibilityDecision {
         excluded: true,
@@ -802,10 +826,27 @@ fn controversy(store: &DurableStore, target: &AnchorId) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use hydra_domain::{ContentBody, DurableEvent, FlockingProfile, ObjectHead, Persona};
+    use hydra_domain::{
+        ContentBody, DurableEvent, FlockingJudgmentRecord, FlockingProfile, ObjectHead, Persona,
+    };
     use tempfile::tempdir;
 
     use super::*;
+
+    fn set_private_judgment(
+        private: &mut PrivateState,
+        persona: PersonaId,
+        judgment: flocking_core::Judgment,
+    ) {
+        let record = FlockingJudgmentRecord {
+            persona,
+            public: false,
+            judgment,
+        };
+        private
+            .flocking_judgments
+            .insert(record.judgment.address(), record);
+    }
 
     #[test]
     fn spam_score_is_bounded_and_explainable_by_content() {
@@ -1028,11 +1069,14 @@ mod tests {
 
         assert!(!visibility_decision(&store, &private, persona_id, &old, None).excluded);
         let new_decision = visibility_decision(&store, &private, persona_id, &new, None);
-        assert_eq!(new_decision.exclusion, Some(PersonExclusion::Silence));
+        assert_eq!(new_decision.exclusion, Some(JudgmentExclusion::Silence));
         assert_eq!(new_decision.cutoff, Some(10));
         let backdated_decision =
             visibility_decision(&store, &private, persona_id, &backdated, None);
-        assert_eq!(backdated_decision.exclusion, Some(PersonExclusion::Silence));
+        assert_eq!(
+            backdated_decision.exclusion,
+            Some(JudgmentExclusion::Silence)
+        );
         assert!(backdated_decision.local_timing_evidence);
 
         store
@@ -1055,7 +1099,140 @@ mod tests {
             .unwrap();
         assert_eq!(
             visibility_decision(&store, &private, persona_id, &new, None).exclusion,
-            Some(PersonExclusion::Block)
+            Some(JudgmentExclusion::Block)
         );
+    }
+
+    #[test]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one scenario proves cross-faculty and cross-topic precedence"
+    )]
+    fn hide_and_membership_remain_independent_and_topic_relative() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let persona_id = PersonaId::new();
+        let persona_key = NostrPublicKey::parse(
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        )
+        .unwrap();
+        let author_key = NostrPublicKey::parse(
+            "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        )
+        .unwrap();
+        store
+            .append(
+                DurableEvent::PersonaCreated(Persona {
+                    id: persona_id,
+                    public_key: persona_key.clone(),
+                    display_name: "Alice".to_owned(),
+                    reddit_account: None,
+                }),
+                1,
+            )
+            .unwrap();
+        let head = ObjectHead {
+            anchor: AnchorId::parse("a".repeat(64)).unwrap(),
+            author: author_key,
+            kind: ObjectKind::Post,
+            title: Some("Cross-topic post".to_owned()),
+            body: ContentBody::parse("Body").unwrap(),
+            communities: vec![
+                CommunityKey::parse("science").unwrap(),
+                CommunityKey::parse("philosophy").unwrap(),
+            ],
+            root: None,
+            parent: None,
+            external_root: None,
+            external_parent: None,
+            external_source: None,
+            edited_at: 2,
+        };
+        store
+            .append(
+                DurableEvent::NativeObjectChanged {
+                    head: head.clone(),
+                    outbound: Vec::new(),
+                },
+                2,
+            )
+            .unwrap();
+        let persona = hydra_nostr::flocking_public_key(&persona_key).unwrap();
+        let target = flocking_core::Target::Content(flocking_core::ContentTarget::Event(
+            flocking_core::EventId::parse(head.anchor.as_str()).unwrap(),
+        ));
+        let judgment = |faculty, scope, action, created_at| flocking_core::Judgment {
+            author: persona.clone(),
+            faculty,
+            scope,
+            target: target.clone(),
+            action,
+            created_at,
+            event_id: None,
+            since: None,
+            reason: None,
+            evidence: flocking_core::JudgmentEvidence::Local,
+        };
+        let mut private = PrivateState::default();
+        set_private_judgment(
+            &mut private,
+            persona_id,
+            judgment(
+                flocking_core::Faculty::CommunityMembership,
+                flocking_core::Scope::Topic(flocking_core::Topic::parse("science").unwrap()),
+                flocking_core::Action::Remove,
+                3,
+            ),
+        );
+        let science = CommunityKey::parse("science").unwrap();
+        let philosophy = CommunityKey::parse("philosophy").unwrap();
+        assert_eq!(
+            visibility_decision(&store, &private, persona_id, &head, Some(&science)).exclusion,
+            Some(JudgmentExclusion::CommunityRemoval)
+        );
+        assert!(
+            !visibility_decision(&store, &private, persona_id, &head, Some(&philosophy)).excluded
+        );
+        assert!(!visibility_decision(&store, &private, persona_id, &head, None).excluded);
+
+        set_private_judgment(
+            &mut private,
+            persona_id,
+            judgment(
+                flocking_core::Faculty::Hide,
+                flocking_core::Scope::Global,
+                flocking_core::Action::Hide,
+                4,
+            ),
+        );
+        assert_eq!(
+            visibility_decision(&store, &private, persona_id, &head, Some(&science)).exclusion,
+            Some(JudgmentExclusion::Hide)
+        );
+        set_private_judgment(
+            &mut private,
+            persona_id,
+            judgment(
+                flocking_core::Faculty::Hide,
+                flocking_core::Scope::Global,
+                flocking_core::Action::Unhide,
+                5,
+            ),
+        );
+        assert_eq!(
+            visibility_decision(&store, &private, persona_id, &head, Some(&science)).exclusion,
+            Some(JudgmentExclusion::CommunityRemoval)
+        );
+        set_private_judgment(
+            &mut private,
+            persona_id,
+            judgment(
+                flocking_core::Faculty::CommunityMembership,
+                flocking_core::Scope::Topic(flocking_core::Topic::parse("science").unwrap()),
+                flocking_core::Action::Restore,
+                6,
+            ),
+        );
+        assert!(!visibility_decision(&store, &private, persona_id, &head, Some(&science)).excluded);
     }
 }
