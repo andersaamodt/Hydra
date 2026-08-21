@@ -105,6 +105,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .platform-macos .topbar { grid-template-columns: 170px minmax(280px, 610px) 1fr; padding: 7px 18px 7px 78px; }
 .brand { display: flex; align-items: center; gap: 11px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
 .brand-mark { width: 40px; height: 40px; display: block; border-radius: 8px; }
+.brand-mark[hidden] { display: none; }
 .brand strong, .brand small, .persona-copy strong, .persona-copy small { display: block; }
 .brand strong { font: 700 19px/1.05 Georgia, serif; letter-spacing: .02em; }
 .brand small { margin-bottom: 2px; color: var(--muted); font-size: 10px; line-height: 1; }
@@ -150,6 +151,9 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 #view { min-height: 100%; }
 .view-header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 28px; border-bottom: 1px solid var(--line); background: var(--chrome); }
 .view-header h1 { margin: 0; font: 650 23px/1.15 Georgia, serif; letter-spacing: -.01em; }
+.community-heading { min-width: 0; display: flex; align-items: center; gap: 14px; }
+.community-heading-art { flex: 0 0 auto; width: 92px; height: 64px; display: flex; align-items: center; justify-content: flex-start; }
+.community-heading-image { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; border-radius: 9px; object-fit: contain; }
 .view-tabs { display: flex; gap: 5px; }
 .tab-button { padding: 8px 13px; border: 1px solid transparent; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer; }
 .tab-button.is-active { border-color: var(--line); color: var(--ink); background: var(--panel-2); }

@@ -405,16 +405,13 @@ function renderBrand() {
   const name = brand.querySelector("strong");
   const community = session.route === "community" ? session.community : null;
   if (community) {
-    const appearance = effectiveCommunityAppearance(community);
-    const verified = appearance && session.communityImages.get(`${community}:${appearance.sha256}`);
-    mark.src = verified || topicIdenticon(community);
-    mark.alt = appearance?.alt || `${community} community identicon`;
+    mark.hidden = true;
     domain.hidden = false;
     domain.textContent = "/h/";
     name.textContent = community;
     brand.setAttribute("aria-label", `${community} community`);
-    if (appearance && !verified) void verifyCommunityImage(community, appearance);
   } else {
+    mark.hidden = false;
     mark.src = "hydra-icon.png";
     mark.alt = "";
     domain.hidden = true;
@@ -447,7 +444,13 @@ async function verifyCommunityImage(community, appearance) {
       throw new Error("image dimensions mismatch");
     }
     session.communityImages.set(key, dataUrl);
-    if (session.route === "community" && session.community === community) renderBrand();
+    if (session.route === "community" && session.community === community) {
+      const headingImage = document.querySelector(".community-heading-image");
+      if (headingImage) {
+        headingImage.src = dataUrl;
+        headingImage.alt = appearance.alt || `${community} community image`;
+      }
+    }
   } catch {
     session.communityImages.set(key, false);
   }
@@ -521,6 +524,25 @@ function viewHeader(title, extras = []) {
   ]);
 }
 
+function communityViewHeader(community, title, extras = []) {
+  const appearance = effectiveCommunityAppearance(community);
+  const verified = appearance && session.communityImages.get(`${community}:${appearance.sha256}`);
+  if (appearance && !verified) void verifyCommunityImage(community, appearance);
+  return element("header", { class: "view-header" }, [
+    element("div", { class: "community-heading" }, [
+      element("span", { class: "community-heading-art" }, [
+        element("img", {
+          class: "community-heading-image",
+          src: verified || topicIdenticon(community),
+          alt: appearance?.alt || `${community} community identicon`,
+        }),
+      ]),
+      element("h1", { text: title }),
+    ]),
+    ...extras,
+  ]);
+}
+
 function chamberTabs() {
   const selectChamber = (chamber) => {
     if (chamber === "hydra") stopRedditThreadRefresh();
@@ -582,7 +604,7 @@ function renderFeed() {
     : session.route === "front"
       ? [actionButton("People worth a second look", () => showReverseDiscoveries())]
       : [];
-  const header = viewHeader(title, extras);
+  const header = community ? communityViewHeader(community, title, extras) : viewHeader(title, extras);
 
   if (community && session.chamber === "reddit") {
     renderRedditCommunity(header, community);
