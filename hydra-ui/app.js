@@ -78,6 +78,73 @@ systemColorScheme.addEventListener("change", () => {
 const view = document.querySelector("#view");
 const modalRoot = document.querySelector("#modal-root");
 const toastRegion = document.querySelector("#toast-region");
+const sidebarResizer = document.querySelector("#sidebar-resizer");
+const SIDEBAR_WIDTH_MIN = 180;
+const SIDEBAR_WIDTH_MAX = 420;
+const SIDEBAR_WIDTH_DEFAULT = 230;
+const SIDEBAR_WIDTH_STORAGE_KEY = "hydra.sidebarWidth";
+
+function maximumSidebarWidth() {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, window.innerWidth - 480));
+}
+
+function storedSidebarWidth() {
+  try { return Number.parseInt(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY), 10); } catch { return Number.NaN; }
+}
+
+function setSidebarWidth(width, persist = false) {
+  const maximum = maximumSidebarWidth();
+  const next = Math.round(Math.min(maximum, Math.max(SIDEBAR_WIDTH_MIN, Number(width) || SIDEBAR_WIDTH_DEFAULT)));
+  document.querySelector("#app").style.setProperty("--sidebar-width", `${next}px`);
+  sidebarResizer.setAttribute("aria-valuemax", String(maximum));
+  sidebarResizer.setAttribute("aria-valuenow", String(next));
+  if (persist) {
+    try { localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(next)); } catch { /* Layout still works without persistence. */ }
+  }
+  return next;
+}
+
+function installSidebarResizer() {
+  if (isSettingsWindow || !sidebarResizer) return;
+  let width = setSidebarWidth(storedSidebarWidth());
+
+  const finishResize = (event) => {
+    if (!sidebarResizer.classList.contains("is-resizing")) return;
+    if (sidebarResizer.hasPointerCapture(event.pointerId)) sidebarResizer.releasePointerCapture(event.pointerId);
+    sidebarResizer.classList.remove("is-resizing");
+    document.documentElement.classList.remove("sidebar-is-resizing");
+    width = setSidebarWidth(width, true);
+  };
+
+  sidebarResizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    sidebarResizer.setPointerCapture(event.pointerId);
+    sidebarResizer.classList.add("is-resizing");
+    document.documentElement.classList.add("sidebar-is-resizing");
+  });
+  sidebarResizer.addEventListener("pointermove", (event) => {
+    if (!sidebarResizer.hasPointerCapture(event.pointerId)) return;
+    width = setSidebarWidth(event.clientX);
+  });
+  sidebarResizer.addEventListener("pointerup", finishResize);
+  sidebarResizer.addEventListener("pointercancel", finishResize);
+  sidebarResizer.addEventListener("dblclick", () => { width = setSidebarWidth(SIDEBAR_WIDTH_DEFAULT, true); });
+  sidebarResizer.addEventListener("keydown", (event) => {
+    const changes = {
+      ArrowLeft: () => width - 10,
+      ArrowRight: () => width + 10,
+      Home: () => SIDEBAR_WIDTH_MIN,
+      End: () => maximumSidebarWidth(),
+    };
+    if (!changes[event.key]) return;
+    event.preventDefault();
+    width = setSidebarWidth(changes[event.key](), true);
+  });
+  window.addEventListener("resize", () => { width = setSidebarWidth(width); });
+}
+
+installSidebarResizer();
 
 function finishBoot() {
   const app = document.querySelector("#app");

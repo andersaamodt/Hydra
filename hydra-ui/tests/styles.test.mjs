@@ -49,7 +49,18 @@ test("the application shell has no permanent right status sidebar", () => {
   assert.doesNotMatch(index, /context-panel|Context and activity/);
   assert.doesNotMatch(app, /contextPanel|renderContext/);
   assert.doesNotMatch(styles, /\.context-panel|\.context-status|\.status-dot/);
-  assert.match(styles, /\.app-shell\s*\{[^}]*grid-template-columns:\s*230px minmax\(480px, 1fr\)/);
+  assert.match(styles, /\.app-shell\s*\{[^}]*--sidebar-width:\s*230px;[^}]*grid-template-columns:\s*var\(--sidebar-width\) minmax\(480px, 1fr\)/);
+});
+
+test("the navigation sidebar can be resized from its right edge", () => {
+  assert.match(index, /id="sidebar-resizer"[\s\S]*?role="separator"[\s\S]*?aria-orientation="vertical"[\s\S]*?tabindex="0"/);
+  assert.match(styles, /\.sidebar-resizer\s*\{[^}]*left:\s*calc\(var\(--sidebar-width\) - 4px\);[^}]*cursor:\s*col-resize;[^}]*touch-action:\s*none/);
+  assert.match(app, /SIDEBAR_WIDTH_MIN\s*=\s*180/);
+  assert.match(app, /SIDEBAR_WIDTH_MAX\s*=\s*420/);
+  assert.match(app, /localStorage\.setItem\(SIDEBAR_WIDTH_STORAGE_KEY/);
+  assert.match(app, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(app, /ArrowLeft:[\s\S]*ArrowRight:[\s\S]*Home:[\s\S]*End:/);
+  assert.match(app, /addEventListener\("dblclick"[\s\S]*SIDEBAR_WIDTH_DEFAULT/);
 });
 
 test("macOS integrates the native title bar with Hydra's toolbar", () => {
