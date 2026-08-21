@@ -355,7 +355,8 @@ impl ImportService {
             .map_err(|error| hydra_nostr::ProtocolError::Nostr(error.to_string()))?;
         if !matches!(
             event.kind,
-            Kind::TextNote
+            Kind::ContactList
+                | Kind::TextNote
                 | Kind::Thread
                 | Kind::Comment
                 | Kind::LongFormTextNote
@@ -1490,9 +1491,36 @@ pub struct SetPersonSource {
     pub faculty: flocking_core::Faculty,
     pub global: bool,
     pub topics: BTreeSet<CommunityKey>,
-    pub rank: u32,
+    pub rank: Option<u32>,
     pub enabled: bool,
     pub completeness: flocking_core::Completeness,
+    pub changed_at: u64,
+}
+
+pub struct SetReverseBlockSource {
+    pub persona_id: PersonaId,
+    pub source: NostrPublicKey,
+    pub global: bool,
+    pub topics: BTreeSet<CommunityKey>,
+    pub enabled: bool,
+    pub completeness: flocking_core::Completeness,
+    pub changed_at: u64,
+}
+
+pub struct SetPinDismissal {
+    pub persona_id: PersonaId,
+    pub topic: CommunityKey,
+    pub target: AnchorId,
+    pub dismissed: bool,
+    pub changed_at: u64,
+}
+
+pub struct RescuePerson {
+    pub persona_id: PersonaId,
+    pub target: NostrPublicKey,
+    pub topic: Option<CommunityKey>,
+    pub public: bool,
+    pub relays: Vec<String>,
     pub changed_at: u64,
 }
 
@@ -1611,6 +1639,30 @@ impl<S: SecretStore> SocialService<S> {
                     outbound,
                     recorded_at: request.changed_at,
                     ..PrivateCommit::default()
+                },
+            )?;
+        }
+        if request.public || prior_was_public {
+            self.set_person_judgment(
+                store,
+                &SetPersonJudgment {
+                    persona_id: request.persona_id,
+                    target: request.target.clone(),
+                    topic: None,
+                    public: true,
+                    faculty: flocking_core::Faculty::Follow,
+                    action: if request.public {
+                        if request.following {
+                            flocking_core::Action::Follow
+                        } else {
+                            flocking_core::Action::Unfollow
+                        }
+                    } else {
+                        flocking_core::Action::Withdraw
+                    },
+                    reason: None,
+                    relays: request.relays.clone(),
+                    changed_at: request.changed_at,
                 },
             )?;
         }
@@ -1846,10 +1898,12 @@ impl<S: SecretStore> SocialService<S> {
         )?;
         if !matches!(
             request.faculty,
-            flocking_core::Faculty::Block | flocking_core::Faculty::Silence
+            flocking_core::Faculty::Block
+                | flocking_core::Faculty::Silence
+                | flocking_core::Faculty::Follow
         ) {
             return Err(AppError::Flocking(
-                "person judgments support only block and silence".to_owned(),
+                "person judgments support only follow, block, and silence".to_owned(),
             ));
         }
         let reason = request
@@ -1913,10 +1967,12 @@ impl<S: SecretStore> SocialService<S> {
         }
         if !matches!(
             request.faculty,
-            flocking_core::Faculty::Hide | flocking_core::Faculty::CommunityMembership
+            flocking_core::Faculty::Hide
+                | flocking_core::Faculty::CommunityMembership
+                | flocking_core::Faculty::Pin
         ) {
             return Err(AppError::Flocking(
-                "content judgments support only hide and community membership".to_owned(),
+                "content judgments support only hide, community membership, and pin".to_owned(),
             ));
         }
         let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
@@ -1976,7 +2032,7 @@ impl<S: SecretStore> SocialService<S> {
     ) -> Result<FlockingProfile, AppError> {
         if !is_ordinary_source_faculty(request.faculty) {
             return Err(AppError::Flocking(
-                "ordinary sources support block, silence, hide, and community membership"
+                "ordinary sources support follow, block, silence, hide, community membership, and pin"
                     .to_owned(),
             ));
         }
@@ -2010,9 +2066,6 @@ impl<S: SecretStore> SocialService<S> {
             }
             !source.grants.is_empty() || source.reverse_blocks.is_some()
         });
-        profile
-            .source_states
-            .retain(|state| state.source != source_key || state.faculty != request.faculty);
         if request.enabled {
             let topics = request
                 .topics
@@ -2026,7 +2079,7 @@ impl<S: SecretStore> SocialService<S> {
                 faculty: request.faculty,
                 global: request.global,
                 topics: topics.clone(),
-                rank: Some(request.rank),
+                rank: request.rank,
             };
             let source = profile
                 .config
@@ -2042,22 +2095,157 @@ impl<S: SecretStore> SocialService<S> {
                     reverse_blocks: None,
                 });
             }
-            if request.global {
-                profile.source_states.push(flocking_core::SourceState {
-                    source: source_key.clone(),
-                    faculty: request.faculty,
-                    scope: flocking_core::Scope::Global,
-                    completeness: request.completeness,
-                });
-            }
-            profile
-                .source_states
-                .extend(topics.into_iter().map(|topic| flocking_core::SourceState {
-                    source: source_key.clone(),
-                    faculty: request.faculty,
-                    scope: flocking_core::Scope::Topic(topic),
-                    completeness: request.completeness,
-                }));
+        }
+        replace_source_states(
+            &mut profile,
+            &source_key,
+            request.faculty,
+            request.completeness,
+        );
+        profile.changed_at = request.changed_at;
+        profile.validate()?;
+        store_private_record(
+            store,
+            &keys,
+            &PrivateRecord::FlockingProfile(profile.clone()),
+            PrivateCommit {
+                recorded_at: request.changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        Ok(profile)
+    }
+
+    /// Selects one person's block judgments as a separate discovery source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid identities, scopes, configuration, or encrypted persistence.
+    pub fn set_reverse_block_source(
+        &self,
+        store: &mut DurableStore,
+        request: &SetReverseBlockSource,
+    ) -> Result<FlockingProfile, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let persona_key = hydra_nostr::flocking_public_key(&persona.public_key)?;
+        let source_key = hydra_nostr::flocking_public_key(&request.source)?;
+        let current = private_state(&self.secrets, store, request.persona_id)?;
+        let mut profile = current.flocking_profile.unwrap_or(FlockingProfile {
+            persona: request.persona_id,
+            config: flocking_core::Config {
+                version: flocking_core::CONFIG_VERSION.to_owned(),
+                persona: persona_key.clone(),
+                sources: Vec::new(),
+                appearance_sources: BTreeSet::new(),
+                local_pin_dismissals: Vec::new(),
+            },
+            source_states: Vec::new(),
+            appearance_complete_sources: BTreeSet::new(),
+            changed_at: request.changed_at,
+        });
+        if profile.config.persona != persona_key {
+            return Err(AppError::Flocking(
+                "configuration belongs to a different persona".to_owned(),
+            ));
+        }
+        let topics = request
+            .topics
+            .iter()
+            .map(|topic| {
+                flocking_core::Topic::parse(topic.as_str())
+                    .map_err(|error| AppError::Flocking(error.to_string()))
+            })
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        if let Some(source) = profile
+            .config
+            .sources
+            .iter_mut()
+            .find(|item| item.pubkey == source_key)
+        {
+            source.reverse_blocks = request.enabled.then(|| flocking_core::ReverseBlockGrant {
+                global: request.global,
+                topics: topics.clone(),
+            });
+        } else if request.enabled {
+            profile.config.sources.push(flocking_core::Source {
+                pubkey: source_key.clone(),
+                grants: Vec::new(),
+                reverse_blocks: Some(flocking_core::ReverseBlockGrant {
+                    global: request.global,
+                    topics: topics.clone(),
+                }),
+            });
+        }
+        profile
+            .config
+            .sources
+            .retain(|source| !source.grants.is_empty() || source.reverse_blocks.is_some());
+        replace_source_states(
+            &mut profile,
+            &source_key,
+            flocking_core::Faculty::Block,
+            request.completeness,
+        );
+        profile.changed_at = request.changed_at;
+        profile.validate()?;
+        store_private_record(
+            store,
+            &keys,
+            &PrivateRecord::FlockingProfile(profile.clone()),
+            PrivateCommit {
+                recorded_at: request.changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        Ok(profile)
+    }
+
+    /// Dismisses or restores one inherited contextual pin locally.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a missing target, invalid topic, or encrypted persistence.
+    pub fn set_pin_dismissal(
+        &self,
+        store: &mut DurableStore,
+        request: &SetPinDismissal,
+    ) -> Result<FlockingProfile, AppError> {
+        if !store.state().heads.contains(&request.target) {
+            return Err(DomainError::MissingObject.into());
+        }
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let persona_key = hydra_nostr::flocking_public_key(&persona.public_key)?;
+        let current = private_state(&self.secrets, store, request.persona_id)?;
+        let mut profile = current.flocking_profile.unwrap_or(FlockingProfile {
+            persona: request.persona_id,
+            config: flocking_core::Config {
+                version: flocking_core::CONFIG_VERSION.to_owned(),
+                persona: persona_key.clone(),
+                sources: Vec::new(),
+                appearance_sources: BTreeSet::new(),
+                local_pin_dismissals: Vec::new(),
+            },
+            source_states: Vec::new(),
+            appearance_complete_sources: BTreeSet::new(),
+            changed_at: request.changed_at,
+        });
+        if profile.config.persona != persona_key {
+            return Err(AppError::Flocking(
+                "configuration belongs to a different persona".to_owned(),
+            ));
+        }
+        let dismissal = flocking_core::LocalPinDismissal {
+            topic: flocking_core::Topic::parse(request.topic.as_str())
+                .map_err(|error| AppError::Flocking(error.to_string()))?,
+            target_type: flocking_core::PinTargetType::Event,
+            target: request.target.as_str().to_owned(),
+        };
+        profile
+            .config
+            .local_pin_dismissals
+            .retain(|item| item != &dismissal);
+        if request.dismissed {
+            profile.config.local_pin_dismissals.push(dismissal);
         }
         profile.changed_at = request.changed_at;
         profile.validate()?;
@@ -2071,6 +2259,44 @@ impl<S: SecretStore> SocialService<S> {
             },
         )?;
         Ok(profile)
+    }
+
+    /// Follows and directly unblocks one person discovered through a selected source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either direct judgment cannot be signed or stored.
+    pub fn rescue_person(
+        &self,
+        store: &mut DurableStore,
+        request: &RescuePerson,
+    ) -> Result<(), AppError> {
+        self.set_follow(
+            store,
+            &SetFollow {
+                persona_id: request.persona_id,
+                target: request.target.clone(),
+                public: request.public,
+                following: true,
+                relays: request.relays.clone(),
+                changed_at: request.changed_at,
+            },
+        )?;
+        self.set_person_judgment(
+            store,
+            &SetPersonJudgment {
+                persona_id: request.persona_id,
+                target: request.target.clone(),
+                topic: request.topic.clone(),
+                public: request.public,
+                faculty: flocking_core::Faculty::Block,
+                action: flocking_core::Action::Unblock,
+                reason: None,
+                relays: request.relays.clone(),
+                changed_at: request.changed_at,
+            },
+        )?;
+        Ok(())
     }
 
     /// Stores a direct community-image choice and optionally publishes its signed event.
@@ -2151,6 +2377,11 @@ impl<S: SecretStore> SocialService<S> {
             appearance_complete_sources: BTreeSet::new(),
             changed_at: request.changed_at,
         });
+        if profile.config.persona != persona_key {
+            return Err(AppError::Flocking(
+                "configuration belongs to a different persona".to_owned(),
+            ));
+        }
         profile.config.appearance_sources.remove(&source_key);
         profile.appearance_complete_sources.remove(&source_key);
         if request.enabled {
@@ -3272,11 +3503,62 @@ fn continuous_silence_cutoff(
 fn is_ordinary_source_faculty(faculty: flocking_core::Faculty) -> bool {
     matches!(
         faculty,
-        flocking_core::Faculty::Block
+        flocking_core::Faculty::Follow
+            | flocking_core::Faculty::Block
             | flocking_core::Faculty::Silence
             | flocking_core::Faculty::Hide
             | flocking_core::Faculty::CommunityMembership
+            | flocking_core::Faculty::Pin
     )
+}
+
+fn replace_source_states(
+    profile: &mut FlockingProfile,
+    source_key: &flocking_core::PublicKey,
+    faculty: flocking_core::Faculty,
+    completeness: flocking_core::Completeness,
+) {
+    profile
+        .source_states
+        .retain(|state| state.source != *source_key || state.faculty != faculty);
+    let Some(source) = profile.config.source(source_key) else {
+        return;
+    };
+    let mut scopes = BTreeSet::new();
+    if let Some(grant) = source.grants.iter().find(|grant| grant.faculty == faculty) {
+        if grant.global {
+            scopes.insert(flocking_core::Scope::Global);
+        }
+        scopes.extend(
+            grant
+                .topics
+                .iter()
+                .cloned()
+                .map(flocking_core::Scope::Topic),
+        );
+    }
+    if faculty == flocking_core::Faculty::Block
+        && let Some(grant) = &source.reverse_blocks
+    {
+        if grant.global {
+            scopes.insert(flocking_core::Scope::Global);
+        }
+        scopes.extend(
+            grant
+                .topics
+                .iter()
+                .cloned()
+                .map(flocking_core::Scope::Topic),
+        );
+    }
+    profile
+        .source_states
+        .extend(scopes.into_iter().map(|scope| flocking_core::SourceState {
+            source: source_key.clone(),
+            faculty,
+            scope,
+            completeness,
+        }));
 }
 
 fn block_mirror_with_legacy(
@@ -4517,7 +4799,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(store.state().outbound.len(), initial_outbound + 1);
+        assert_eq!(store.state().outbound.len(), initial_outbound + 2);
 
         service
             .publish_follow_set(
@@ -4533,7 +4815,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(store.state().public_follow_sets.len(), 1);
-        assert_eq!(store.state().outbound.len(), initial_outbound + 2);
+        assert_eq!(store.state().outbound.len(), initial_outbound + 3);
 
         service
             .set_block(
@@ -4549,7 +4831,7 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(store.state().outbound.len(), initial_outbound + 4);
+        assert_eq!(store.state().outbound.len(), initial_outbound + 5);
         let block = store
             .state()
             .blocks
@@ -4635,7 +4917,7 @@ mod tests {
                     faculty: flocking_core::Faculty::Block,
                     global: true,
                     topics: BTreeSet::from([science.clone()]),
-                    rank: 1,
+                    rank: Some(1),
                     enabled: true,
                     completeness: flocking_core::Completeness::Unknown,
                     changed_at: 21,
@@ -4696,6 +4978,100 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
         assert_eq!(current[0].action, flocking_core::Action::Unblock);
+    }
+
+    #[test]
+    fn follow_pin_reverse_sources_and_rescue_share_one_persona_configuration() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let personas = PersonaService::new(secrets.clone());
+        let alice = personas.create(&mut store, "Alice".to_owned(), 10).unwrap();
+        let bob = personas.create(&mut store, "Bob".to_owned(), 11).unwrap();
+        let service = SocialService::new(secrets.clone());
+        let science = CommunityKey::parse("science").unwrap();
+
+        service
+            .set_person_source(
+                &mut store,
+                &SetPersonSource {
+                    persona_id: alice.id,
+                    source: bob.public_key.clone(),
+                    faculty: flocking_core::Faculty::Follow,
+                    global: true,
+                    topics: BTreeSet::new(),
+                    rank: Some(1),
+                    enabled: true,
+                    completeness: flocking_core::Completeness::Complete,
+                    changed_at: 20,
+                },
+            )
+            .unwrap();
+        service
+            .set_person_source(
+                &mut store,
+                &SetPersonSource {
+                    persona_id: alice.id,
+                    source: bob.public_key.clone(),
+                    faculty: flocking_core::Faculty::Pin,
+                    global: false,
+                    topics: BTreeSet::from([science.clone()]),
+                    rank: None,
+                    enabled: true,
+                    completeness: flocking_core::Completeness::Complete,
+                    changed_at: 21,
+                },
+            )
+            .unwrap();
+        service
+            .set_reverse_block_source(
+                &mut store,
+                &SetReverseBlockSource {
+                    persona_id: alice.id,
+                    source: bob.public_key.clone(),
+                    global: false,
+                    topics: BTreeSet::from([science.clone()]),
+                    enabled: true,
+                    completeness: flocking_core::Completeness::Complete,
+                    changed_at: 22,
+                },
+            )
+            .unwrap();
+        service
+            .rescue_person(
+                &mut store,
+                &RescuePerson {
+                    persona_id: alice.id,
+                    target: bob.public_key.clone(),
+                    topic: Some(science),
+                    public: false,
+                    relays: Vec::new(),
+                    changed_at: 23,
+                },
+            )
+            .unwrap();
+
+        let private = private_state(&secrets, &store, alice.id).unwrap();
+        let profile = private.flocking_profile.as_ref().unwrap();
+        let source = profile.config.sources.first().unwrap();
+        assert!(
+            source
+                .grants
+                .iter()
+                .any(|grant| grant.faculty == flocking_core::Faculty::Follow)
+        );
+        assert!(
+            source
+                .grants
+                .iter()
+                .any(|grant| grant.faculty == flocking_core::Faculty::Pin)
+        );
+        assert!(source.reverse_blocks.is_some());
+        assert!(private.follows.get(&bob.public_key).unwrap().following);
+        assert!(private.flocking_judgments.values().any(|record| {
+            record.judgment.faculty == flocking_core::Faculty::Block
+                && record.judgment.action == flocking_core::Action::Unblock
+        }));
     }
 
     #[test]

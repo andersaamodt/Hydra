@@ -176,3 +176,16 @@ test("community routes replace app branding with the bare topic identity", () =>
   assert.doesNotMatch(app, /field\("SHA-256"/);
   assert.match(styles, /\.community-image-preview/);
 });
+
+test("shared judgments are selected from profiles and remain inspectable", () => {
+  assert.match(app, /Use their judgments/);
+  assert.match(app, /follow_source\.set/);
+  assert.match(app, /pin_source\.set/);
+  assert.match(app, /reverse_source\.set/);
+  assert.match(app, /function renderCommunityPins/);
+  assert.match(app, /pin_dismissal\.set/);
+  assert.match(app, /People worth a second look/);
+  assert.match(app, /Nothing here follows or unblocks anyone automatically/);
+  assert.match(app, /"rescue"/);
+  assert.match(styles, /\.pinned-area/);
+});

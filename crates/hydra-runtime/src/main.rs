@@ -17,9 +17,10 @@ use hydra_app::{
     CurateEvent, DiscussionService, DraftService, EditObject, ImportAuthoredPost, ImportService,
     MessagingService, PersonaService, PlatformSecretStore, PreserveAndPublishMedia, PrivateState,
     ProjectionService, PublishFollowSet, ReactToObject, RemoveRevisit, RequestObjectDisowning,
-    SendDirectMessage, SetAppearanceSource, SetCommunityAppearance, SetCommunitySubscription,
-    SetContentJudgment, SetFollow, SetLocalFilter, SetPersonJudgment, SetPersonSource, SetRevisit,
-    SocialService, SyncService, private_state,
+    RescuePerson, SendDirectMessage, SetAppearanceSource, SetCommunityAppearance,
+    SetCommunitySubscription, SetContentJudgment, SetFollow, SetLocalFilter, SetPersonJudgment,
+    SetPersonSource, SetPinDismissal, SetReverseBlockSource, SetRevisit, SocialService,
+    SyncService, private_state,
 };
 use hydra_domain::{
     AnchorId, CommunityKey, ContinuityState, ContinuityWorkflow, DraftKind, DraftRecord,
@@ -97,6 +98,8 @@ struct HydraState<'a> {
     revisits: Vec<RevisitView>,
     reactions: Vec<ReactionView<'a>>,
     follows: Vec<SocialView>,
+    effective_follows: Vec<EffectiveFollowView>,
+    follow_sources: Vec<BlockSourceView>,
     public_follow_sets: Vec<PublicFollowSetView<'a>>,
     blocks: Vec<SocialView>,
     block_exceptions: Vec<SocialView>,
@@ -110,6 +113,11 @@ struct HydraState<'a> {
     removals: Vec<SocialView>,
     restorations: Vec<SocialView>,
     removal_sources: Vec<BlockSourceView>,
+    pins: Vec<PinView>,
+    pin_dismissals: Vec<PinDismissalView>,
+    pin_sources: Vec<BlockSourceView>,
+    reverse_sources: Vec<ReverseSourceView>,
+    reverse_discoveries: Vec<ReverseDiscoveryView>,
     community_appearances: Vec<CommunityAppearanceView>,
     appearance_sources: Vec<AppearanceSourceView>,
     filters: Vec<FilterView<'a>>,
@@ -300,8 +308,60 @@ struct BlockSourceView {
     source: String,
     global: bool,
     topics: Vec<String>,
-    rank: u32,
+    rank: Option<u32>,
     completeness: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EffectiveFollowView {
+    persona_id: String,
+    target: String,
+    following: bool,
+    inherited: bool,
+    source: Option<String>,
+    event_id: Option<String>,
+    uncertain: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PinView {
+    persona_id: String,
+    topic: String,
+    target: String,
+    direct: bool,
+    source_count: usize,
+    sources: Vec<String>,
+    uncertain: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PinDismissalView {
+    persona_id: String,
+    topic: String,
+    target: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReverseSourceView {
+    persona_id: String,
+    source: String,
+    global: bool,
+    topics: Vec<String>,
+    completeness: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReverseDiscoveryView {
+    persona_id: String,
+    target: String,
+    source_count: usize,
+    sources: Vec<String>,
+    topic: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -602,8 +662,27 @@ struct BlockSourceInput {
     global: bool,
     #[serde(default)]
     topics: Vec<String>,
-    rank: u32,
+    #[serde(default)]
+    rank: Option<u32>,
     enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PinDismissalInput {
+    persona_id: String,
+    topic: String,
+    target: String,
+    dismissed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct RescueInput {
+    persona_id: String,
+    target: String,
+    #[serde(default)]
+    topic: Option<String>,
+    #[serde(default)]
+    public: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1369,6 +1448,8 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     let revisits = revisit_views(&private_states);
     let reactions = reaction_views(&store);
     let follows = follow_views(&store, &private_states);
+    let effective_follows = effective_follow_views(&store, &settings, &private_states);
+    let follow_sources = person_source_views(&private_states, flocking_core::Faculty::Follow);
     let public_follow_sets = public_follow_set_views(&store);
     let blocks = block_views(&store, &private_states);
     let block_count = blocks.len();
@@ -1408,6 +1489,11 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     );
     let removal_sources =
         person_source_views(&private_states, flocking_core::Faculty::CommunityMembership);
+    let pins = pin_views(&store, &settings, &private_states);
+    let pin_dismissals = pin_dismissal_views(&private_states);
+    let pin_sources = person_source_views(&private_states, flocking_core::Faculty::Pin);
+    let reverse_sources = reverse_source_views(&private_states);
+    let reverse_discoveries = reverse_discovery_views(&store, &settings, &private_states);
     let community_appearances = community_appearance_views(&store, &settings, &private_states);
     let appearance_sources = appearance_source_views(&private_states);
     let filters = filter_views(&private_states);
@@ -1429,6 +1515,8 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
         revisits,
         reactions,
         follows,
+        effective_follows,
+        follow_sources,
         public_follow_sets,
         blocks,
         block_exceptions,
@@ -1442,6 +1530,11 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
         removals,
         restorations,
         removal_sources,
+        pins,
+        pin_dismissals,
+        pin_sources,
+        reverse_sources,
+        reverse_discoveries,
         community_appearances,
         appearance_sources,
         filters,
@@ -2527,7 +2620,7 @@ fn person_judgment_view(
     })?;
     Some(SocialView {
         persona_id: persona_id.to_string(),
-        target: target.to_string(),
+        target: hydra_nostr::nostr_public_key(target).ok()?.to_string(),
         public: judgment.evidence != flocking_core::JudgmentEvidence::Local,
         reason: judgment.reason.clone(),
         scope: judgment.scope.to_string(),
@@ -2575,6 +2668,160 @@ fn block_source_views(private: &[PrivateState]) -> Vec<BlockSourceView> {
     person_source_views(private, flocking_core::Faculty::Block)
 }
 
+fn effective_follow_views(
+    store: &DurableStore,
+    settings: &Settings,
+    private: &[PrivateState],
+) -> Vec<EffectiveFollowView> {
+    let Some(persona) = active_persona_id(store, settings) else {
+        return Vec::new();
+    };
+    let Some(state) = private.first() else {
+        return Vec::new();
+    };
+    hydra_lens::follow_decisions(store, state, persona)
+        .into_iter()
+        .map(|decision| EffectiveFollowView {
+            persona_id: persona.to_string(),
+            target: decision.target.to_string(),
+            following: decision.following,
+            inherited: decision.inherited,
+            source: decision.source,
+            event_id: decision.event_id,
+            uncertain: decision.uncertain,
+        })
+        .collect()
+}
+
+fn pin_views(store: &DurableStore, settings: &Settings, private: &[PrivateState]) -> Vec<PinView> {
+    let Some(persona) = active_persona_id(store, settings) else {
+        return Vec::new();
+    };
+    let Some(state) = private.first() else {
+        return Vec::new();
+    };
+    let topics = store
+        .state()
+        .heads
+        .current_heads()
+        .flat_map(|head| head.communities.iter().cloned())
+        .collect::<BTreeSet<_>>();
+    topics
+        .into_iter()
+        .flat_map(|topic| {
+            hydra_lens::pin_decisions(store, state, persona, &topic)
+                .into_iter()
+                .map(move |pin| PinView {
+                    persona_id: persona.to_string(),
+                    topic: topic.as_str().to_owned(),
+                    target: pin.anchor.as_str().to_owned(),
+                    direct: pin.direct,
+                    source_count: pin.source_count,
+                    sources: pin.sources,
+                    uncertain: pin.uncertain,
+                })
+        })
+        .collect()
+}
+
+fn pin_dismissal_views(private: &[PrivateState]) -> Vec<PinDismissalView> {
+    private
+        .iter()
+        .filter_map(|state| state.flocking_profile.as_ref())
+        .flat_map(|profile| {
+            profile
+                .config
+                .local_pin_dismissals
+                .iter()
+                .map(|dismissal| PinDismissalView {
+                    persona_id: profile.persona.to_string(),
+                    topic: dismissal.topic.to_string(),
+                    target: dismissal.target.clone(),
+                })
+        })
+        .collect()
+}
+
+fn reverse_source_views(private: &[PrivateState]) -> Vec<ReverseSourceView> {
+    private
+        .iter()
+        .filter_map(|state| state.flocking_profile.as_ref())
+        .flat_map(|profile| {
+            profile.config.sources.iter().filter_map(|source| {
+                let grant = source.reverse_blocks.as_ref()?;
+                let visible_source = hydra_nostr::nostr_public_key(&source.pubkey).ok()?;
+                let relevant = profile.source_states.iter().filter(|state| {
+                    state.source == source.pubkey
+                        && state.faculty == flocking_core::Faculty::Block
+                        && grant.enables(&state.scope)
+                });
+                let completeness = relevant
+                    .map(|state| state.completeness)
+                    .min_by_key(|state| match state {
+                        flocking_core::Completeness::Unknown => 0,
+                        flocking_core::Completeness::Stale => 1,
+                        flocking_core::Completeness::Complete => 2,
+                    })
+                    .unwrap_or(flocking_core::Completeness::Unknown);
+                Some(ReverseSourceView {
+                    persona_id: profile.persona.to_string(),
+                    source: visible_source.to_string(),
+                    global: grant.global,
+                    topics: grant.topics.iter().map(ToString::to_string).collect(),
+                    completeness: completeness_name(completeness),
+                })
+            })
+        })
+        .collect()
+}
+
+fn reverse_discovery_views(
+    store: &DurableStore,
+    settings: &Settings,
+    private: &[PrivateState],
+) -> Vec<ReverseDiscoveryView> {
+    let Some(persona) = active_persona_id(store, settings) else {
+        return Vec::new();
+    };
+    let Some(state) = private.first() else {
+        return Vec::new();
+    };
+    let mut contexts = vec![None];
+    contexts.extend(
+        store
+            .state()
+            .heads
+            .current_heads()
+            .flat_map(|head| head.communities.iter().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(Some),
+    );
+    let mut seen = BTreeSet::new();
+    contexts
+        .into_iter()
+        .flat_map(|topic| {
+            hydra_lens::reverse_decisions(store, state, persona, topic.as_ref()).into_iter()
+        })
+        .filter(|decision| seen.insert((decision.target.clone(), decision.topic.clone())))
+        .map(|decision| ReverseDiscoveryView {
+            persona_id: persona.to_string(),
+            target: decision.target.to_string(),
+            source_count: decision.source_count,
+            sources: decision.sources,
+            topic: decision.topic.map(|topic| topic.as_str().to_owned()),
+        })
+        .collect()
+}
+
+const fn completeness_name(completeness: flocking_core::Completeness) -> &'static str {
+    match completeness {
+        flocking_core::Completeness::Complete => "complete",
+        flocking_core::Completeness::Stale => "stale",
+        flocking_core::Completeness::Unknown => "unknown",
+    }
+}
+
 fn person_source_views(
     private: &[PrivateState],
     faculty: flocking_core::Faculty,
@@ -2588,6 +2835,7 @@ fn person_source_views(
                     .grants
                     .iter()
                     .find(|grant| grant.faculty == faculty)?;
+                let visible_source = hydra_nostr::nostr_public_key(&source.pubkey).ok()?;
                 let relevant = profile
                     .source_states
                     .iter()
@@ -2602,19 +2850,15 @@ fn person_source_views(
                     .unwrap_or(flocking_core::Completeness::Unknown);
                 Some(BlockSourceView {
                     persona_id: profile.persona.to_string(),
-                    source: source.pubkey.to_string(),
+                    source: visible_source.to_string(),
                     global: grant.global,
                     topics: grant
                         .topics
                         .iter()
                         .map(std::string::ToString::to_string)
                         .collect(),
-                    rank: grant.rank.unwrap_or(1),
-                    completeness: match completeness {
-                        flocking_core::Completeness::Complete => "complete",
-                        flocking_core::Completeness::Stale => "stale",
-                        flocking_core::Completeness::Unknown => "unknown",
-                    },
+                    rank: grant.rank,
+                    completeness: completeness_name(completeness),
                 })
             })
         })
@@ -2689,7 +2933,11 @@ fn community_appearance_views(
                 sources: result
                     .sources
                     .into_iter()
-                    .map(|source| source.to_string())
+                    .filter_map(|source| {
+                        hydra_nostr::nostr_public_key(&source)
+                            .ok()
+                            .map(|key| key.to_string())
+                    })
                     .collect(),
                 own_choice: own.is_some_and(|record| record.appearance.image.is_some()),
                 own_public: own.is_some_and(|record| record.public),
@@ -2707,10 +2955,12 @@ fn appearance_source_views(private: &[PrivateState]) -> Vec<AppearanceSourceView
                 .config
                 .appearance_sources
                 .iter()
-                .map(|source| AppearanceSourceView {
-                    persona_id: profile.persona.to_string(),
-                    source: source.to_string(),
-                    complete: profile.appearance_complete_sources.contains(source),
+                .filter_map(|source| {
+                    Some(AppearanceSourceView {
+                        persona_id: profile.persona.to_string(),
+                        source: hydra_nostr::nostr_public_key(source).ok()?.to_string(),
+                        complete: profile.appearance_complete_sources.contains(source),
+                    })
                 })
         })
         .collect()
@@ -2813,6 +3063,7 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "revisit.set" => revisit_action(root, input),
         "revisit.remove" => remove_revisit_action(root, input),
         "follow.set" => follow_action(root, input),
+        "follow_source.set" => follow_source_action(root, input),
         "follow_set.publish" => publish_follow_set_action(root, input),
         "block.set" => block_action(root, input),
         "block_source.set" => block_source_action(root, input),
@@ -2822,6 +3073,11 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "hide_source.set" => hide_source_action(root, input),
         "membership.set" => membership_action(root, input),
         "removal_source.set" => removal_source_action(root, input),
+        "pin.set" => pin_action(root, input),
+        "pin_source.set" => pin_source_action(root, input),
+        "pin_dismissal.set" => pin_dismissal_action(root, input),
+        "reverse_source.set" => reverse_source_action(root, input),
+        "rescue" => rescue_action(root, input),
         "community_appearance.set" => community_appearance_action(root, input),
         "appearance_source.set" => appearance_source_action(root, input),
         "filter.set" => local_filter_action(root, input),
@@ -5278,6 +5534,16 @@ fn block_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> 
     )
 }
 
+fn follow_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: BlockSourceInput = serde_json::from_str(input)?;
+    set_person_source(
+        root,
+        input,
+        flocking_core::Faculty::Follow,
+        "follow_source.set",
+    )
+}
+
 fn silence_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let input: BlockSourceInput = serde_json::from_str(input)?;
     set_person_source(
@@ -5303,6 +5569,85 @@ fn removal_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError
     )
 }
 
+fn pin_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: BlockSourceInput = serde_json::from_str(input)?;
+    set_person_source(root, input, flocking_core::Faculty::Pin, "pin_source.set")
+}
+
+fn pin_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: ContentJudgmentInput = serde_json::from_str(input)?;
+    let action = match input.action.as_str() {
+        "pin" => flocking_core::Action::Pin,
+        "withdraw" => flocking_core::Action::Withdraw,
+        other => {
+            return Err(RuntimeError::InvalidInput(format!(
+                "unknown pin judgment action {other}"
+            )));
+        }
+    };
+    content_judgment_action(root, input, flocking_core::Faculty::Pin, action, "pin.set")
+}
+
+fn pin_dismissal_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: PinDismissalInput = serde_json::from_str(input)?;
+    let mut store = DurableStore::open(root)?;
+    SocialService::new(PlatformSecretStore).set_pin_dismissal(
+        &mut store,
+        &SetPinDismissal {
+            persona_id: PersonaId::parse(&input.persona_id)?,
+            topic: CommunityKey::parse(input.topic)?,
+            target: AnchorId::parse(input.target)?,
+            dismissed: input.dismissed,
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("pin_dismissal.set")
+}
+
+fn reverse_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: BlockSourceInput = serde_json::from_str(input)?;
+    let topics = input
+        .topics
+        .into_iter()
+        .map(CommunityKey::parse)
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let mut store = DurableStore::open(root)?;
+    let source = NostrPublicKey::parse(input.source)?;
+    let completeness = source_completeness(&store, &source);
+    SocialService::new(PlatformSecretStore).set_reverse_block_source(
+        &mut store,
+        &SetReverseBlockSource {
+            persona_id: PersonaId::parse(&input.persona_id)?,
+            source,
+            global: input.global,
+            topics,
+            enabled: input.enabled,
+            completeness,
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("reverse_source.set")
+}
+
+fn rescue_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: RescueInput = serde_json::from_str(input)?;
+    let persona = PersonaId::parse(&input.persona_id)?;
+    let settings = SettingsStore::new(root).load()?;
+    let mut store = DurableStore::open(root)?;
+    SocialService::new(PlatformSecretStore).rescue_person(
+        &mut store,
+        &RescuePerson {
+            persona_id: persona,
+            target: NostrPublicKey::parse(input.target)?,
+            topic: input.topic.map(CommunityKey::parse).transpose()?,
+            public: input.public,
+            relays: settings.write_relays_for(persona).to_vec(),
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("rescue")
+}
+
 fn set_person_source(
     root: &PathBuf,
     input: BlockSourceInput,
@@ -5316,17 +5661,23 @@ fn set_person_source(
         .map(CommunityKey::parse)
         .collect::<Result<BTreeSet<_>, _>>()?;
     let mut store = DurableStore::open(root)?;
+    let source = NostrPublicKey::parse(input.source)?;
+    let completeness = source_completeness(&store, &source);
     SocialService::new(PlatformSecretStore).set_person_source(
         &mut store,
         &SetPersonSource {
             persona_id: persona,
-            source: NostrPublicKey::parse(input.source)?,
+            source,
             faculty,
             global: input.global,
             topics,
-            rank: input.rank,
+            rank: if faculty == flocking_core::Faculty::Pin {
+                None
+            } else {
+                input.rank
+            },
             enabled: input.enabled,
-            completeness: flocking_core::Completeness::Unknown,
+            completeness,
             changed_at: unix_now(),
         },
     )?;
@@ -5382,17 +5733,35 @@ fn community_appearance_action(root: &PathBuf, input: &str) -> Result<(), Runtim
 fn appearance_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let input: AppearanceSourceInput = serde_json::from_str(input)?;
     let mut store = DurableStore::open(root)?;
+    let source = NostrPublicKey::parse(input.source)?;
+    let complete = source_completeness(&store, &source) == flocking_core::Completeness::Complete;
     SocialService::new(PlatformSecretStore).set_appearance_source(
         &mut store,
         &SetAppearanceSource {
             persona_id: PersonaId::parse(&input.persona_id)?,
-            source: NostrPublicKey::parse(input.source)?,
+            source,
             enabled: input.enabled,
-            complete: false,
+            complete,
             changed_at: unix_now(),
         },
     )?;
     print_changed("appearance_source.set")
+}
+
+fn source_completeness(
+    store: &DurableStore,
+    source: &NostrPublicKey,
+) -> flocking_core::Completeness {
+    if store
+        .state()
+        .personas
+        .iter()
+        .any(|persona| &persona.public_key == source)
+    {
+        flocking_core::Completeness::Complete
+    } else {
+        flocking_core::Completeness::Unknown
+    }
 }
 
 fn local_filter_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
@@ -5575,19 +5944,24 @@ async fn sync_flocking_person_sources(
         .into_iter()
         .flat_map(|profile| profile.config.sources.iter().cloned())
         .flat_map(|source| {
-            source.grants.into_iter().filter_map(move |grant| {
-                matches!(
-                    grant.faculty,
-                    flocking_core::Faculty::Block
-                        | flocking_core::Faculty::Silence
-                        | flocking_core::Faculty::Hide
-                        | flocking_core::Faculty::CommunityMembership
-                )
-                .then(|| (source.pubkey.clone(), grant))
-            })
+            source
+                .grants
+                .into_iter()
+                .map(move |grant| (source.pubkey.clone(), grant))
         })
         .collect::<Vec<_>>();
-    if person_sources.is_empty() && appearance_sources.is_empty() {
+    let reverse_sources = profile
+        .as_ref()
+        .into_iter()
+        .flat_map(|profile| profile.config.sources.iter())
+        .filter_map(|source| {
+            source
+                .reverse_blocks
+                .clone()
+                .map(|grant| (source.pubkey.clone(), grant))
+        })
+        .collect::<Vec<_>>();
+    if person_sources.is_empty() && reverse_sources.is_empty() && appearance_sources.is_empty() {
         return Ok(());
     }
     let relays = allowed_read_relays(settings, store, persona)?;
@@ -5597,6 +5971,7 @@ async fn sync_flocking_person_sources(
     let sources = person_sources
         .iter()
         .map(|(source, _)| source.clone())
+        .chain(reverse_sources.iter().map(|(source, _)| source.clone()))
         .chain(appearance_sources.iter().cloned())
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -5607,11 +5982,7 @@ async fn sync_flocking_person_sources(
         ImportService::receive_public(store, &event.as_json(), unix_now())?;
     }
     for (source, grant) in person_sources {
-        let topics = grant
-            .topics
-            .iter()
-            .map(|topic| CommunityKey::parse(topic.as_str()))
-            .collect::<Result<BTreeSet<_>, _>>()?;
+        let topics = community_keys(&grant.topics)?;
         SocialService::new(PlatformSecretStore).set_person_source(
             store,
             &SetPersonSource {
@@ -5620,7 +5991,22 @@ async fn sync_flocking_person_sources(
                 faculty: grant.faculty,
                 global: grant.global,
                 topics,
-                rank: grant.rank.unwrap_or(1),
+                rank: grant.rank,
+                enabled: true,
+                completeness: flocking_core::Completeness::Complete,
+                changed_at: unix_now(),
+            },
+        )?;
+    }
+    for (source, grant) in reverse_sources {
+        let topics = community_keys(&grant.topics)?;
+        SocialService::new(PlatformSecretStore).set_reverse_block_source(
+            store,
+            &SetReverseBlockSource {
+                persona_id: persona,
+                source: NostrPublicKey::parse(source.to_string())?,
+                global: grant.global,
+                topics,
                 enabled: true,
                 completeness: flocking_core::Completeness::Complete,
                 changed_at: unix_now(),
@@ -5640,6 +6026,15 @@ async fn sync_flocking_person_sources(
         )?;
     }
     Ok(())
+}
+
+fn community_keys(
+    topics: &BTreeSet<flocking_core::Topic>,
+) -> Result<BTreeSet<CommunityKey>, RuntimeError> {
+    topics
+        .iter()
+        .map(|topic| CommunityKey::parse(topic.as_str()).map_err(RuntimeError::from))
+        .collect()
 }
 
 fn synchronize_recent_reddit_projections(store: &mut DurableStore, settings: &Settings) {

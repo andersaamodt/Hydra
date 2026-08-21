@@ -48,6 +48,17 @@ pub fn flocking_public_key(
         .map_err(|error| ProtocolError::Nostr(error.to_string()))
 }
 
+/// Converts a canonical Flocking key to Hydra's visible npub representation.
+///
+/// # Errors
+///
+/// Returns an error when the canonical key cannot be decoded or encoded.
+pub fn nostr_public_key(value: &flocking_core::PublicKey) -> Result<NostrPublicKey, ProtocolError> {
+    let key = PublicKey::parse(value.as_str()).map_err(nostr_error)?;
+    NostrPublicKey::parse(key.to_bech32().map_err(nostr_error)?)
+        .map_err(|error| ProtocolError::Nostr(error.to_string()))
+}
+
 /// Parses one canonical Flocking event or a faithful NIP-51 block fallback.
 ///
 /// # Errors
@@ -61,10 +72,46 @@ pub fn received_flocking_judgments(
         flocking_core::JUDGMENT_KIND => flocking_nostr::parse_judgment(event)
             .map(|judgment| vec![judgment])
             .map_err(|error| ProtocolError::Nostr(error.to_string())),
+        3 => flocking_nostr::nip02_fallback(event)
+            .map_err(|error| ProtocolError::Nostr(error.to_string())),
         10_000 => flocking_nostr::nip51_block_fallback(event)
             .map_err(|error| ProtocolError::Nostr(error.to_string())),
         _ => Ok(Vec::new()),
     }
+}
+
+/// Resolves replaceable NIP-02/NIP-51 fallback lists before adapting them.
+/// An omitted target in a newer list therefore does not remain followed or blocked.
+///
+/// # Errors
+///
+/// Returns an error when stored event JSON or a selected list cannot be parsed.
+pub fn current_flocking_list_judgments<'a>(
+    event_jsons: impl Iterator<Item = &'a String>,
+) -> Result<Vec<flocking_core::Judgment>, ProtocolError> {
+    let mut current = std::collections::BTreeMap::<(String, u16), Event>::new();
+    for json in event_jsons {
+        let event =
+            Event::from_json(json).map_err(|error| ProtocolError::Nostr(error.to_string()))?;
+        let kind = event.kind.as_u16();
+        if !matches!(kind, 3 | 10_000) || event.verify().is_err() {
+            continue;
+        }
+        let key = (event.pubkey.to_hex(), kind);
+        let replace = current.get(&key).is_none_or(|prior| {
+            event.created_at > prior.created_at
+                || (event.created_at == prior.created_at && event.id < prior.id)
+        });
+        if replace {
+            current.insert(key, event);
+        }
+    }
+    current
+        .values()
+        .try_fold(Vec::new(), |mut judgments, event| {
+            judgments.extend(received_flocking_judgments(event)?);
+            Ok(judgments)
+        })
 }
 
 /// Parses one canonical community-appearance event.
@@ -139,6 +186,7 @@ pub async fn fetch_flocking_judgment_events(
     let events = client
         .fetch_events(
             Filter::new().authors(authors).kinds([
+                Kind::ContactList,
                 Kind::Custom(flocking_core::JUDGMENT_KIND),
                 Kind::Custom(flocking_core::COMMUNITY_APPEARANCE_KIND),
                 Kind::Custom(10_000),
@@ -3134,6 +3182,33 @@ mod tests {
         let interests = public_interests(&keys, &communities(), 23).unwrap();
         assert_eq!(interests.kind, Kind::Interests);
         assert!(interests.as_json().contains("[\"t\",\"science\"]"));
+    }
+
+    #[test]
+    fn newer_standard_lists_replace_fallback_membership() {
+        let keys = Keys::generate();
+        let first_target = NostrPublicKey::parse(Keys::generate().public_key().to_hex()).unwrap();
+        let second_target = NostrPublicKey::parse(Keys::generate().public_key().to_hex()).unwrap();
+        let old = public_follow_list(&keys, std::slice::from_ref(&first_target), 20).unwrap();
+        let current = public_follow_list(&keys, std::slice::from_ref(&second_target), 21).unwrap();
+        let json = [old.as_json(), current.as_json()];
+        let judgments = current_flocking_list_judgments(json.iter()).unwrap();
+
+        assert_eq!(judgments.len(), 1);
+        assert_eq!(judgments[0].faculty, flocking_core::Faculty::Follow);
+        assert_eq!(
+            judgments[0].target,
+            flocking_core::Target::Person(flocking_public_key(&second_target).unwrap())
+        );
+    }
+
+    #[test]
+    fn flocking_keys_return_to_hydras_visible_npub_identity() {
+        let expected =
+            NostrPublicKey::parse(Keys::generate().public_key().to_bech32().unwrap()).unwrap();
+        let canonical = flocking_public_key(&expected).unwrap();
+
+        assert_eq!(nostr_public_key(&canonical).unwrap(), expected);
     }
 
     #[test]

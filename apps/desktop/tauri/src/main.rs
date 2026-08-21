@@ -43,6 +43,7 @@ fn companion_status() -> CompanionStatus {
 }
 
 #[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
 fn open_settings_window(app: AppHandle) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {

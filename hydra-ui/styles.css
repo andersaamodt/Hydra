@@ -224,6 +224,10 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .post-body { display: -webkit-box; margin: 0; overflow: hidden; color: var(--body-ink); font-size: 13px; line-height: 1.52; unicode-bidi: plaintext; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .community-chip, .state-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 2px; border: 0; color: var(--chip-ink); background: transparent; font-size: 10px; }
 .community-tools { display: grid; gap: 10px; margin: 16px 24px 0; padding: 0 0 14px; border-bottom: 1px solid var(--line); }
+.pinned-area { display: grid; gap: 8px; margin: 12px 24px 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
+.pinned-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 10px; border-radius: 8px; background: var(--paper); }
+.post-title.compact { display: inline; margin-inline-start: 7px; font-size: 16px; }
+.profile-judgments { padding-block: 8px; border-block: 1px solid var(--line); }
 .community-image-preview { display: flex; align-items: center; gap: 12px; margin: 8px 0 18px; }
 .community-image-preview img { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; }
 .community-image-preview small, .community-image-preview strong { display: block; }

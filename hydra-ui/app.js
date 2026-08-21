@@ -550,7 +550,7 @@ function filterCommunityAudience(posts) {
   if (session.audience === "all") return posts;
   const persona = activePersona(session.state);
   const allowed = session.audience === "followed"
-    ? new Set((session.state.follows ?? []).filter((item) => item.personaId === persona.id).map((item) => item.target))
+    ? new Set((session.state.effectiveFollows ?? []).filter((item) => item.personaId === persona.id && item.following && !item.uncertain).map((item) => item.target))
     : new Set((session.state.personas ?? []).filter((item) => item.redditLinked).map((item) => item.publicKey));
   return posts.filter((post) => allowed.has(post.author));
 }
@@ -558,7 +558,11 @@ function filterCommunityAudience(posts) {
 function renderFeed() {
   const community = session.route === "community" ? session.community : null;
   const title = community ? `/${session.chamber === "reddit" ? "r" : "h"}/${community}` : session.route === "front" ? "Hydra Front Page" : session.route === "revisited" ? "Revisited" : "My Feed";
-  const extras = community ? [chamberTabs()] : [];
+  const extras = community
+    ? [chamberTabs()]
+    : session.route === "front"
+      ? [actionButton("People worth a second look", () => showReverseDiscoveries())]
+      : [];
   const header = viewHeader(title, extras);
 
   if (community && session.chamber === "reddit") {
@@ -583,7 +587,46 @@ function renderFeed() {
     list.append(...posts.map((post) => postCard(post, lens, community)));
   }
   const communityTools = community ? renderCommunityTools(community) : null;
-  view.replaceChildren(...[header, communityTools, community ? audienceBar() : null, lensBar(), list].filter(Boolean));
+  const pins = community ? renderCommunityPins(community) : null;
+  view.replaceChildren(...[header, communityTools, pins, community ? audienceBar() : null, lensBar(), list].filter(Boolean));
+}
+
+function renderCommunityPins(community) {
+  const pins = (session.state.pins ?? []).filter((item) => item.topic === community);
+  const dismissals = (session.state.pinDismissals ?? []).filter((item) => item.topic === community);
+  if (!pins.length && !dismissals.length) return null;
+  const objects = new Map((session.state.objects ?? []).map((item) => [item.anchor, item]));
+  const row = (pin) => {
+    const post = objects.get(pin.target);
+    if (!post) return null;
+    const provenance = pin.direct ? "Pinned by you" : `Pinned by ${pin.sourceCount} ${pin.sourceCount === 1 ? "person" : "people"} you follow`;
+    return element("article", { class: "pinned-item" }, [
+      element("div", {}, [
+        element("span", { class: "state-chip", text: "Pinned" }),
+        element("button", { type: "button", class: "post-title compact", text: post.title || "Untitled discussion", onclick: () => { session.selected = post.anchor; render(); } }),
+        element("p", { class: "evidence-note", text: `${provenance}${pin.uncertain ? " · source data is stale" : ""}` }),
+      ]),
+      element("div", { class: "post-actions" }, [
+        !pin.direct ? actionButton("Why?", () => showSources("Pin sources", pin.sources)) : null,
+        pin.direct
+          ? actionButton("Unpin", () => mutate("pin.set", { persona_id: pin.personaId, target: pin.target, topic: community, public: true, action: "withdraw", reason: null }, "Pin withdrawn."))
+          : actionButton("Dismiss", () => mutate("pin_dismissal.set", { persona_id: pin.personaId, target: pin.target, topic: community, dismissed: true }, "Inherited pin dismissed locally.")),
+      ]),
+    ]);
+  };
+  const visible = pins.slice(0, 2).map(row).filter(Boolean);
+  const more = pins.slice(2).map(row).filter(Boolean);
+  return element("section", { class: "pinned-area", "aria-label": `Pinned discussions in ${community}` }, [
+    ...visible,
+    more.length ? element("details", {}, [element("summary", { text: `${more.length} more pinned` }), ...more]) : null,
+    dismissals.length ? element("details", {}, [
+      element("summary", { text: `${dismissals.length} dismissed ${dismissals.length === 1 ? "pin" : "pins"}` }),
+      ...dismissals.map((item) => element("div", { class: "pinned-item" }, [
+        element("span", { text: objects.get(item.target)?.title || `${item.target.slice(0, 18)}…` }),
+        actionButton("Restore", () => mutate("pin_dismissal.set", { persona_id: item.personaId, target: item.target, topic: community, dismissed: false }, "Inherited pin restored.")),
+      ])),
+    ]) : null,
+  ]);
 }
 
 function renderCommunityTools(community) {
@@ -595,6 +638,7 @@ function renderCommunityTools(community) {
       actionButton(subscription ? "Unsubscribe" : "Subscribe privately", () => setCommunitySubscription(community, !subscription, false), subscription ? "quiet-button" : "primary-button"),
       actionButton(subscription?.public ? "Subscription is public" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
       actionButton("Community image", () => showCommunityAppearanceEditor(community)),
+      actionButton("People worth a second look", () => showReverseDiscoveries(community)),
       actionButton("Propose a norm", () => showNormComposer(community)),
     ]),
     element("details", { class: "norm-field" }, [
@@ -716,10 +760,51 @@ function postCard(post, lens, community) {
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(post) }),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post)),
       community ? instantJudgmentButton(`Remove from /h/${community}`, "removal", post.anchor, (event) => queueRemoval(event, post, community)) : null,
+      community ? pinAction(post, community) : null,
       element("button", { type: "button", class: "text-action", text: "Feed reason", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
     ]),
   ]);
   return element("article", { class: `post-card${pendingHide ? " is-pending-hide" : ""}` }, [vote, main]);
+}
+
+function pinAction(post, community) {
+  const persona = activePersona(session.state);
+  const pin = (session.state.pins ?? []).find((item) => item.personaId === persona.id && item.topic === community && item.target === post.anchor && item.direct);
+  return element("button", {
+    type: "button",
+    class: "text-action",
+    text: pin ? "Unpin" : "Pin",
+    onclick: () => mutate("pin.set", {
+      persona_id: persona.id,
+      target: post.anchor,
+      topic: community,
+      public: true,
+      action: pin ? "withdraw" : "pin",
+      reason: null,
+    }, pin ? "Pin withdrawn." : `Pinned for you and people who follow your pins in /h/${community}.`),
+  });
+}
+
+function showReverseDiscoveries(community = null) {
+  const persona = activePersona(session.state);
+  const discoveries = (session.state.reverseDiscoveries ?? []).filter((item) => item.personaId === persona.id && (item.topic === community || item.topic === null));
+  const knownName = (key) => (session.state.personas ?? []).find((item) => item.publicKey === key)?.displayName ?? `${key.slice(0, 16)}…`;
+  modal("People worth a second look", "These people are blocked by sources you deliberately selected for discovery. Nothing here follows or unblocks anyone automatically.", element("div", { class: "content-list" }, discoveries.length ? discoveries.map((item) => element("article", { class: "readiness-row" }, [
+    element("div", {}, [
+      element("button", { type: "button", class: "text-action", text: knownName(item.target), onclick: () => { closeModal(); showPersonaProfile(item.target); } }),
+      element("p", { class: "evidence-note", text: `${item.sourceCount} selected ${item.sourceCount === 1 ? "source blocks" : "sources block"} this person.` }),
+    ]),
+    element("div", { class: "post-actions" }, [
+      actionButton("Why?", () => showSources("Discovery sources", item.sources)),
+      actionButton("Rescue", () => mutate("rescue", { persona_id: persona.id, target: item.target, topic: item.topic, public: false }, "Followed and directly unblocked for this scope."), "primary-button"),
+    ]),
+  ])) : [element("p", { text: "No discoveries yet. Choose this use of someone’s blocks from their profile, then sync." })]), { submitLabel: "Close", onSubmit: closeModal });
+}
+
+function showSources(title, sources) {
+  modal(title, "These are the people whose current signed judgments produced this result.", element("div", { class: "content-list" }, sources.map((source) => element("button", {
+    type: "button", class: "text-action", text: source, onclick: () => { closeModal(); showPersonaProfile(source); },
+  }))), { submitLabel: "Close", onSubmit: closeModal });
 }
 
 function renderDiscussion(anchor) {
@@ -758,6 +843,7 @@ function renderDiscussion(anchor) {
       actionButton("React…", () => showEmojiReaction(post)),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post), "quiet-button"),
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", post.anchor, (event) => queueRemoval(event, post, session.community), "quiet-button") : null,
+      session.community ? pinAction(post, session.community) : null,
       actionButton("Reply", () => showReply(post), "primary-button"),
       actionButton("Revisit", () => showRevisit(post)),
       post.author === activePersona(session.state)?.publicKey ? actionButton("Preserve media", () => preserveMedia(post)) : null,
@@ -1862,6 +1948,7 @@ function renderSettings() {
   const blocks = (session.state.blocks ?? []).filter((item) => item.personaId === persona.id);
   const blockExceptions = (session.state.blockExceptions ?? []).filter((item) => item.personaId === persona.id);
   const blockSources = (session.state.blockSources ?? []).filter((item) => item.personaId === persona.id);
+  const followSources = (session.state.followSources ?? []).filter((item) => item.personaId === persona.id);
   const silences = (session.state.silences ?? []).filter((item) => item.personaId === persona.id);
   const silenceExceptions = (session.state.silenceExceptions ?? []).filter((item) => item.personaId === persona.id);
   const silenceSources = (session.state.silenceSources ?? []).filter((item) => item.personaId === persona.id);
@@ -1871,6 +1958,8 @@ function renderSettings() {
   const removals = (session.state.removals ?? []).filter((item) => item.personaId === persona.id);
   const restorations = (session.state.restorations ?? []).filter((item) => item.personaId === persona.id);
   const removalSources = (session.state.removalSources ?? []).filter((item) => item.personaId === persona.id);
+  const pinSources = (session.state.pinSources ?? []).filter((item) => item.personaId === persona.id);
+  const reverseSources = (session.state.reverseSources ?? []).filter((item) => item.personaId === persona.id);
   const filters = (session.state.filters ?? []).filter((item) => item.personaId === persona.id);
   const drafts = (session.state.drafts ?? []).filter((item) => item.personaId === persona.id);
   const storage = session.state.storage ?? { root: session.state.durableRoot, media: `${session.state.durableRoot}/media`, mediaExists: false };
@@ -1964,9 +2053,10 @@ function renderSettings() {
         actionButton("Publish a follow set", showFollowSetEditor),
         actionButton("Block locally", showBlockEditor, "danger-button"),
         actionButton("Silence a persona", showSilenceEditor),
-        actionButton("Follow blocks from…", showBlockSourceEditor),
-        actionButton("Follow silences from…", showSilenceSourceEditor),
       ]),
+      followSources.length || blockSources.length || silenceSources.length || pinSources.length || reverseSources.length
+        ? element("p", { class: "evidence-note", text: "Judgment sources are chosen from people’s profiles; existing choices can be removed here." })
+        : element("p", { class: "evidence-note", text: "Choose whose judgments to use from that person’s profile." }),
       ...follows.map((item) => element("div", { class: "readiness-row" }, [
         element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: item.public ? "Public follow" : "Private follow" })]),
         actionButton("Unfollow", () => mutate("follow.set", { persona_id: persona.id, target: item.target, public: item.public, following: false }, "Follow removed from this persona.")),
@@ -1978,6 +2068,7 @@ function renderSettings() {
         ]),
         actionButton("Revise", () => showFollowSetEditor(item)),
       ])),
+      ...followSources.map((item) => sourceManagementRow(item, "follows", "follow_source.set")),
       ...blocks.map((item) => element("div", { class: "readiness-row" }, [
         element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: `${item.public ? "Published block" : "Private block"} · ${item.scope === "global" ? "everywhere" : item.scope.replace(/^topic:/, "/h/")}${item.reason ? ` · ${item.reason}` : ""}` })]),
         actionButton("Unblock", () => mutate("block.set", { persona_id: persona.id, target: item.target, public: item.public, blocked: false, action: "unblock", topic: item.scope.startsWith("topic:") ? item.scope.slice(6) : null, reason: null }, "Block judgment reversed.")),
@@ -2017,13 +2108,14 @@ function renderSettings() {
         ]),
         actionButton("Stop following silences", () => mutate("silence_source.set", { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank, enabled: false }, "Silence source removed.")),
       ])),
+      ...pinSources.map((item) => sourceManagementRow(item, "pins", "pin_source.set")),
+      ...reverseSources.map((item) => sourceManagementRow(item, "blocks for discovery", "reverse_source.set")),
     ]),
       element("section", { class: "context-card" }, [
       element("h2", { text: "Content judgments" }),
       element("p", { text: `${session.state.hideCount ?? 0} hides · ${session.state.removalCount ?? 0} community removals. These judgments change this persona’s view without deleting events.` }),
       element("div", { class: "post-actions" }, [
-        actionButton("Follow hides from…", () => showContentSourceEditor("hide")),
-        actionButton("Follow removals from…", () => showContentSourceEditor("removal")),
+        element("span", { class: "evidence-note", text: "Choose content-judgment sources from their profile." }),
       ]),
       ...hides.map((item) => element("div", { class: "readiness-row" }, [
         element("div", {}, [element("strong", { text: `${item.target.slice(0, 18)}…` }), element("p", { text: `${item.public ? "Published hide" : "Private hide"} · ${item.scope === "global" ? "everywhere" : item.scope.replace(/^topic:/, "/h/")}${item.reason ? ` · ${item.reason}` : ""}` })]),
@@ -2477,6 +2569,8 @@ function showPersonaProfile(publicKey) {
   const followSets = (session.state.publicFollowSets ?? []).filter((item) => item.personaId === known?.id);
   const alreadyFollowed = (session.state.follows ?? []).some((item) => item.personaId === active.id && item.target === publicKey);
   const appearanceFollowed = followedAppearanceSources().some((item) => item.source === publicKey);
+  const effectiveFollow = (session.state.effectiveFollows ?? []).find((item) => item.personaId === active.id && item.target === publicKey && item.following);
+  const currentTopic = session.route === "community" ? session.community : null;
   modal(known?.displayName ?? "Nostr persona", "Public Nostr identity. Private identity and local credential information are not displayed.", element("div", { class: "content-list" }, [
     element("p", { class: "evidence-note", text: publicKey }),
     known?.redditProof ? element("p", { class: "evidence-note", text: `Optional public Reddit proof: ${known.redditProof}` }) : null,
@@ -2484,15 +2578,50 @@ function showPersonaProfile(publicKey) {
     ...posts.slice(0, 8).map((item) => element("button", { type: "button", class: "text-action", text: item.title || "Untitled discussion", onclick: () => { closeModal(); session.selected = item.anchor; render(); } })),
     ...norms.slice(0, 5).map((item) => element("p", { class: "evidence-note", text: `Norm position: ${item.body}` })),
     ...followSets.map((item) => element("p", { class: "evidence-note", text: `Public follow set: ${item.title} (${item.members.length} selected personas)` })),
+    effectiveFollow?.inherited ? element("p", { class: "evidence-note", text: `Their posts are in your feed through ${effectiveFollow.source?.slice(0, 16)}…. This has not changed your personal follow list.` }) : null,
     publicKey !== active.publicKey && !alreadyFollowed ? actionButton("Follow this persona", () => { closeModal(); mutate("follow.set", { persona_id: active.id, target: publicKey, public: true, following: true }, "Public follow updated."); }, "primary-button") : null,
     publicKey !== active.publicKey ? actionButton(appearanceFollowed ? "Stop following their community images" : "Follow their community images", () => {
       closeModal();
       mutate("appearance_source.set", { persona_id: active.id, source: publicKey, enabled: !appearanceFollowed }, appearanceFollowed ? "Community image choices unfollowed." : "Their community image choices will be used after the next sync.");
     }) : null,
+    publicKey !== active.publicKey ? element("section", { class: "profile-judgments" }, [
+      element("h3", { text: "Use their judgments" }),
+      element("p", { class: "evidence-note", text: currentTopic ? `Choose what may shape your view of /h/${currentTopic}. Each choice is independent and reversible.` : "Choose what may shape this persona’s view. Each choice is independent and reversible." }),
+      element("div", { class: "post-actions" }, [
+        sourceChoiceButton("follows", "followSources", "follow_source.set", publicKey, { global: true }),
+        sourceChoiceButton("blocks", "blockSources", "block_source.set", publicKey, { topic: currentTopic }),
+        sourceChoiceButton("silences", "silenceSources", "silence_source.set", publicKey, { topic: currentTopic }),
+        sourceChoiceButton("hides", "hideSources", "hide_source.set", publicKey, { topic: currentTopic }),
+        currentTopic ? sourceChoiceButton("removals", "removalSources", "removal_source.set", publicKey, { topic: currentTopic }) : null,
+        currentTopic ? sourceChoiceButton("pins", "pinSources", "pin_source.set", publicKey, { topic: currentTopic, aggregate: true }) : null,
+        sourceChoiceButton("blocks for discovery", "reverseSources", "reverse_source.set", publicKey, { topic: currentTopic, aggregate: true }),
+      ]),
+    ]) : null,
     publicKey !== active.publicKey ? instantJudgmentButton("Silence this persona", "silence", publicKey, (event) => queueSilence(event, publicKey), "quiet-button") : null,
     publicKey !== active.publicKey ? instantJudgmentButton("Block this persona", "block", publicKey, (event) => queueBlock(event, publicKey), "danger-button") : null,
     publicKey !== active.publicKey ? actionButton("Message this persona", () => { closeModal(); showMessageComposerTo(publicKey); }) : null,
   ]), { submitLabel: "Close", onSubmit: closeModal });
+}
+
+function sourceChoiceButton(label, stateKey, command, source, options = {}) {
+  const persona = activePersona(session.state);
+  const existing = (session.state[stateKey] ?? []).find((item) => item.personaId === persona.id && item.source === source);
+  const topic = options.topic ?? null;
+  const ranks = (session.state[stateKey] ?? []).filter((item) => item.personaId === persona.id)
+    .map((item) => Number(item.rank) || 0);
+  const rank = options.aggregate ? null : Math.max(0, ...ranks) + 1;
+  const payload = {
+    persona_id: persona.id,
+    source,
+    global: options.global || !topic,
+    topics: topic ? [topic] : [],
+    rank,
+    enabled: !existing,
+  };
+  return actionButton(existing ? `Stop using their ${label}` : `Use their ${label}`, () => {
+    closeModal();
+    mutate(command, payload, existing ? `Their ${label} no longer shape this persona’s view.` : `Their ${label} will be available after the next sync.`);
+  }, existing ? "quiet-button is-selected" : "quiet-button");
 }
 
 function showFollowSetEditor(existing = null) {
@@ -2535,60 +2664,6 @@ function showSilenceEditor(target = "") {
   } });
 }
 
-function showBlockSourceEditor() {
-  const persona = activePersona(session.state);
-  const currentTopic = session.route === "community" && session.community ? session.community : null;
-  const nextRank = Math.max(0, ...(session.state.blockSources ?? []).filter((item) => item.personaId === persona.id).map((item) => Number(item.rank) || 0)) + 1;
-  modal("Follow block judgments", "Choose whose block judgments affect this persona’s view. You can stop following them at any time.", element("div", {}, [
-    field("Persona npub or hex key", "text", "source", "", "This is a judgment source, not a moderator appointment.", { required: true }),
-    toggle("Apply everywhere", "global", !currentTopic, "Includes all topics unless a more direct judgment applies."),
-    field("Community topics", "textarea", "topics", currentTopic ?? "", "Optional; one bare topic per line, such as science."),
-    field("Priority", "number", "rank", nextRank, "Lower numbers take precedence when followed sources disagree.", { min: 1, required: true }),
-  ]), { submitLabel: "Follow block judgments", onSubmit: (data) => {
-    const topics = String(data.get("topics") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
-    if (!Boolean(data.get("global")) && !topics.length) throw new Error("Choose everywhere or at least one community topic.");
-    return mutate("block_source.set", { persona_id: persona.id, source: data.get("source"), global: Boolean(data.get("global")), topics, rank: Number(data.get("rank")), enabled: true }, "Block judgments will affect this persona’s view after source sync.");
-  } });
-}
-
-function showSilenceSourceEditor() {
-  const persona = activePersona(session.state);
-  const currentTopic = session.route === "community" && session.community ? session.community : null;
-  const nextRank = Math.max(0, ...(session.state.silenceSources ?? []).filter((item) => item.personaId === persona.id).map((item) => Number(item.rank) || 0)) + 1;
-  modal("Follow silence judgments", "Choose whose silence judgments affect this persona’s view. Earlier activity remains available.", element("div", {}, [
-    field("Persona npub or hex key", "text", "source", "", "This follows one person’s judgments; it does not appoint a moderator.", { required: true }),
-    toggle("Apply everywhere", "global", !currentTopic, "Includes all topics unless a more direct judgment applies."),
-    field("Community topics", "textarea", "topics", currentTopic ?? "", "Optional; one bare topic per line, such as science."),
-    field("Priority", "number", "rank", nextRank, "Lower numbers take precedence when followed sources disagree.", { min: 1, required: true }),
-  ]), { submitLabel: "Follow silence judgments", onSubmit: (data) => {
-    const topics = String(data.get("topics") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
-    if (!Boolean(data.get("global")) && !topics.length) throw new Error("Choose everywhere or at least one community topic.");
-    return mutate("silence_source.set", { persona_id: persona.id, source: data.get("source"), global: Boolean(data.get("global")), topics, rank: Number(data.get("rank")), enabled: true }, "Silence judgments will affect this persona’s view after source sync.");
-  } });
-}
-
-function showContentSourceEditor(kind) {
-  const persona = activePersona(session.state);
-  const removal = kind === "removal";
-  const currentTopic = session.route === "community" && session.community ? session.community : null;
-  const sources = removal ? session.state.removalSources : session.state.hideSources;
-  const nextRank = Math.max(0, ...(sources ?? []).filter((item) => item.personaId === persona.id).map((item) => Number(item.rank) || 0)) + 1;
-  const label = removal ? "removal" : "hide";
-  modal(`Follow ${label} judgments`, removal
-    ? "Choose whose community-removal judgments affect this persona’s community views."
-    : "Choose whose content-hide judgments affect this persona’s view.", element("div", {}, [
-    field("Persona npub or hex key", "text", "source", "", "This follows one person’s judgments; it does not appoint a moderator.", { required: true }),
-    removal ? null : toggle("Apply everywhere", "global", !currentTopic, "Includes all topics unless a more direct judgment applies."),
-    field("Community topics", "textarea", "topics", currentTopic ?? "", removal ? "Required; one bare topic per line." : "Optional; one bare topic per line."),
-    field("Priority", "number", "rank", nextRank, "Lower numbers take precedence when followed sources disagree.", { min: 1, required: true }),
-  ]), { submitLabel: `Follow ${label} judgments`, onSubmit: (data) => {
-    const topics = String(data.get("topics") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
-    const global = !removal && Boolean(data.get("global"));
-    if (!global && !topics.length) throw new Error("Choose everywhere or at least one community topic.");
-    return mutate(removal ? "removal_source.set" : "hide_source.set", { persona_id: persona.id, source: data.get("source"), global, topics, rank: Number(data.get("rank")), enabled: true }, `${label[0].toUpperCase()}${label.slice(1)} judgments will affect this persona’s view after source sync.`);
-  } });
-}
-
 function contentSourceRow(item, kind) {
   const persona = activePersona(session.state);
   const removal = kind === "removal";
@@ -2599,6 +2674,18 @@ function contentSourceRow(item, kind) {
       element("p", { text: `Following ${label} ${[item.global ? "everywhere" : null, ...(item.topics ?? []).map((topic) => `/h/${topic}`)].filter(Boolean).join(", ")} · priority ${item.rank} · ${item.completeness}` }),
     ]),
     actionButton(`Stop following ${label}`, () => mutate(removal ? "removal_source.set" : "hide_source.set", { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank, enabled: false }, `${label[0].toUpperCase()}${label.slice(1)} source removed.`)),
+  ]);
+}
+
+function sourceManagementRow(item, label, command) {
+  const persona = activePersona(session.state);
+  const scopes = [item.global ? "everywhere" : null, ...(item.topics ?? []).map((topic) => `/h/${topic}`)].filter(Boolean).join(", ");
+  return element("div", { class: "readiness-row" }, [
+    element("div", {}, [
+      element("button", { type: "button", class: "text-action", text: `${item.source.slice(0, 18)}…`, onclick: () => showPersonaProfile(item.source) }),
+      element("p", { text: `Using their ${label}${scopes ? ` in ${scopes}` : ""} · ${item.completeness}` }),
+    ]),
+    actionButton("Stop", () => mutate(command, { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank ?? null, enabled: false }, `Their ${label} no longer shape this persona’s view.`)),
   ]);
 }
 

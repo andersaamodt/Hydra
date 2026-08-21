@@ -83,6 +83,33 @@ pub struct VisibilityDecision {
 
 pub type BlockDecision = VisibilityDecision;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FollowDecision {
+    pub target: NostrPublicKey,
+    pub following: bool,
+    pub inherited: bool,
+    pub source: Option<String>,
+    pub event_id: Option<String>,
+    pub uncertain: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinDecision {
+    pub anchor: AnchorId,
+    pub direct: bool,
+    pub source_count: usize,
+    pub sources: Vec<String>,
+    pub uncertain: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReverseDecision {
+    pub target: NostrPublicKey,
+    pub source_count: usize,
+    pub sources: Vec<String>,
+    pub topic: Option<CommunityKey>,
+}
+
 impl VisibilityDecision {
     fn allowed() -> Self {
         Self {
@@ -344,16 +371,7 @@ pub fn block_decision(
             Some(JudgmentExclusion::Block),
         );
     };
-    let config = private.flocking_profile.as_ref().map_or_else(
-        || flocking_core::Config {
-            version: flocking_core::CONFIG_VERSION.to_owned(),
-            persona: persona_key.clone(),
-            sources: Vec::new(),
-            appearance_sources: BTreeSet::new(),
-            local_pin_dismissals: Vec::new(),
-        },
-        |profile| profile.config.clone(),
-    );
+    let config = effective_config(private, &persona_key);
     if config.persona != persona_key {
         return uncertain_decision(
             "The judgment configuration belongs to another persona.",
@@ -361,10 +379,7 @@ pub fn block_decision(
             Some(JudgmentExclusion::Block),
         );
     }
-    let source_states = private
-        .flocking_profile
-        .as_ref()
-        .map_or(&[][..], |profile| profile.source_states.as_slice());
+    let source_states = ordinary_source_states(&config, private);
     let judgments = person_judgments(store, private, persona, &persona_key);
     let topic = match community {
         Some(community) => match flocking_core::Topic::parse(community.as_str()) {
@@ -385,7 +400,7 @@ pub fn block_decision(
         flocking_core::EvaluationInput {
             config: &config,
             judgments: &judgments,
-            source_states,
+            source_states: &source_states,
             context: &context,
         },
         flocking_core::Faculty::Block,
@@ -436,16 +451,7 @@ pub fn visibility_decision(
             None,
         );
     };
-    let config = private.flocking_profile.as_ref().map_or_else(
-        || flocking_core::Config {
-            version: flocking_core::CONFIG_VERSION.to_owned(),
-            persona: persona_key.clone(),
-            sources: Vec::new(),
-            appearance_sources: BTreeSet::new(),
-            local_pin_dismissals: Vec::new(),
-        },
-        |profile| profile.config.clone(),
-    );
+    let config = effective_config(private, &persona_key);
     if config.persona != persona_key {
         return uncertain_decision(
             "The judgment configuration belongs to another persona.",
@@ -453,10 +459,7 @@ pub fn visibility_decision(
             None,
         );
     }
-    let source_states = private
-        .flocking_profile
-        .as_ref()
-        .map_or(&[][..], |profile| profile.source_states.as_slice());
+    let source_states = ordinary_source_states(&config, private);
     let judgments = person_judgments(store, private, persona, &persona_key);
     let topic = match community {
         Some(community) => match flocking_core::Topic::parse(community.as_str()) {
@@ -481,7 +484,7 @@ pub fn visibility_decision(
         evaluation: flocking_core::EvaluationInput {
             config: &config,
             judgments: &judgments,
-            source_states,
+            source_states: &source_states,
             context: &context,
         },
         contribution: &contribution,
@@ -550,11 +553,39 @@ fn person_judgments(
     persona: PersonaId,
     persona_key: &flocking_core::PublicKey,
 ) -> Vec<flocking_core::Judgment> {
-    let mut judgments = store.state().flocking_judgments.clone();
+    let direct_follow_targets = store
+        .state()
+        .follows
+        .values()
+        .filter(|item| item.persona == persona)
+        .chain(private.follows.values())
+        .filter_map(|item| hydra_nostr::flocking_public_key(&item.target).ok())
+        .collect::<BTreeSet<_>>();
+    let mut judgments = store
+        .state()
+        .flocking_judgments
+        .iter()
+        .filter(|judgment| {
+            !(matches!(judgment.evidence, flocking_core::JudgmentEvidence::Nip02 | flocking_core::JudgmentEvidence::Nip51)
+                || (judgment.author == *persona_key
+                    && judgment.faculty == flocking_core::Faculty::Follow
+                    && matches!(&judgment.target, flocking_core::Target::Person(target) if direct_follow_targets.contains(target))))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if let Ok(fallbacks) =
+        hydra_nostr::current_flocking_list_judgments(store.state().received_events.values())
+    {
+        judgments.extend(fallbacks);
+    }
     judgments.extend(
         private
             .flocking_judgments
             .values()
+            .filter(|record| {
+                !(record.judgment.faculty == flocking_core::Faculty::Follow
+                    && matches!(&record.judgment.target, flocking_core::Target::Person(target) if direct_follow_targets.contains(target)))
+            })
             .map(|record| record.judgment.clone()),
     );
     judgments.extend(
@@ -562,8 +593,8 @@ fn person_judgments(
             .state()
             .blocks
             .values()
-            .filter(|item| item.persona == persona && item.blocked)
-            .chain(private.blocks.values().filter(|item| item.blocked))
+            .filter(|item| item.persona == persona)
+            .chain(private.blocks.values())
             .filter_map(|item| {
                 let target = hydra_nostr::flocking_public_key(&item.target).ok()?;
                 Some(flocking_core::Judgment {
@@ -571,7 +602,11 @@ fn person_judgments(
                     faculty: flocking_core::Faculty::Block,
                     scope: flocking_core::Scope::Global,
                     target: flocking_core::Target::Person(target),
-                    action: flocking_core::Action::Block,
+                    action: if item.blocked {
+                        flocking_core::Action::Block
+                    } else {
+                        flocking_core::Action::Unblock
+                    },
                     created_at: item.changed_at,
                     event_id: None,
                     since: None,
@@ -580,7 +615,98 @@ fn person_judgments(
                 })
             }),
     );
+    judgments.extend(
+        store
+            .state()
+            .follows
+            .values()
+            .filter(|item| item.persona == persona)
+            .chain(private.follows.values())
+            .filter_map(|item| {
+                let target = hydra_nostr::flocking_public_key(&item.target).ok()?;
+                Some(flocking_core::Judgment {
+                    author: persona_key.clone(),
+                    faculty: flocking_core::Faculty::Follow,
+                    scope: flocking_core::Scope::Global,
+                    target: flocking_core::Target::Person(target),
+                    action: if item.following {
+                        flocking_core::Action::Follow
+                    } else {
+                        flocking_core::Action::Unfollow
+                    },
+                    created_at: item.changed_at,
+                    event_id: None,
+                    since: None,
+                    reason: None,
+                    evidence: flocking_core::JudgmentEvidence::Local,
+                })
+            }),
+    );
     judgments
+}
+
+fn effective_config(
+    private: &PrivateState,
+    persona: &flocking_core::PublicKey,
+) -> flocking_core::Config {
+    private.flocking_profile.as_ref().map_or_else(
+        || flocking_core::Config {
+            version: flocking_core::CONFIG_VERSION.to_owned(),
+            persona: persona.clone(),
+            sources: Vec::new(),
+            appearance_sources: BTreeSet::new(),
+            local_pin_dismissals: Vec::new(),
+        },
+        |profile| profile.config.clone(),
+    )
+}
+
+fn ordinary_source_states(
+    config: &flocking_core::Config,
+    private: &PrivateState,
+) -> Vec<flocking_core::SourceState> {
+    private
+        .flocking_profile
+        .as_ref()
+        .into_iter()
+        .flat_map(|profile| profile.source_states.iter())
+        .filter(|state| {
+            config
+                .grant(&state.source, state.faculty)
+                .is_some_and(|grant| grant.enables(&state.scope))
+        })
+        .cloned()
+        .collect()
+}
+
+fn pin_source_states(
+    config: &flocking_core::Config,
+    private: &PrivateState,
+) -> Vec<flocking_core::SourceState> {
+    ordinary_source_states(config, private)
+        .into_iter()
+        .filter(|state| state.faculty == flocking_core::Faculty::Pin)
+        .collect()
+}
+
+fn reverse_source_states(
+    config: &flocking_core::Config,
+    private: &PrivateState,
+) -> Vec<flocking_core::SourceState> {
+    private
+        .flocking_profile
+        .as_ref()
+        .into_iter()
+        .flat_map(|profile| profile.source_states.iter())
+        .filter(|state| {
+            state.faculty == flocking_core::Faculty::Block
+                && config
+                    .source(&state.source)
+                    .and_then(|source| source.reverse_blocks.as_ref())
+                    .is_some_and(|grant| grant.enables(&state.scope))
+        })
+        .cloned()
+        .collect()
 }
 
 fn decision_from_evaluation(
@@ -592,7 +718,10 @@ fn decision_from_evaluation(
 ) -> VisibilityDecision {
     match evaluation {
         flocking_core::Evaluation::Indeterminate { unknown, stale } => {
-            let source = unknown.first().map(|state| state.source.to_string());
+            let source = unknown
+                .first()
+                .and_then(|state| hydra_nostr::nostr_public_key(&state.source).ok())
+                .map(|key| key.to_string());
             uncertain_decision(
                 if stale {
                     "Judgment status is uncertain because source data is stale or missing."
@@ -622,7 +751,10 @@ fn decision_from_evaluation(
                 })
                 .and_then(|judgment| judgment.reason.clone());
             let inherited = &effective.evidence.author != persona_key;
-            let source = inherited.then(|| effective.evidence.author.to_string());
+            let source = inherited
+                .then(|| hydra_nostr::nostr_public_key(&effective.evidence.author).ok())
+                .flatten()
+                .map(|key| key.to_string());
             let scope = Some(effective.scope.to_string());
             let verb = match exclusion {
                 JudgmentExclusion::Block => "Blocked",
@@ -725,14 +857,217 @@ fn followed_authors(
     private: &PrivateState,
     persona: PersonaId,
 ) -> BTreeSet<NostrPublicKey> {
-    store
-        .state()
-        .follows
-        .values()
-        .filter(|item| item.persona == persona && item.following)
-        .chain(private.follows.values().filter(|item| item.following))
-        .map(|item| item.target.clone())
+    follow_decisions(store, private, persona)
+        .into_iter()
+        .filter(|decision| decision.following && !decision.uncertain)
+        .map(|decision| decision.target)
         .collect()
+}
+
+/// Resolves direct and inherited follows without copying inherited state into the personal list.
+#[must_use]
+pub fn follow_decisions(
+    store: &DurableStore,
+    private: &PrivateState,
+    persona: PersonaId,
+) -> Vec<FollowDecision> {
+    let Some(persona_record) = store.state().personas.get(persona) else {
+        return Vec::new();
+    };
+    let Ok(persona_key) = hydra_nostr::flocking_public_key(&persona_record.public_key) else {
+        return Vec::new();
+    };
+    let config = effective_config(private, &persona_key);
+    let judgments = person_judgments(store, private, persona, &persona_key);
+    let states = ordinary_source_states(&config, private);
+    let targets = judgments
+        .iter()
+        .filter_map(|judgment| {
+            (judgment.faculty == flocking_core::Faculty::Follow).then_some(&judgment.target)
+        })
+        .filter_map(|target| match target {
+            flocking_core::Target::Person(key) => hydra_nostr::nostr_public_key(key).ok(),
+            flocking_core::Target::Content(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    targets
+        .into_iter()
+        .filter_map(|target| {
+            let key = hydra_nostr::flocking_public_key(&target).ok()?;
+            let evaluation = flocking_core::evaluate(
+                flocking_core::EvaluationInput {
+                    config: &config,
+                    judgments: &judgments,
+                    source_states: &states,
+                    context: &flocking_core::Context::default(),
+                },
+                flocking_core::Faculty::Follow,
+                &flocking_core::Target::Person(key),
+            )
+            .ok()?;
+            match evaluation {
+                flocking_core::Evaluation::Indeterminate { unknown, .. } => Some(FollowDecision {
+                    target,
+                    following: false,
+                    inherited: true,
+                    source: unknown
+                        .first()
+                        .and_then(|state| hydra_nostr::nostr_public_key(&state.source).ok())
+                        .map(|key| key.to_string()),
+                    event_id: None,
+                    uncertain: true,
+                }),
+                flocking_core::Evaluation::Determinate {
+                    effective: Some(effective),
+                    ..
+                } => Some(FollowDecision {
+                    target,
+                    following: effective.value,
+                    inherited: effective.evidence.author != persona_key,
+                    source: (effective.evidence.author != persona_key)
+                        .then(|| hydra_nostr::nostr_public_key(&effective.evidence.author).ok())
+                        .flatten()
+                        .map(|key| key.to_string()),
+                    event_id: effective.evidence.event_id.map(|event| event.to_string()),
+                    uncertain: effective.certainty == flocking_core::Certainty::Stale,
+                }),
+                flocking_core::Evaluation::Determinate {
+                    effective: None, ..
+                } => None,
+            }
+        })
+        .collect()
+}
+
+/// Aggregates eligible pins for one community.
+#[must_use]
+pub fn pin_decisions(
+    store: &DurableStore,
+    private: &PrivateState,
+    persona: PersonaId,
+    community: &CommunityKey,
+) -> Vec<PinDecision> {
+    let Some(persona_record) = store.state().personas.get(persona) else {
+        return Vec::new();
+    };
+    let Ok(persona_key) = hydra_nostr::flocking_public_key(&persona_record.public_key) else {
+        return Vec::new();
+    };
+    let Ok(topic) = flocking_core::Topic::parse(community.as_str()) else {
+        return Vec::new();
+    };
+    let config = effective_config(private, &persona_key);
+    let judgments = person_judgments(store, private, persona, &persona_key);
+    let states = pin_source_states(&config, private);
+    let ineligible = store
+        .state()
+        .heads
+        .current_heads()
+        .filter(|head| {
+            head.communities.contains(community)
+                && visibility_decision(store, private, persona, head, Some(community)).excluded
+        })
+        .filter_map(|head| flocking_core::EventId::parse(head.anchor.as_str()).ok())
+        .map(flocking_core::ContentTarget::Event)
+        .collect::<BTreeSet<_>>();
+    flocking_core::evaluate_pins(flocking_core::PinInput {
+        config: &config,
+        judgments: &judgments,
+        source_states: &states,
+        topic: &topic,
+        ineligible: &ineligible,
+    })
+    .map_or_else(
+        |_| Vec::new(),
+        |result| {
+            result
+                .pins
+                .into_iter()
+                .filter_map(|pin| {
+                    let flocking_core::ContentTarget::Event(event) = pin.target else {
+                        return None;
+                    };
+                    let anchor = AnchorId::parse(event.to_string()).ok()?;
+                    store
+                        .state()
+                        .heads
+                        .contains(&anchor)
+                        .then_some(PinDecision {
+                            anchor,
+                            direct: pin.direct,
+                            source_count: pin.source_count,
+                            sources: pin
+                                .sources
+                                .into_iter()
+                                .filter_map(|source| {
+                                    hydra_nostr::nostr_public_key(&source)
+                                        .ok()
+                                        .map(|key| key.to_string())
+                                })
+                                .collect(),
+                            uncertain: pin.certainty == flocking_core::Certainty::Stale,
+                        })
+                })
+                .collect()
+        },
+    )
+}
+
+/// Returns people discovered through separately selected block sources.
+#[must_use]
+pub fn reverse_decisions(
+    store: &DurableStore,
+    private: &PrivateState,
+    persona: PersonaId,
+    community: Option<&CommunityKey>,
+) -> Vec<ReverseDecision> {
+    let Some(persona_record) = store.state().personas.get(persona) else {
+        return Vec::new();
+    };
+    let Ok(persona_key) = hydra_nostr::flocking_public_key(&persona_record.public_key) else {
+        return Vec::new();
+    };
+    let config = effective_config(private, &persona_key);
+    let judgments = person_judgments(store, private, persona, &persona_key);
+    let states = reverse_source_states(&config, private);
+    let topic = community.and_then(|item| flocking_core::Topic::parse(item.as_str()).ok());
+    let context = flocking_core::Context { topic };
+    flocking_core::evaluate_reverse(flocking_core::ReverseInput {
+        config: &config,
+        judgments: &judgments,
+        source_states: &states,
+        context: &context,
+    })
+    .map_or_else(
+        |_| Vec::new(),
+        |result| {
+            result
+                .targets
+                .into_iter()
+                .filter_map(|target| {
+                    Some(ReverseDecision {
+                        target: hydra_nostr::nostr_public_key(&target.target).ok()?,
+                        source_count: target.source_count,
+                        sources: target
+                            .sources
+                            .into_iter()
+                            .filter_map(|source| {
+                                hydra_nostr::nostr_public_key(&source)
+                                    .ok()
+                                    .map(|key| key.to_string())
+                            })
+                            .collect(),
+                        topic: match target.discovery_scope {
+                            flocking_core::Scope::Global => None,
+                            flocking_core::Scope::Topic(topic) => {
+                                CommunityKey::parse(topic.as_str()).ok()
+                            }
+                        },
+                    })
+                })
+                .collect()
+        },
+    )
 }
 
 fn subscribed_topics(
@@ -965,7 +1300,10 @@ mod tests {
 
         assert!(decision.excluded);
         assert!(decision.inherited);
-        assert_eq!(decision.source.as_deref(), Some(source.as_str()));
+        assert_eq!(
+            decision.source.as_deref(),
+            Some(hydra_nostr::nostr_public_key(&source).unwrap().as_str())
+        );
         assert_eq!(decision.reason.as_deref(), Some("Repeated impersonation"));
         assert!(!decision.uncertain);
     }

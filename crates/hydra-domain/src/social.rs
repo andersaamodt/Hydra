@@ -308,10 +308,17 @@ impl FlockingProfile {
             .validate()
             .map_err(|_| DomainError::InvalidFlocking)?;
         for state in &self.source_states {
-            let Some(grant) = self.config.grant(&state.source, state.faculty) else {
-                return Err(DomainError::InvalidFlocking);
-            };
-            if !grant.enables(&state.scope) {
+            let ordinary = self
+                .config
+                .grant(&state.source, state.faculty)
+                .is_some_and(|grant| grant.enables(&state.scope));
+            let reverse = state.faculty == flocking_core::Faculty::Block
+                && self
+                    .config
+                    .source(&state.source)
+                    .and_then(|source| source.reverse_blocks.as_ref())
+                    .is_some_and(|grant| grant.enables(&state.scope));
+            if !ordinary && !reverse {
                 return Err(DomainError::InvalidFlocking);
             }
         }

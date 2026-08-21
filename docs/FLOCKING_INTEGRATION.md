@@ -122,6 +122,18 @@ permit content that a complete higher-ranked source might exclude.
 - Complete migration, backup, privacy, security, and protocol documentation.
 - Run installed-app verification before declaring Hydra a complete adopter.
 
+## Implemented surface
+
+- Direct follow, block, silence, hide, removal, restoration, pin, and withdrawal actions use one Hydra action path and retain their authored/public distinction.
+- NIP-02 and NIP-51 lists are compatibility mirrors and fallback inputs; only each author's current replaceable list contributes fallback state.
+- Followed follows remain a non-recursive effective overlay and never enter the persona's own follow list.
+- Every ordinary faculty can be selected independently from a person's profile, with topic scope where the faculty permits it.
+- Community pins aggregate direct and selected-source support, show at most two items before expansion, retain source provenance, and support reversible local dismissal.
+- Community images resolve from direct choice, selected-source agreement, withdrawal, and deterministic topic identicons.
+- Separately selected block sources produce an inspectable discovery view without automatically following or unblocking anyone.
+- Rescue is one explicit Hydra action that directly follows the discovered person and directly unblocks the discovery scope while leaving inherited evidence intact.
+- Complete, stale, and unknown source states remain distinct throughout sync, evaluation, runtime state, and source management.
+
 ## Acceptance criteria for the block slice
 
 - A direct topic block overrides a direct global judgment in that topic.
