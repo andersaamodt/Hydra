@@ -1,12 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![forbid(unsafe_code)]
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 #[cfg(target_os = "macos")]
 use objc2_app_kit::NSWorkspace;
 #[cfg(target_os = "macos")]
 use objc2_foundation::{NSString, NSURL};
 use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 #[cfg(any(target_os = "linux", windows))]
 use std::process::Command as ProcessCommand;
 use std::time::Duration;
@@ -18,6 +20,10 @@ use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
+use url::{Host, Url};
+
+const MAX_COMMUNITY_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+const MAX_COMMUNITY_IMAGE_URL_BYTES: usize = 4096;
 
 #[tauri::command]
 async fn runtime_state(runtime: State<'_, RuntimeClient>) -> Result<Value, String> {
@@ -39,6 +45,117 @@ struct CompanionStatus {
 fn companion_status() -> CompanionStatus {
     CompanionStatus {
         book_club_installed: book_club_installed(),
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommunityImageDownload {
+    mime_type: &'static str,
+    sha256: String,
+    base64: String,
+}
+
+#[tauri::command]
+async fn inspect_community_image(url: String) -> Result<CommunityImageDownload, String> {
+    let url = community_image_url(&url)?;
+    let client = reqwest::Client::builder()
+        .https_only(true)
+        .redirect(reqwest::redirect::Policy::limited(4))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .user_agent("Hydra/1.0 community-image-inspector")
+        .build()
+        .map_err(|_| "Hydra could not prepare the image download.".to_owned())?;
+    let mut response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "image/png,image/jpeg,image/webp")
+        .send()
+        .await
+        .map_err(|error| {
+            if error.is_timeout() {
+                "That image did not respond within 15 seconds.".to_owned()
+            } else {
+                "Hydra could not download that image.".to_owned()
+            }
+        })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "That image host returned HTTP {}.",
+            response.status().as_u16()
+        ));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_COMMUNITY_IMAGE_BYTES as u64)
+    {
+        return Err("Choose an image smaller than 5 MiB.".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(
+        response
+            .content_length()
+            .and_then(|length| usize::try_from(length).ok())
+            .unwrap_or(64 * 1024)
+            .min(MAX_COMMUNITY_IMAGE_BYTES),
+    );
+    while let Some(chunk) = response.chunk().await.map_err(|error| {
+        if error.is_timeout() {
+            "That image did not finish downloading within 15 seconds.".to_owned()
+        } else {
+            "Hydra could not finish downloading that image.".to_owned()
+        }
+    })? {
+        if bytes.len().saturating_add(chunk.len()) > MAX_COMMUNITY_IMAGE_BYTES {
+            return Err("Choose an image smaller than 5 MiB.".to_owned());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if bytes.is_empty() {
+        return Err("That image file is empty.".to_owned());
+    }
+    let mime_type = community_image_mime(&bytes)
+        .ok_or_else(|| "Choose a real PNG, JPEG, or WebP image.".to_owned())?;
+    Ok(CommunityImageDownload {
+        mime_type,
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        base64: BASE64.encode(bytes),
+    })
+}
+
+fn community_image_url(value: &str) -> Result<Url, String> {
+    if value.len() > MAX_COMMUNITY_IMAGE_URL_BYTES {
+        return Err("That image URL is too long.".to_owned());
+    }
+    let mut url = Url::parse(value).map_err(|_| "Use a valid HTTPS image link.".to_owned())?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err("Use an HTTPS image link without embedded credentials.".to_owned());
+    }
+    let Host::Domain(host) = url
+        .host()
+        .ok_or_else(|| "Use an image link with a public hostname.".to_owned())?
+    else {
+        return Err("Use an image link with a public hostname.".to_owned());
+    };
+    let host = host.to_ascii_lowercase();
+    if matches!(
+        host.rsplit('.').next(),
+        Some("localhost" | "local" | "internal")
+    ) {
+        return Err("Use an image link with a public hostname.".to_owned());
+    }
+    url.set_fragment(None);
+    Ok(url)
+}
+
+fn community_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -381,6 +498,7 @@ fn main() {
             runtime_status,
             runtime_action,
             companion_status,
+            inspect_community_image,
             open_settings_window
         ])
         .run(tauri::generate_context!())
@@ -596,5 +714,38 @@ mod tests {
                 Err(message.to_owned())
             );
         });
+    }
+
+    #[test]
+    fn community_images_require_public_https_urls() {
+        assert!(community_image_url("https://images.example/cat.png").is_ok());
+        for rejected in [
+            "http://images.example/cat.png",
+            "https://localhost/cat.png",
+            "https://127.0.0.1/cat.png",
+            "https://user:secret@images.example/cat.png",
+        ] {
+            assert!(
+                community_image_url(rejected).is_err(),
+                "accepted {rejected}"
+            );
+        }
+    }
+
+    #[test]
+    fn community_image_type_comes_from_file_signature() {
+        assert_eq!(
+            community_image_mime(b"\x89PNG\r\n\x1a\nmore"),
+            Some("image/png")
+        );
+        assert_eq!(
+            community_image_mime(&[0xff, 0xd8, 0xff, 0xe0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            community_image_mime(b"RIFF\0\0\0\0WEBPmore"),
+            Some("image/webp")
+        );
+        assert_eq!(community_image_mime(b"<svg></svg>"), None);
     }
 }

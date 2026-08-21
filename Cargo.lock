@@ -2163,10 +2163,13 @@ dependencies = [
 name = "hydra-desktop"
 version = "1.0.0"
 dependencies = [
+ "base64 0.22.1",
  "objc2-app-kit",
  "objc2-foundation",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",
@@ -2174,6 +2177,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tokio",
+ "url",
 ]
 
 [[package]]

@@ -263,6 +263,7 @@ body.settings-window { min-width: 0; min-height: 0; }
 .field textarea { min-height: 128px; resize: vertical; line-height: 1.5; }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
 .field-help { color: var(--faint); font-size: 11px; }
+.field-help.is-error { color: var(--danger-ink); }
 .toggle-row { display: flex; justify-content: space-between; gap: 15px; padding: 13px 0; border-bottom: 1px solid var(--line); }
 .toggle-row > span { display: grid; gap: 4px; min-width: 0; }
 .toggle-row input { flex: 0 0 auto; width: 18px; height: 18px; accent-color: var(--accent-strong); }

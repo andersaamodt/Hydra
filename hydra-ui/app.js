@@ -438,49 +438,42 @@ async function verifyCommunityImage(community, appearance) {
   if (session.communityImages.has(key)) return;
   session.communityImages.set(key, null);
   try {
-    const response = await fetch(appearance.url, { credentials: "omit", referrerPolicy: "no-referrer" });
-    if (!response.ok || Number(response.headers.get("content-length") || 0) > 5 * 1024 * 1024) throw new Error("image unavailable");
-    const bytes = await boundedImageBytes(response);
-    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((value) => value.toString(16).padStart(2, "0")).join("");
-    if (digest !== appearance.sha256) throw new Error("image hash mismatch");
-    if (!["image/png", "image/jpeg", "image/webp"].includes(appearance.mimeType)) throw new Error("image type unsupported");
-    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: appearance.mimeType }));
-    const dimensions = await imageDimensions(objectUrl);
+    const image = await downloadCommunityImage(appearance.url);
+    if (image.sha256 !== appearance.sha256) throw new Error("image hash mismatch");
+    if (image.mimeType !== appearance.mimeType) throw new Error("image type mismatch");
+    const dataUrl = communityImageDataUrl(image);
+    const dimensions = await imageDimensions(dataUrl);
     if (dimensions.width !== appearance.width || dimensions.height !== appearance.height) {
-      URL.revokeObjectURL(objectUrl);
       throw new Error("image dimensions mismatch");
     }
-    session.communityImages.set(key, objectUrl);
+    session.communityImages.set(key, dataUrl);
     if (session.route === "community" && session.community === community) renderBrand();
   } catch {
     session.communityImages.set(key, false);
   }
 }
 
-async function boundedImageBytes(response) {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("image body unavailable");
-  const chunks = [];
-  let length = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.length;
-    if (length > 5 * 1024 * 1024) { await reader.cancel(); throw new Error("image too large"); }
-    chunks.push(value);
-  }
-  if (!length) throw new Error("image is empty");
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  return bytes;
+async function downloadCommunityImage(url) {
+  if (!invoke) throw new Error("Open Hydra as the desktop application to check external images.");
+  return invoke("inspect_community_image", { url });
+}
+
+function communityImageDataUrl(image) {
+  return `data:${image.mimeType};base64,${image.base64}`;
 }
 
 function imageDimensions(objectUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
-    image.onerror = () => reject(new Error("That file is not a readable image."));
+    const timeout = window.setTimeout(() => reject(new Error("Hydra could not decode that image within 5 seconds.")), 5000);
+    image.onload = () => {
+      window.clearTimeout(timeout);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      window.clearTimeout(timeout);
+      reject(new Error("That file is not a readable image."));
+    };
     image.src = objectUrl;
   });
 }
@@ -713,34 +706,33 @@ function showCommunityAppearanceEditor(community) {
   ]), { submitLabel: current?.ownChoice ? "Update image" : "Use image", onSubmit: async (data) => {
     const url = String(data.get("url") ?? "").trim();
     status.textContent = "Checking the image…";
-    const image = await inspectCommunityImage(url);
-    return mutate("community_appearance.set", {
-      persona_id: persona.id,
-      topic: community,
-      public: Boolean(data.get("public")),
-      ...image,
-      alt: String(data.get("alt") ?? "").trim(),
-    }, data.get("public") ? "Community image published." : "Community image saved privately.");
+    status.classList.remove("is-error");
+    try {
+      const image = await inspectCommunityImage(community, url);
+      return await mutate("community_appearance.set", {
+        persona_id: persona.id,
+        topic: community,
+        public: Boolean(data.get("public")),
+        ...image,
+        alt: String(data.get("alt") ?? "").trim(),
+      }, data.get("public") ? "Community image published." : "Community image saved privately.");
+    } catch (error) {
+      status.textContent = readableError(error);
+      status.classList.add("is-error");
+      throw error;
+    }
   } });
 }
 
-async function inspectCommunityImage(url) {
-  if (!url.startsWith("https://")) throw new Error("Use an HTTPS image link.");
-  const response = await fetch(url, { credentials: "omit", referrerPolicy: "no-referrer" });
-  if (!response.ok) throw new Error("Hydra could not download that image.");
-  const mime_type = String(response.headers.get("content-type") ?? "").split(";", 1)[0].trim().toLowerCase();
-  if (!["image/png", "image/jpeg", "image/webp"].includes(mime_type)) throw new Error("Choose a PNG, JPEG, or WebP image.");
-  if (Number(response.headers.get("content-length") || 0) > 5 * 1024 * 1024) throw new Error("Choose an image smaller than 5 MiB.");
-  const bytes = await boundedImageBytes(response);
-  const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((value) => value.toString(16).padStart(2, "0")).join("");
-  const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mime_type }));
-  const dimensions = await imageDimensions(objectUrl);
+async function inspectCommunityImage(community, url) {
+  const image = await downloadCommunityImage(url);
+  const dataUrl = communityImageDataUrl(image);
+  const dimensions = await imageDimensions(dataUrl);
   if (!dimensions.width || !dimensions.height || dimensions.width > 4096 || dimensions.height > 4096) {
-    URL.revokeObjectURL(objectUrl);
     throw new Error("Choose an image no larger than 4096 × 4096 pixels.");
   }
-  session.communityImages.set(`${session.community}:${sha256}`, objectUrl);
-  return { url, sha256, mime_type, ...dimensions };
+  session.communityImages.set(`${community}:${image.sha256}`, dataUrl);
+  return { url, sha256: image.sha256, mime_type: image.mimeType, ...dimensions };
 }
 
 function emptyState(title, body, action, onAction) {

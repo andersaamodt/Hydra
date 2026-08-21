@@ -257,6 +257,13 @@ test("community routes replace app branding with the bare topic identity", () =>
   assert.doesNotMatch(app, /function showAppearanceSources/);
   assert.doesNotMatch(app, /field\("SHA-256"/);
   assert.match(styles, /\.community-image-preview/);
+  assert.match(desktop, /inspect_community_image/);
+  assert.match(desktop, /MAX_COMMUNITY_IMAGE_BYTES/);
+  assert.match(desktop, /community_image_mime/);
+  assert.match(app, /invoke\("inspect_community_image", \{ url \}\)/);
+  assert.match(app, /That image did not respond within 15 seconds|Checking the image/);
+  assert.match(app, /status\.classList\.add\("is-error"\)/);
+  assert.doesNotMatch(app, /fetch\(appearance\.url/);
 });
 
 test("shared judgments are selected from profiles and remain inspectable", () => {
