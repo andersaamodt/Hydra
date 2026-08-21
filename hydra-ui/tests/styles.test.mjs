@@ -253,6 +253,11 @@ test("community routes replace app branding with the bare topic identity", () =>
   assert.match(app, /domain\.textContent = "\/h\/"/);
   assert.match(app, /name\.textContent = community/);
   assert.match(app, /function communityViewHeader\(community, title, extras = \[\]\)/);
+  assert.match(app, /function communityActionMenu\(community\)/);
+  assert.match(app, /class: "community-menu-trigger"[^\n]*text: "⋮"/);
+  assert.match(app, /function renderCommunityNormBanner\(community\)/);
+  assert.match(app, /if \(!norms\.length\) return null;/);
+  assert.doesNotMatch(app, /class: "community-tools"/);
   assert.match(app, /topicIdenticon\(community\)/);
   assert.match(app, /class: "community-heading-image"/);
   assert.match(app, /communityAppearances/);
@@ -266,6 +271,9 @@ test("community routes replace app branding with the bare topic identity", () =>
   assert.match(styles, /\.community-image-preview/);
   assert.match(styles, /\.community-heading-art\s*\{[^}]*width:\s*92px;[^}]*height:\s*64px/);
   assert.match(styles, /\.community-heading-image\s*\{[^}]*max-width:\s*100%;[^}]*max-height:\s*100%;[^}]*width:\s*auto;[^}]*height:\s*auto/);
+  assert.match(styles, /\.community-menu-trigger/);
+  assert.match(styles, /\.community-menu-popover/);
+  assert.match(styles, /\.community-norm-banner/);
   assert.match(desktop, /inspect_community_image/);
   assert.match(desktop, /MAX_COMMUNITY_IMAGE_BYTES/);
   assert.match(desktop, /community_image_mime/);

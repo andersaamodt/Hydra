@@ -524,6 +524,34 @@ function viewHeader(title, extras = []) {
   ]);
 }
 
+function communityActionMenu(community) {
+  const persona = activePersona(session.state);
+  const subscription = (session.state.subscriptions ?? []).find((item) => item.personaId === persona.id && item.community === community);
+  const menu = element("details", { class: "community-menu" });
+  const item = (label, action) => element("button", {
+    type: "button",
+    role: "menuitem",
+    class: "community-menu-item",
+    text: label,
+    disabled: session.busy,
+    onclick: (event) => {
+      event.currentTarget.closest("details")?.removeAttribute("open");
+      action();
+    },
+  });
+  menu.append(
+    element("summary", { class: "community-menu-trigger", "aria-label": `Community actions for ${community}`, title: "Community actions", text: "⋮" }),
+    element("div", { class: "community-menu-popover", role: "menu" }, [
+      item(subscription ? "Unsubscribe" : "Subscribe privately", () => setCommunitySubscription(community, !subscription, false)),
+      item(subscription?.public ? "Make subscription private" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
+      item("Community image", () => showCommunityAppearanceEditor(community)),
+      item("People worth a second look", () => showReverseDiscoveries(community)),
+      item("Propose a norm", () => showNormComposer(community)),
+    ]),
+  );
+  return menu;
+}
+
 function communityViewHeader(community, title, extras = []) {
   const appearance = effectiveCommunityAppearance(community);
   const verified = appearance && session.communityImages.get(`${community}:${appearance.sha256}`);
@@ -538,6 +566,7 @@ function communityViewHeader(community, title, extras = []) {
         }),
       ]),
       element("h1", { text: title }),
+      communityActionMenu(community),
     ]),
     ...extras,
   ]);
@@ -627,9 +656,9 @@ function renderFeed() {
   } else {
     list.append(...posts.map((post) => postCard(post, lens, community)));
   }
-  const communityTools = community ? renderCommunityTools(community) : null;
+  const normBanner = community ? renderCommunityNormBanner(community) : null;
   const pins = community ? renderCommunityPins(community) : null;
-  view.replaceChildren(...[header, communityTools, pins, community ? audienceBar() : null, lensBar(), list].filter(Boolean));
+  view.replaceChildren(...[header, normBanner, pins, community ? audienceBar() : null, lensBar(), list].filter(Boolean));
 }
 
 function renderCommunityPins(community) {
@@ -670,18 +699,10 @@ function renderCommunityPins(community) {
   ]);
 }
 
-function renderCommunityTools(community) {
-  const persona = activePersona(session.state);
-  const subscription = (session.state.subscriptions ?? []).find((item) => item.personaId === persona.id && item.community === community);
+function renderCommunityNormBanner(community) {
   const norms = (session.state.objects ?? []).filter((item) => item.kind === "norm" && item.communities?.includes(community));
-  return element("section", { class: "community-tools", "aria-label": `Hydra community tools for ${community}` }, [
-    element("div", { class: "community-actions" }, [
-      actionButton(subscription ? "Unsubscribe" : "Subscribe privately", () => setCommunitySubscription(community, !subscription, false), subscription ? "quiet-button" : "primary-button"),
-      actionButton(subscription?.public ? "Subscription is public" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
-      actionButton("Community image", () => showCommunityAppearanceEditor(community)),
-      actionButton("People worth a second look", () => showReverseDiscoveries(community)),
-      actionButton("Propose a norm", () => showNormComposer(community)),
-    ]),
+  if (!norms.length) return null;
+  return element("section", { class: "community-norm-banner", "aria-label": `Communal norms for ${community}` }, [
     element("details", { class: "norm-field" }, [
       element("summary", { text: `${norms.length} communal norm ${norms.length === 1 ? "statement" : "statements"}` }),
       element("p", { text: "Signed positions, not enforceable rules." }),
@@ -2974,7 +2995,15 @@ document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.querySelector("#global-search").focus(); }
   else if (event.metaKey && event.key === ",") { event.preventDefault(); void openSettings(); }
   else if (editable && (event.metaKey || event.ctrlKey || event.altKey)) return;
-  if (event.key === "Escape") closeModal();
+  if (event.key === "Escape") {
+    document.querySelectorAll(".community-menu[open]").forEach((menu) => menu.removeAttribute("open"));
+    closeModal();
+  }
+});
+document.addEventListener("click", (event) => {
+  document.querySelectorAll(".community-menu[open]").forEach((menu) => {
+    if (!menu.contains(event.target)) menu.removeAttribute("open");
+  });
 });
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || session.busy || modalRoot.childElementCount) return;
