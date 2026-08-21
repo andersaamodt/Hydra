@@ -9,13 +9,14 @@ const tauri = await readFile(new URL("../../apps/desktop/tauri/tauri.conf.json",
 const desktop = await readFile(new URL("../../apps/desktop/tauri/src/main.rs", import.meta.url), "utf8");
 const capability = await readFile(new URL("../../apps/desktop/tauri/capabilities/default.json", import.meta.url), "utf8");
 
-test("the default light stone-blue scheme uses derived semantic surfaces", () => {
+test("the default light-blue scheme uses visibly tinted semantic surfaces", () => {
   for (const variable of ["--accent-seed", "--canvas", "--sidebar-surface", "--bar", "--card-hover", "--modal"]) {
     assert.match(styles, new RegExp(`${variable}:`));
   }
 
-  assert.match(styles, /--accent-seed:\s*#6f8299/);
+  assert.match(styles, /--accent-seed:\s*#5687bb/);
   assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--accent-seed\)/);
+  assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--accent-seed\) 16%/);
   assert.match(styles, /:root\[data-resolved-theme="dark"\]/);
   assert.match(styles, /body\s*\{[^}]*background:\s*var\(--canvas\)/);
   assert.match(styles, /\.topbar\s*\{[^}]*background:\s*var\(--chrome\)/);
@@ -65,7 +66,7 @@ test("macOS integrates the native title bar with Hydra's toolbar", () => {
 });
 
 test("dark text and controls remain legible for every accent", () => {
-  const accents = ["#6f8299", "#6574a8", "#826fa3", "#a56f5d", "#6f846f"];
+  const accents = ["#5687bb", "#6574a8", "#826fa3", "#a56f5d", "#6f846f"];
   const rgb = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
   const mix = (foreground, amount, background) => rgb(foreground).map((channel, index) => Math.round(channel * amount + rgb(background)[index] * (1 - amount)));
   const luminance = (color) => {
@@ -142,6 +143,7 @@ test("the Reddit Bridge exposes imported posts and comments with exact source li
 
 test("startup uses the real icon and one atomic splash handoff", () => {
   assert.match(index, /id="boot-splash"[\s\S]*src="hydra-icon\.png"/);
+  assert.match(index, /background:\s*#dce7f2/);
   assert.match(index, /id="app"[\s\S]*hidden/);
   assert.match(app, /function finishBoot\(\)/);
   assert.match(app, /splash\?\.remove\(\)/);
@@ -152,7 +154,8 @@ test("startup uses the real icon and one atomic splash handoff", () => {
 test("appearance and chamber tabs honor desktop input contracts", () => {
   assert.match(app, /function saveAppearanceChoice\(event\)/);
   assert.match(app, /runtime\("settings\.update", selected\)/);
-  assert.match(app, /"stone-blue": "#6f8299"/);
+  assert.match(app, /"stone-blue": "#5687bb"/);
+  assert.match(app, /\["stone-blue", "Light blue"\]/);
   assert.match(app, /Hydra derives selection, focus, and lightly tinted surfaces from this one color/);
   assert.match(app, /role:\s*"tab"/);
   assert.match(app, /"ArrowLeft",\s*"ArrowRight"/);

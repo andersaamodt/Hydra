@@ -27,7 +27,7 @@ const isMacOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
 const requestedSettingsTab = new URLSearchParams(window.location.search).get("tab");
 const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
 const ACCENT_COLORS = {
-  "stone-blue": "#6f8299",
+  "stone-blue": "#5687bb",
   indigo: "#6574a8",
   violet: "#826fa3",
   terracotta: "#a56f5d",
@@ -2019,7 +2019,7 @@ function renderSettings() {
     settingsPane("general", [
       field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
       field("Mode", "select", "theme", settings.theme ?? "light", "", { values: [["light", "Light"], ["dark", "Dark"], ["system", "Follow system"]], onchange: saveAppearanceChoice }),
-      field("Accent color", "select", "accent", settings.accent ?? "stone-blue", "Hydra derives selection, focus, and lightly tinted surfaces from this one color.", { values: [["stone-blue", "Stone blue"], ["indigo", "Indigo"], ["violet", "Violet"], ["terracotta", "Terracotta"], ["moss", "Moss"],], onchange: saveAppearanceChoice }),
+      field("Accent color", "select", "accent", settings.accent ?? "stone-blue", "Hydra derives selection, focus, and lightly tinted surfaces from this one color.", { values: [["stone-blue", "Light blue"], ["indigo", "Indigo"], ["violet", "Violet"], ["terracotta", "Terracotta"], ["moss", "Moss"],], onchange: saveAppearanceChoice }),
       element("section", { class: "context-card" }, [
         element("h2", { text: "Privacy" }),
         element("p", { text: "Personas are pseudonymous, not guaranteed anonymous. Timing, relays, media servers, IP addresses, writing style, and mistakes can correlate separate keys. Telemetry is off by default." }),
