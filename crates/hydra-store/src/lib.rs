@@ -561,7 +561,7 @@ impl EventLog {
     pub fn replay(&self) -> Result<ReplayState, StoreError> {
         let mut state = ReplayState::default();
         for envelope in self.read_all()? {
-            state.apply(&envelope.event)?;
+            state.apply(&envelope.event, envelope.recorded_at)?;
         }
         Ok(state)
     }
@@ -1004,6 +1004,8 @@ pub struct ReplayState {
     pub blocks: BTreeMap<(PersonaId, NostrPublicKey), BlockRecord>,
     pub subscriptions: BTreeMap<(PersonaId, CommunityKey), CommunitySubscription>,
     pub received_events: BTreeMap<String, String>,
+    pub received_event_first_seen: BTreeMap<String, u64>,
+    pub head_first_seen: BTreeMap<(AnchorId, u64), u64>,
     pub flocking_judgments: Vec<flocking_core::Judgment>,
     pub media: BTreeMap<(AnchorId, String), MediaManifest>,
 }
@@ -1043,6 +1045,13 @@ impl ReplayState {
             })
             .map(|reaction| &reaction.value)
     }
+
+    #[must_use]
+    pub fn first_seen(&self, head: &ObjectHead) -> Option<u64> {
+        self.head_first_seen
+            .get(&(head.anchor.clone(), head.edited_at))
+            .copied()
+    }
 }
 
 impl ReplayState {
@@ -1050,7 +1059,7 @@ impl ReplayState {
         clippy::too_many_lines,
         reason = "one exhaustive dispatcher keeps every durable event visibly replayable"
     )]
-    fn apply(&mut self, event: &DurableEvent) -> Result<(), DomainError> {
+    fn apply(&mut self, event: &DurableEvent, recorded_at: u64) -> Result<(), DomainError> {
         event.validate()?;
         match event {
             DurableEvent::PersonaCreated(persona) => self.personas.insert(persona.clone()),
@@ -1081,8 +1090,11 @@ impl ReplayState {
             DurableEvent::ContinuityWorkflowChanged(workflow) => {
                 self.apply_continuity_workflow(workflow)
             }
-            DurableEvent::NativeObjectChanged { outbound, .. } => {
+            DurableEvent::NativeObjectChanged { head, outbound, .. } => {
                 self.heads.apply(event);
+                self.head_first_seen
+                    .entry((head.anchor.clone(), head.edited_at))
+                    .or_insert(recorded_at);
                 for item in outbound {
                     self.outbound.insert(item.event_id.clone(), item.clone());
                 }
@@ -1116,6 +1128,7 @@ impl ReplayState {
                 reactions,
                 public_projections,
                 flocking_judgments,
+                recorded_at,
             ),
             DurableEvent::MediaPreserved(manifest)
             | DurableEvent::MediaPreservedFor { manifest, .. } => self.apply_media(manifest),
@@ -1356,6 +1369,10 @@ impl ReplayState {
         Ok(())
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the durable event fields stay explicit at the replay boundary"
+    )]
     fn apply_remote_event(
         &mut self,
         event_id: &str,
@@ -1364,6 +1381,7 @@ impl ReplayState {
         reactions: &[ReactionRecord],
         public_projections: &[PublicProjectionRecord],
         flocking_judgments: &[flocking_core::Judgment],
+        recorded_at: u64,
     ) -> Result<(), DomainError> {
         if event_id.is_empty() || event_json.is_empty() {
             return Err(DomainError::Empty);
@@ -1375,6 +1393,9 @@ impl ReplayState {
             self.heads
                 .append_head(head.clone())
                 .map_err(|_| DomainError::MissingObject)?;
+            self.head_first_seen
+                .entry((head.anchor.clone(), head.edited_at))
+                .or_insert(recorded_at);
         }
         for reaction in reactions {
             if !self.has_reaction_target(&reaction.target) {
@@ -1407,6 +1428,8 @@ impl ReplayState {
             .extend(flocking_judgments.iter().cloned());
         self.received_events
             .insert(event_id.to_owned(), event_json.to_owned());
+        self.received_event_first_seen
+            .insert(event_id.to_owned(), recorded_at);
         Ok(())
     }
 
@@ -1600,9 +1623,9 @@ impl DurableStore {
         let (envelopes, _) = EventLog::read_all_from(&self.log.path, &self.log.key, false)?;
         let mut candidate = ReplayState::default();
         for stored in &envelopes {
-            candidate.apply(&stored.envelope.event)?;
+            candidate.apply(&stored.envelope.event, stored.envelope.recorded_at)?;
         }
-        candidate.apply(&event)?;
+        candidate.apply(&event, recorded_at)?;
         let id = self.log.append_unlocked(
             event,
             recorded_at,
@@ -1758,6 +1781,38 @@ mod tests {
                 .body
                 .as_str(),
             "second"
+        );
+    }
+
+    #[test]
+    fn remote_head_first_seen_survives_reopen_and_replay() {
+        let root = tempdir().unwrap();
+        let remote = head("backdated remote revision", 7);
+        let mut store = DurableStore::open(root.path()).unwrap();
+        store
+            .append(
+                DurableEvent::RemoteEventReceived {
+                    event_id: "1".repeat(64),
+                    event_json: "{}".to_owned(),
+                    heads: vec![remote.clone()],
+                    reactions: Vec::new(),
+                    public_projections: Vec::new(),
+                    flocking_judgments: Vec::new(),
+                },
+                42,
+            )
+            .unwrap();
+        assert_eq!(store.state().first_seen(&remote), Some(42));
+        drop(store);
+
+        let reopened = DurableStore::open(root.path()).unwrap();
+        assert_eq!(reopened.state().first_seen(&remote), Some(42));
+        assert_eq!(
+            reopened
+                .state()
+                .received_event_first_seen
+                .get(&"1".repeat(64)),
+            Some(&42)
         );
     }
 

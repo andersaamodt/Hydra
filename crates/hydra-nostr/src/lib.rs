@@ -87,7 +87,7 @@ pub fn flocking_judgment_event(
 /// # Errors
 ///
 /// Returns an error for invalid relay URLs, source keys, or relay-pool failure.
-pub async fn fetch_flocking_block_events(
+pub async fn fetch_flocking_judgment_events(
     relays: &[String],
     sources: &[flocking_core::PublicKey],
 ) -> Result<Vec<Event>, ProtocolError> {
@@ -3144,6 +3144,41 @@ mod tests {
             parsed[0].event_id.as_ref().map(ToString::to_string),
             Some(event.id.to_hex())
         );
+    }
+
+    #[test]
+    fn canonical_flocking_silence_preserves_its_cutoff() {
+        let keys = Keys::generate();
+        let target_keys = Keys::generate();
+        let judgment = flocking_core::Judgment {
+            author: flocking_public_key(
+                &NostrPublicKey::parse(keys.public_key().to_bech32().unwrap()).unwrap(),
+            )
+            .unwrap(),
+            faculty: flocking_core::Faculty::Silence,
+            scope: flocking_core::Scope::Global,
+            target: flocking_core::Target::Person(
+                flocking_public_key(
+                    &NostrPublicKey::parse(target_keys.public_key().to_bech32().unwrap()).unwrap(),
+                )
+                .unwrap(),
+            ),
+            action: flocking_core::Action::Silence,
+            created_at: 42,
+            event_id: None,
+            since: Some(40),
+            reason: Some("New activity overwhelms the thread".to_owned()),
+            evidence: flocking_core::JudgmentEvidence::Local,
+        };
+
+        let event = flocking_judgment_event(&keys, &judgment).unwrap();
+        let parsed = received_flocking_judgments(&event).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].faculty, flocking_core::Faculty::Silence);
+        assert_eq!(parsed[0].action, flocking_core::Action::Silence);
+        assert_eq!(parsed[0].since, Some(40));
+        assert_eq!(parsed[0].reason, judgment.reason);
     }
 
     #[test]

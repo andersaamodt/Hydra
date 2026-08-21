@@ -128,15 +128,16 @@ test("the UI renders only runtime-approved visible objects", () => {
   assert.deepEqual(commentsFor(state, "visible"), []);
 });
 
-test("blocked comments remain available for reversible placeholders", () => {
+test("blocked and silenced comments remain available for reversible placeholders", () => {
   const state = {
     visibleAnchors: ["post"],
     objects: [
       { anchor: "post", kind: "post" },
       { anchor: "blocked", kind: "comment", root: "post", parent: "post", editedAt: 2, block: { inherited: false } },
+      { anchor: "silenced", kind: "comment", root: "post", parent: "post", editedAt: 3, silence: { cutoff: 2 } },
     ],
   };
-  assert.deepEqual(commentsFor(state, "post").map(({ anchor }) => anchor), ["blocked"]);
+  assert.deepEqual(commentsFor(state, "post").map(({ anchor }) => anchor), ["blocked", "silenced"]);
 });
 
 test("the UI preserves runtime lens order without recreating policy", () => {

@@ -92,6 +92,28 @@ runtime action block.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key
   '{persona_id:$persona,target:$target,public:false,blocked:false,action:"withdraw",topic:"science",reason:null}')" >/dev/null
 [ "$(runtime state | jq '.data.blockExceptions | length')" -eq 0 ]
 
+runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,silenced:true,action:"silence",topic:"science",reason:"New activity only"}')" >/dev/null
+silenced=$(runtime state)
+[ "$(printf '%s' "$silenced" | jq -r '.data.silences[0].scope')" = "topic:science" ]
+[ "$(printf '%s' "$silenced" | jq -r '.data.silences[0].reason')" = "New activity only" ]
+silence_cutoff=$(printf '%s' "$silenced" | jq -r '.data.silences[0].cutoff')
+[ "$silence_cutoff" -gt 0 ]
+sleep 1
+runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,silenced:true,action:"silence",topic:"science",reason:"Still silenced"}')" >/dev/null
+[ "$(runtime state | jq -r '.data.silences[0].cutoff')" = "$silence_cutoff" ]
+runtime action silence_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
+  '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
+[ "$(runtime state | jq -r '.data.silenceSources[0].completeness')" = "unknown" ]
+runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,silenced:false,action:"unsilence",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq '.data.silences | length')" -eq 0 ]
+[ "$(runtime state | jq -r '.data.silenceExceptions[0].scope')" = "topic:science" ]
+runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
+  '{persona_id:$persona,target:$target,public:false,silenced:false,action:"withdraw",topic:"science",reason:null}')" >/dev/null
+[ "$(runtime state | jq '.data.silenceExceptions | length')" -eq 0 ]
+
 (
   cd "$theurgy_root"
   runner="$theurgy_root/scripts/theurgy-cargo"

@@ -1454,27 +1454,22 @@ pub struct SetBlock {
     pub changed_at: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockJudgmentAction {
-    Block,
-    Unblock,
-    Withdraw,
-}
-
-pub struct SetFlockingBlock {
+pub struct SetPersonJudgment {
     pub persona_id: PersonaId,
     pub target: NostrPublicKey,
     pub topic: Option<CommunityKey>,
     pub public: bool,
-    pub action: BlockJudgmentAction,
+    pub faculty: flocking_core::Faculty,
+    pub action: flocking_core::Action,
     pub reason: Option<String>,
     pub relays: Vec<String>,
     pub changed_at: u64,
 }
 
-pub struct SetBlockSource {
+pub struct SetPersonSource {
     pub persona_id: PersonaId,
     pub source: NostrPublicKey,
+    pub faculty: flocking_core::Faculty,
     pub global: bool,
     pub topics: BTreeSet<CommunityKey>,
     pub rank: u32,
@@ -1791,17 +1786,17 @@ impl<S: SecretStore> SocialService<S> {
         Ok(block)
     }
 
-    /// Updates one direct Flocking block judgment without mutating inherited
-    /// state. Published global judgments also update the faithful NIP-51 mirror.
+    /// Updates one direct block or silence judgment without mutating inherited
+    /// state. Published global blocks also update the faithful NIP-51 mirror.
     ///
     /// # Errors
     ///
     /// Returns an error for invalid identity, scope, reason, signing, or
     /// encrypted/durable persistence.
-    pub fn set_flocking_block(
+    pub fn set_person_judgment(
         &self,
         store: &mut DurableStore,
-        request: &SetFlockingBlock,
+        request: &SetPersonJudgment,
     ) -> Result<FlockingJudgmentRecord, AppError> {
         let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
         let author = hydra_nostr::flocking_public_key(&persona.public_key)?;
@@ -1814,25 +1809,40 @@ impl<S: SecretStore> SocialService<S> {
                     .map_err(|error| AppError::Flocking(error.to_string()))
             },
         )?;
-        let action = match request.action {
-            BlockJudgmentAction::Block => flocking_core::Action::Block,
-            BlockJudgmentAction::Unblock => flocking_core::Action::Unblock,
-            BlockJudgmentAction::Withdraw => flocking_core::Action::Withdraw,
-        };
+        if !matches!(
+            request.faculty,
+            flocking_core::Faculty::Block | flocking_core::Faculty::Silence
+        ) {
+            return Err(AppError::Flocking(
+                "person judgments support only block and silence".to_owned(),
+            ));
+        }
         let reason = request
             .reason
             .as_ref()
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
+        let target = flocking_core::Target::Person(target);
+        let current = private_state(&self.secrets, store, request.persona_id)?;
+        let since = if request.faculty == flocking_core::Faculty::Silence
+            && request.action == flocking_core::Action::Silence
+        {
+            Some(
+                continuous_silence_cutoff(store, &current, &author, &scope, &target)
+                    .unwrap_or(request.changed_at),
+            )
+        } else {
+            None
+        };
         let local = flocking_core::Judgment {
             author,
-            faculty: flocking_core::Faculty::Block,
+            faculty: request.faculty,
             scope,
-            target: flocking_core::Target::Person(target),
-            action,
+            target,
+            action: request.action,
             created_at: request.changed_at,
             event_id: None,
-            since: None,
+            since,
             reason,
             evidence: flocking_core::JudgmentEvidence::Local,
         };
@@ -1846,7 +1856,9 @@ impl<S: SecretStore> SocialService<S> {
                 .next()
                 .ok_or_else(|| AppError::Flocking("signed judgment was not readable".to_owned()))?;
             let mut outbound = vec![outbound_event(&event, &request.relays)];
-            if published.scope == flocking_core::Scope::Global {
+            if published.faculty == flocking_core::Faculty::Block
+                && published.scope == flocking_core::Scope::Global
+            {
                 let mirror = block_mirror_with_legacy(store, request.persona_id, &published)?;
                 let event = hydra_nostr::public_mute_list(&keys, &mirror, request.changed_at)?;
                 outbound.push(outbound_event(&event, &request.relays));
@@ -1883,17 +1895,25 @@ impl<S: SecretStore> SocialService<S> {
         }
     }
 
-    /// Enables or removes one source for block judgments in selected scopes.
+    /// Enables or removes one source for block or silence judgments in selected scopes.
     /// Configuration remains encrypted and persona-local.
     ///
     /// # Errors
     ///
     /// Returns an error for invalid keys, ranks, scopes, or persistence.
-    pub fn set_block_source(
+    pub fn set_person_source(
         &self,
         store: &mut DurableStore,
-        request: &SetBlockSource,
+        request: &SetPersonSource,
     ) -> Result<FlockingProfile, AppError> {
+        if !matches!(
+            request.faculty,
+            flocking_core::Faculty::Block | flocking_core::Faculty::Silence
+        ) {
+            return Err(AppError::Flocking(
+                "person sources support only block and silence".to_owned(),
+            ));
+        }
         let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
         let persona_key = hydra_nostr::flocking_public_key(&persona.public_key)?;
         let source_key = hydra_nostr::flocking_public_key(&request.source)?;
@@ -1918,13 +1938,13 @@ impl<S: SecretStore> SocialService<S> {
             if source.pubkey == source_key {
                 source
                     .grants
-                    .retain(|grant| grant.faculty != flocking_core::Faculty::Block);
+                    .retain(|grant| grant.faculty != request.faculty);
             }
             !source.grants.is_empty() || source.reverse_blocks.is_some()
         });
-        profile.source_states.retain(|state| {
-            state.source != source_key || state.faculty != flocking_core::Faculty::Block
-        });
+        profile
+            .source_states
+            .retain(|state| state.source != source_key || state.faculty != request.faculty);
         if request.enabled {
             let topics = request
                 .topics
@@ -1935,7 +1955,7 @@ impl<S: SecretStore> SocialService<S> {
                 })
                 .collect::<Result<BTreeSet<_>, _>>()?;
             let grant = flocking_core::FacultyGrant {
-                faculty: flocking_core::Faculty::Block,
+                faculty: request.faculty,
                 global: request.global,
                 topics: topics.clone(),
                 rank: Some(request.rank),
@@ -1957,7 +1977,7 @@ impl<S: SecretStore> SocialService<S> {
             if request.global {
                 profile.source_states.push(flocking_core::SourceState {
                     source: source_key.clone(),
-                    faculty: flocking_core::Faculty::Block,
+                    faculty: request.faculty,
                     scope: flocking_core::Scope::Global,
                     completeness: request.completeness,
                 });
@@ -1966,7 +1986,7 @@ impl<S: SecretStore> SocialService<S> {
                 .source_states
                 .extend(topics.into_iter().map(|topic| flocking_core::SourceState {
                     source: source_key.clone(),
-                    faculty: flocking_core::Faculty::Block,
+                    faculty: request.faculty,
                     scope: flocking_core::Scope::Topic(topic),
                     completeness: request.completeness,
                 }));
@@ -3000,6 +3020,38 @@ fn outbound_event(event: &nostr::Event, relays: &[String]) -> OutboundEvent {
         event_json: event.as_json(),
         relays: relays.to_vec(),
     }
+}
+
+fn continuous_silence_cutoff(
+    store: &DurableStore,
+    private: &PrivateState,
+    author: &flocking_core::PublicKey,
+    scope: &flocking_core::Scope,
+    target: &flocking_core::Target,
+) -> Option<u64> {
+    let mut judgments = store
+        .state()
+        .flocking_judgments
+        .iter()
+        .filter(|judgment| judgment.author == *author)
+        .cloned()
+        .collect::<Vec<_>>();
+    judgments.extend(
+        private
+            .flocking_judgments
+            .values()
+            .map(|record| record.judgment.clone()),
+    );
+    flocking_core::canonical_current(&judgments)
+        .into_iter()
+        .find(|judgment| {
+            judgment.author == *author
+                && judgment.faculty == flocking_core::Faculty::Silence
+                && judgment.scope == *scope
+                && judgment.target == *target
+                && judgment.action == flocking_core::Action::Silence
+        })
+        .and_then(|judgment| judgment.since)
 }
 
 fn block_mirror_with_legacy(
@@ -4328,14 +4380,15 @@ mod tests {
         let reason = "private-scoped-reason";
 
         service
-            .set_flocking_block(
+            .set_person_judgment(
                 &mut store,
-                &SetFlockingBlock {
+                &SetPersonJudgment {
                     persona_id: alice.id,
                     target: bob.public_key.clone(),
                     topic: Some(science.clone()),
                     public: false,
-                    action: BlockJudgmentAction::Block,
+                    faculty: flocking_core::Faculty::Block,
+                    action: flocking_core::Action::Block,
                     reason: Some(reason.to_owned()),
                     relays: vec!["wss://relay.example".to_owned()],
                     changed_at: 20,
@@ -4343,11 +4396,12 @@ mod tests {
             )
             .unwrap();
         service
-            .set_block_source(
+            .set_person_source(
                 &mut store,
-                &SetBlockSource {
+                &SetPersonSource {
                     persona_id: alice.id,
                     source: carol.public_key.clone(),
+                    faculty: flocking_core::Faculty::Block,
                     global: true,
                     topics: BTreeSet::from([science.clone()]),
                     rank: 1,
@@ -4387,14 +4441,15 @@ mod tests {
         );
 
         service
-            .set_flocking_block(
+            .set_person_judgment(
                 &mut store,
-                &SetFlockingBlock {
+                &SetPersonJudgment {
                     persona_id: alice.id,
                     target: bob.public_key,
                     topic: Some(science),
                     public: false,
-                    action: BlockJudgmentAction::Unblock,
+                    faculty: flocking_core::Faculty::Block,
+                    action: flocking_core::Action::Unblock,
                     reason: None,
                     relays: Vec::new(),
                     changed_at: 22,
@@ -4423,14 +4478,15 @@ mod tests {
         let service = SocialService::new(secrets);
         let outbound_before = store.state().outbound.len();
         service
-            .set_flocking_block(
+            .set_person_judgment(
                 &mut store,
-                &SetFlockingBlock {
+                &SetPersonJudgment {
                     persona_id: alice.id,
                     target: bob.public_key,
                     topic: None,
                     public: true,
-                    action: BlockJudgmentAction::Block,
+                    faculty: flocking_core::Faculty::Block,
+                    action: flocking_core::Action::Block,
                     reason: Some("Public reason".to_owned()),
                     relays: vec!["wss://relay.example".to_owned()],
                     changed_at: 20,
@@ -4447,6 +4503,75 @@ mod tests {
         assert_eq!(store.state().outbound.len(), outbound_before + 2);
         assert!(new_kinds.contains(&Kind::Custom(flocking_core::JUDGMENT_KIND)));
         assert!(new_kinds.contains(&Kind::Custom(10_000)));
+    }
+
+    #[test]
+    fn silence_keeps_one_cutoff_until_unsilenced_and_publishes_only_canonical_events() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let personas = PersonaService::new(secrets.clone());
+        let alice = personas.create(&mut store, "Alice".to_owned(), 10).unwrap();
+        let bob = personas.create(&mut store, "Bob".to_owned(), 11).unwrap();
+        let service = SocialService::new(secrets.clone());
+        let request = |action, changed_at| SetPersonJudgment {
+            persona_id: alice.id,
+            target: bob.public_key.clone(),
+            topic: None,
+            public: false,
+            faculty: flocking_core::Faculty::Silence,
+            action,
+            reason: None,
+            relays: Vec::new(),
+            changed_at,
+        };
+
+        service
+            .set_person_judgment(&mut store, &request(flocking_core::Action::Silence, 20))
+            .unwrap();
+        service
+            .set_person_judgment(&mut store, &request(flocking_core::Action::Silence, 30))
+            .unwrap();
+        let private = private_state(&secrets, &store, alice.id).unwrap();
+        let current = flocking_core::canonical_current(
+            &private
+                .flocking_judgments
+                .values()
+                .map(|record| record.judgment.clone())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(current[0].since, Some(20));
+
+        service
+            .set_person_judgment(&mut store, &request(flocking_core::Action::Unsilence, 40))
+            .unwrap();
+        service
+            .set_person_judgment(&mut store, &request(flocking_core::Action::Silence, 50))
+            .unwrap();
+        let private = private_state(&secrets, &store, alice.id).unwrap();
+        let current = flocking_core::canonical_current(
+            &private
+                .flocking_judgments
+                .values()
+                .map(|record| record.judgment.clone())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(current[0].since, Some(50));
+
+        let outbound_before = store.state().outbound.len();
+        let mut public = request(flocking_core::Action::Silence, 60);
+        public.public = true;
+        public.relays = vec!["wss://relay.example".to_owned()];
+        service.set_person_judgment(&mut store, &public).unwrap();
+        let canonical_count = store
+            .state()
+            .outbound
+            .values()
+            .map(|outbound| Event::from_json(&outbound.event_json).unwrap().kind)
+            .filter(|kind| *kind == Kind::Custom(flocking_core::JUDGMENT_KIND))
+            .count();
+        assert_eq!(store.state().outbound.len(), outbound_before + 1);
+        assert_eq!(canonical_count, 1);
     }
 
     #[test]
