@@ -10,7 +10,7 @@ use serde_json::Value;
 #[cfg(any(target_os = "linux", windows))]
 use std::process::Command as ProcessCommand;
 use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(target_os = "macos")]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::{
@@ -44,10 +44,21 @@ fn companion_status() -> CompanionStatus {
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn open_settings_window(app: AppHandle) -> Result<bool, String> {
+fn open_settings_window(app: AppHandle, tab: Option<String>) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
+        let tab = tab
+            .filter(|value| {
+                matches!(
+                    value.as_str(),
+                    "general" | "network" | "feed" | "reddit" | "data" | "people"
+                )
+            })
+            .unwrap_or_else(|| "general".to_owned());
         if let Some(window) = app.get_webview_window("settings") {
+            window
+                .emit("settings-tab", &tab)
+                .map_err(|error| error.to_string())?;
             window.show().map_err(|error| error.to_string())?;
             window.set_focus().map_err(|error| error.to_string())?;
             return Ok(true);
@@ -56,7 +67,7 @@ fn open_settings_window(app: AppHandle) -> Result<bool, String> {
         WebviewWindowBuilder::new(
             &app,
             "settings",
-            WebviewUrl::App("index.html?window=settings".into()),
+            WebviewUrl::App(format!("index.html?window=settings&tab={tab}").into()),
         )
         .title("Hydra Settings")
         .inner_size(760.0, 680.0)
@@ -70,7 +81,7 @@ fn open_settings_window(app: AppHandle) -> Result<bool, String> {
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, tab);
         Ok(false)
     }
 }

@@ -34,6 +34,13 @@
         <div class="top-actions">
           <button id="sync-button" class="quiet-button" type="button">Sync</button>
           <button id="compose-button" class="primary-button" type="button">New post</button>
+          <button id="messages-button" class="toolbar-icon-button message-button" type="button" data-nav="messages" aria-label="Messages" title="Messages">
+            <span class="toolbar-icon-glyph" aria-hidden="true">✉</span>
+            <span id="message-badge" class="message-count" hidden></span>
+          </button>
+          <button id="settings-button" class="toolbar-icon-button settings-button" type="button" data-nav="settings" aria-label="Settings" title="Settings (⌘,)">
+            <span class="toolbar-icon-glyph" aria-hidden="true">⚙</span>
+          </button>
           <button id="persona-button" class="persona-button" type="button" aria-haspopup="menu" aria-expanded="false">
             <span class="avatar" aria-hidden="true">?</span>
             <span class="persona-copy"><strong>No persona</strong><small>Create one to participate</small></span>
@@ -47,7 +54,6 @@
           <button class="nav-item" type="button" data-nav="front"><span>✦</span>Front Page</button>
           <button class="nav-item" type="button" data-nav="open-nostr"><span>◎</span>Open Nostr</button>
           <button class="nav-item" type="button" data-nav="revisited"><span>↺</span>Revisited</button>
-          <button class="nav-item" type="button" data-nav="messages"><span>✉</span>Messages <span id="message-badge" class="badge" hidden></span></button>
         </nav>
         <section class="community-nav" aria-labelledby="community-heading">
           <div class="section-heading-row">
@@ -56,10 +62,6 @@
           </div>
           <div id="community-list"></div>
         </section>
-        <nav class="sidebar-bottom">
-          <button class="nav-item" type="button" data-nav="reddit"><span>↗</span>Reddit Bridge</button>
-          <button class="nav-item" type="button" data-nav="settings"><span>⚙</span>Settings</button>
-        </nav>
       </aside>
 
       <main id="main" class="main-panel" tabindex="-1">

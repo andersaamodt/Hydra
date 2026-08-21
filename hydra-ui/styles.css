@@ -112,6 +112,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .search-box input::placeholder { color: var(--faint); }
 kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba(255,255,255,.22); border-radius: 5px; color: var(--faint); background: rgba(255,255,255,.04); font-size: 11px; }
 .top-actions { display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+.toolbar-icon-button { position: relative; width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
+.toolbar-icon-button:hover { border-color: var(--line); color: var(--ink); background: var(--shade); }
+.toolbar-icon-button.is-active { border-color: color-mix(in srgb, #ff4500 38%, var(--line)); background: color-mix(in srgb, #ff4500 10%, transparent); }
+.toolbar-icon-glyph { font-size: 19px; line-height: 1; }
+.message-button .toolbar-icon-glyph { color: #ff4500; font-size: 21px; }
+.message-count { position: absolute; top: -4px; right: -5px; min-width: 18px; height: 18px; padding: 1px 4px; border: 2px solid var(--chrome, var(--panel)); border-radius: 8px; color: #fff; background: #ff4500; font-size: 10px; font-weight: 750; line-height: 12px; text-align: center; }
 .primary-button, .quiet-button, .danger-button { min-height: 38px; border-radius: 6px; padding: 0 14px; cursor: pointer; }
 .primary-button { border: 1px solid var(--accent-strong); color: var(--on-accent); background: var(--accent-strong); font-weight: 760; }
 .primary-button:hover { filter: brightness(1.06); }

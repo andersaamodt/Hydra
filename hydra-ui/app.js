@@ -21,7 +21,9 @@ import {
 const invoke = window.__TAURI__?.core?.invoke;
 const deepLink = window.__TAURI__?.deepLink;
 const desktopDialog = window.__TAURI__?.dialog;
+const desktopEvent = window.__TAURI__?.event;
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
+const requestedSettingsTab = new URLSearchParams(window.location.search).get("tab");
 const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
 const ACCENT_COLORS = {
   "stone-blue": "#6f8299",
@@ -35,7 +37,7 @@ document.body.classList.toggle("settings-window", isSettingsWindow);
 const session = {
   state: null,
   route: isSettingsWindow ? "settings" : "feed",
-  settingsTab: "general",
+  settingsTab: ["general", "network", "feed", "reddit", "data", "people"].includes(requestedSettingsTab) ? requestedSettingsTab : "general",
   community: null,
   chamber: "hydra",
   lens: "new",
@@ -256,13 +258,18 @@ function setRoute(route, community = null) {
   session.community = community;
   session.selected = null;
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("is-active", item.dataset.nav === route));
+  document.querySelector("#messages-button")?.classList.toggle("is-active", route === "messages");
   render();
 }
 
-async function openSettings() {
+async function openSettings(tab = "general") {
+  if (isSettingsWindow) {
+    selectSettingsTab(tab, true);
+    return;
+  }
   if (invoke) {
     try {
-      if (await invoke("open_settings_window")) return;
+      if (await invoke("open_settings_window", { tab })) return;
     } catch (error) {
       toast(readableError(error), true);
     }
@@ -290,7 +297,7 @@ async function openHydraLink(value) {
       if (target) {
         await openRedditObject(target);
       } else {
-        setRoute("reddit");
+        await openSettings("reddit");
       }
       toast("Reddit object opened. Browsing data remains transient.");
       return;
@@ -316,7 +323,7 @@ async function openHydraLink(value) {
 async function openRedditObject(target) {
   const persona = activePersona(session.state);
   if (!persona?.redditLinked) {
-    setRoute("reddit");
+    await openSettings("reddit");
     toast("Link this persona’s Reddit account to open the live Reddit object.", true);
     return;
   }
@@ -347,6 +354,11 @@ async function handleHydraLinks(links) {
   }
 }
 
+async function listenForSettingsTabRequests() {
+  if (!isSettingsWindow || !desktopEvent) return;
+  await desktopEvent.listen("settings-tab", (event) => selectSettingsTab(event.payload, true));
+}
+
 function render() {
   applyAppearance(session.state?.settings);
   if (isSettingsWindow) {
@@ -363,7 +375,6 @@ function render() {
   else if (session.selected) renderDiscussion(session.selected);
   else if (session.route === "messages") renderMessages();
   else if (session.route === "open-nostr") renderOpenNostr();
-  else if (session.route === "reddit") renderRedditBridge();
   else if (session.route === "settings") renderSettings();
   else renderFeed();
   renderPendingJudgmentCallout();
@@ -479,10 +490,13 @@ function renderPersona() {
   const detail = button.querySelector("small");
   detail.hidden = !persona;
   detail.textContent = persona ? `${persona.redditLinked ? "Reddit linked" : "Hydra only"} · ${persona.publicKey.slice(0, 10)}…` : "";
-  const requests = session.state?.messageRequestCount ?? 0;
+  const unreadCount = session.state?.messageRequestCount ?? 0;
+  const messagesButton = document.querySelector("#messages-button");
   const badge = document.querySelector("#message-badge");
-  badge.hidden = requests === 0;
-  badge.textContent = String(requests);
+  badge.hidden = unreadCount === 0;
+  badge.textContent = String(unreadCount);
+  messagesButton.setAttribute("aria-label", unreadCount ? `Messages, ${unreadCount} unread` : "Messages");
+  messagesButton.title = unreadCount ? `${unreadCount} unread message${unreadCount === 1 ? "" : "s"}` : "Messages";
 }
 
 function subscribedCommunities() {
@@ -1339,7 +1353,7 @@ function renderRedditCommunity(header, community) {
       persona.redditLinked ? `Browse /r/${community}` : "Connect Reddit",
       persona.redditLinked ? "" : "Linking adds an optional Reddit projection endpoint.",
       persona.redditLinked ? "Load Reddit" : "Open Reddit Bridge",
-      persona.redditLinked ? () => loadRedditCommunity(community) : () => setRoute("reddit"),
+      persona.redditLinked ? () => loadRedditCommunity(community) : () => openSettings("reddit"),
     ),
   ]);
   view.replaceChildren(header, body);
@@ -1752,7 +1766,7 @@ function showNostrCuration(item) {
   });
 }
 
-function renderRedditBridge() {
+function redditBridgeSections() {
   const persona = activePersona(session.state);
   const settings = session.state.settings ?? {};
   const projections = (session.state.projections ?? []).filter((item) => item.personaId === persona.id);
@@ -1765,8 +1779,7 @@ function renderRedditBridge() {
     const key = `${projection.anchor}\n${projection.destinationSystem}\n${projection.destination}`;
     duplicateGroups.set(key, (duplicateGroups.get(key) ?? 0) + 1);
   }
-  const header = viewHeader("Reddit Bridge");
-  const body = element("div", { class: "form-page" }, [
+  return [
     element("section", { class: "context-card" }, [
       element("h2", { text: persona.redditLinked ? "Reddit connected" : "No Reddit account linked" }),
       actionButton(persona.redditLinked ? "Disconnect Reddit" : "Connect with Reddit OAuth", persona.redditLinked ? disconnectReddit : connectReddit, persona.redditLinked ? "danger-button" : "primary-button"),
@@ -1818,8 +1831,7 @@ function renderRedditBridge() {
       ]),
     ]);
     }),
-  ]);
-  view.replaceChildren(header, body);
+  ];
 }
 
 function showRedditExportImport() {
@@ -2036,7 +2048,9 @@ function renderSettings() {
       field("Revisit memory", "number", "feed_revisit", feedWeights.revisit, "", { min: 0, max: 200 }),
     ]),
     settingsPane("reddit", [
-      element("h2", { class: "settings-subheading", text: "Reddit projection" }),
+      element("h2", { class: "settings-subheading", text: "Reddit Bridge" }),
+      ...redditBridgeSections(),
+      element("h2", { class: "settings-subheading", text: "Projection defaults" }),
       toggle("Crosspost to Reddit by default", "crosspost", Boolean(settings.crosspost_default), "The composer always allows an override."),
       field("This persona’s default", "select", "persona_crosspost", crosspostOverride(settings.persona_crosspost_defaults?.[persona.id]), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
       field("Posts", "select", "post_crosspost", crosspostOverride(settings.content_crosspost_defaults?.post), "", { values: [["inherit", "Inherit"], ["on", "Always on"], ["off", "Always off"]] }),
@@ -2941,4 +2955,5 @@ document.addEventListener("visibilitychange", () => {
   if (session.reddit.threadRoot) resetRedditThreadRefresh();
 });
 
+void listenForSettingsTabRequests();
 refresh().then(listenForHydraLinks).catch((error) => toast(readableError(error), true));

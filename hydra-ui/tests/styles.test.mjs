@@ -111,6 +111,8 @@ test("Book Club cross-links require both local consent and an installed handler"
 });
 
 test("the Reddit Bridge exposes imported posts and comments with exact source links", () => {
+  assert.match(app, /function redditBridgeSections\(\)/);
+  assert.match(app, /settingsPane\("reddit", \[[\s\S]*\.\.\.redditBridgeSections\(\)/);
   assert.match(app, /Imported Reddit writing/);
   assert.match(app, /item\.externalSource/);
   assert.match(app, /Copy source link/);
@@ -148,9 +150,10 @@ test("Settings explains and opens Hydra's actual local storage", () => {
 });
 
 test("macOS Settings opens in one dedicated window with horizontal keyboard tabs", () => {
-  assert.match(desktop, /fn open_settings_window\(app: AppHandle\)/);
+  assert.match(desktop, /fn open_settings_window\(app: AppHandle, tab: Option<String>\)/);
   assert.match(desktop, /WebviewWindowBuilder::new\([\s\S]*"settings"[\s\S]*index\.html\?window=settings/);
   assert.match(desktop, /get_webview_window\("settings"\)/);
+  assert.match(desktop, /emit\("settings-tab", &tab\)/);
   assert.match(capability, /"windows": \["main", "settings"\]/);
   assert.match(app, /const SETTINGS_TABS = \[/);
   assert.match(app, /role: "tablist"/);
@@ -159,6 +162,17 @@ test("macOS Settings opens in one dedicated window with horizontal keyboard tabs
   assert.match(app, /event\.metaKey && event\.key === ","/);
   assert.match(styles, /\.settings-tabs\s*\{[^}]*display:\s*flex/);
   assert.match(styles, /\.settings-window \.sidebar/);
+});
+
+test("secondary destinations leave the sidebar and Messages uses an orangered toolbar envelope", () => {
+  const sidebar = index.match(/<aside class="sidebar"[\s\S]*?<\/aside>/)?.[0] ?? "";
+  assert.doesNotMatch(sidebar, /Messages|Reddit Bridge|Settings/);
+  assert.match(index, /<div class="top-actions">[\s\S]*id="messages-button"[\s\S]*id="settings-button"/);
+  assert.match(index, /id="message-badge" class="message-count" hidden/);
+  assert.match(app, /messageRequestCount \?\? 0/);
+  assert.match(app, /`Messages, \$\{unreadCount\} unread`/);
+  assert.match(styles, /\.message-button \.toolbar-icon-glyph\s*\{[^}]*color:\s*#ff4500/);
+  assert.match(styles, /\.message-count\s*\{[^}]*background:\s*#ff4500/);
 });
 
 test("interface copy stays functional instead of adopting a persona", () => {
