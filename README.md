@@ -56,6 +56,8 @@ When Stonr is installed, the canonical test gate also launches a local relay and
 - `protocol`: public Hydra event schemas and vectors.
 
 The [public specification](docs/AUTHORITATIVE_SPEC.md) governs 1.0 behavior.
+The [Flocking integration plan](docs/FLOCKING_INTEGRATION.md) governs the staged
+adoption of voluntary community-shaping judgments after 1.0.
 
 ## Privacy
 

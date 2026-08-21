@@ -65,4 +65,7 @@ This document is authoritative for the public Hydra 1.0 implementation.
 
 ## Future compatibility
 
-Hydra 1.0 keeps explicit module boundaries for local semantic recommendations, Flock lenses and coordination, Gloss aliases, mobile clients, and voluntary community economies. Those systems are not part of the public 1.0 behavior.
+Hydra 1.0 keeps explicit module boundaries for local semantic recommendations,
+Gloss aliases, mobile clients, and voluntary community economies. Those
+systems are not part of the public 1.0 behavior. Flocking adoption after 1.0 is
+specified separately in [the integration plan](FLOCKING_INTEGRATION.md).
