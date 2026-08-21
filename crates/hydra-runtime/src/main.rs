@@ -17,8 +17,9 @@ use hydra_app::{
     CurateEvent, DiscussionService, DraftService, EditObject, ImportAuthoredPost, ImportService,
     MessagingService, PersonaService, PlatformSecretStore, PreserveAndPublishMedia, PrivateState,
     ProjectionService, PublishFollowSet, ReactToObject, RemoveRevisit, RequestObjectDisowning,
-    SendDirectMessage, SetCommunitySubscription, SetContentJudgment, SetFollow, SetLocalFilter,
-    SetPersonJudgment, SetPersonSource, SetRevisit, SocialService, SyncService, private_state,
+    SendDirectMessage, SetAppearanceSource, SetCommunityAppearance, SetCommunitySubscription,
+    SetContentJudgment, SetFollow, SetLocalFilter, SetPersonJudgment, SetPersonSource, SetRevisit,
+    SocialService, SyncService, private_state,
 };
 use hydra_domain::{
     AnchorId, CommunityKey, ContinuityState, ContinuityWorkflow, DraftKind, DraftRecord,
@@ -109,6 +110,8 @@ struct HydraState<'a> {
     removals: Vec<SocialView>,
     restorations: Vec<SocialView>,
     removal_sources: Vec<BlockSourceView>,
+    community_appearances: Vec<CommunityAppearanceView>,
+    appearance_sources: Vec<AppearanceSourceView>,
     filters: Vec<FilterView<'a>>,
     visible_anchors: Vec<String>,
     feed_orders: BTreeMap<&'static str, Vec<String>>,
@@ -299,6 +302,31 @@ struct BlockSourceView {
     topics: Vec<String>,
     rank: u32,
     completeness: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommunityAppearanceView {
+    persona_id: String,
+    topic: String,
+    url: Option<String>,
+    sha256: Option<String>,
+    mime_type: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    alt: Option<String>,
+    direct: bool,
+    sources: Vec<String>,
+    own_choice: bool,
+    own_public: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppearanceSourceView {
+    persona_id: String,
+    source: String,
+    complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -575,6 +603,26 @@ struct BlockSourceInput {
     #[serde(default)]
     topics: Vec<String>,
     rank: u32,
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunityAppearanceInput {
+    persona_id: String,
+    topic: String,
+    public: bool,
+    url: Option<String>,
+    sha256: Option<String>,
+    mime_type: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    alt: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AppearanceSourceInput {
+    persona_id: String,
+    source: String,
     enabled: bool,
 }
 
@@ -1360,6 +1408,8 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     );
     let removal_sources =
         person_source_views(&private_states, flocking_core::Faculty::CommunityMembership);
+    let community_appearances = community_appearance_views(&store, &settings, &private_states);
+    let appearance_sources = appearance_source_views(&private_states);
     let filters = filter_views(&private_states);
     let (visible_anchors, feed_orders, my_feed_order) =
         lens_views(&store, &settings, &private_states);
@@ -1392,6 +1442,8 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
         removals,
         restorations,
         removal_sources,
+        community_appearances,
+        appearance_sources,
         filters,
         visible_anchors,
         feed_orders,
@@ -2569,6 +2621,101 @@ fn person_source_views(
         .collect()
 }
 
+fn community_appearance_views(
+    store: &DurableStore,
+    settings: &Settings,
+    private: &[PrivateState],
+) -> Vec<CommunityAppearanceView> {
+    let Some(persona_id) = active_persona_id(store, settings) else {
+        return Vec::new();
+    };
+    let Some(persona) = store.state().personas.get(persona_id) else {
+        return Vec::new();
+    };
+    let Ok(author) = hydra_nostr::flocking_public_key(&persona.public_key) else {
+        return Vec::new();
+    };
+    let state = private.first();
+    let selected_sources = state
+        .and_then(|state| state.flocking_profile.as_ref())
+        .map(|profile| profile.config.appearance_sources.clone())
+        .unwrap_or_default();
+    let complete_sources = state
+        .and_then(|state| state.flocking_profile.as_ref())
+        .map(|profile| profile.appearance_complete_sources.clone())
+        .unwrap_or_default();
+    let mut appearances = store.state().community_appearances.clone();
+    if let Some(state) = state {
+        appearances.extend(
+            state
+                .community_appearances
+                .values()
+                .map(|record| record.appearance.clone()),
+        );
+    }
+    let mut topics = appearances
+        .iter()
+        .map(|appearance| appearance.topic.clone())
+        .collect::<BTreeSet<_>>();
+    topics.extend(
+        store
+            .state()
+            .heads
+            .current_heads()
+            .flat_map(|head| head.communities.iter())
+            .filter_map(|topic| flocking_core::Topic::parse(topic.as_str()).ok()),
+    );
+    topics
+        .into_iter()
+        .map(|topic| {
+            let result = flocking_core::evaluate_appearance(flocking_core::AppearanceInput {
+                persona: &author,
+                topic: &topic,
+                selected_sources: &selected_sources,
+                complete_sources: &complete_sources,
+                appearances: &appearances,
+            });
+            let own = state.and_then(|state| state.community_appearances.get(topic.as_str()));
+            CommunityAppearanceView {
+                persona_id: persona_id.to_string(),
+                topic: topic.to_string(),
+                url: result.image.as_ref().map(|image| image.url.clone()),
+                sha256: result.image.as_ref().map(|image| image.sha256.to_string()),
+                mime_type: result.image.as_ref().map(|image| image.mime_type.clone()),
+                width: result.image.as_ref().map(|image| image.width),
+                height: result.image.as_ref().map(|image| image.height),
+                alt: result.image.as_ref().map(|image| image.alt.clone()),
+                direct: result.direct,
+                sources: result
+                    .sources
+                    .into_iter()
+                    .map(|source| source.to_string())
+                    .collect(),
+                own_choice: own.is_some_and(|record| record.appearance.image.is_some()),
+                own_public: own.is_some_and(|record| record.public),
+            }
+        })
+        .collect()
+}
+
+fn appearance_source_views(private: &[PrivateState]) -> Vec<AppearanceSourceView> {
+    private
+        .iter()
+        .filter_map(|state| state.flocking_profile.as_ref())
+        .flat_map(|profile| {
+            profile
+                .config
+                .appearance_sources
+                .iter()
+                .map(|source| AppearanceSourceView {
+                    persona_id: profile.persona.to_string(),
+                    source: source.to_string(),
+                    complete: profile.appearance_complete_sources.contains(source),
+                })
+        })
+        .collect()
+}
+
 fn filter_views(private: &[PrivateState]) -> Vec<FilterView<'_>> {
     private
         .iter()
@@ -2675,6 +2822,8 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "hide_source.set" => hide_source_action(root, input),
         "membership.set" => membership_action(root, input),
         "removal_source.set" => removal_source_action(root, input),
+        "community_appearance.set" => community_appearance_action(root, input),
+        "appearance_source.set" => appearance_source_action(root, input),
         "filter.set" => local_filter_action(root, input),
         "message.send" => send_message_action(root, input).await,
         "community.subscribe" => community_subscription_action(root, input),
@@ -3326,20 +3475,46 @@ fn search_local_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> 
     let store = DurableStore::open(root)?;
     let mut hits = store
         .state()
+        .personas
+        .iter()
+        .filter(|persona| match &query {
+            LocalSearchQuery::Text(value) | LocalSearchQuery::Persona(value) => {
+                identity_matches(&store, &persona.public_key, value)
+            }
+            _ => false,
+        })
+        .map(|persona| {
+            serde_json::json!({
+                "source": "hydra",
+                "kind": "persona",
+                "id": persona.id.to_string(),
+                "author": persona.public_key.as_str(),
+                "title": persona.display_name,
+                "body": "Nostr persona profile",
+                "communities": Vec::<String>::new(),
+                "editedAt": 0
+            })
+        })
+        .collect::<Vec<_>>();
+    hits.extend(
+        store
+        .state()
         .heads
         .current_heads()
         .filter(|head| search_matches_head(&store, head, &query))
         .map(|head| {
             serde_json::json!({
                 "source": "hydra",
+                "kind": "object",
                 "id": head.anchor.as_str(),
+                "author": head.author.as_str(),
                 "title": head.title,
                 "body": head.body.as_str(),
                 "communities": head.communities.iter().map(CommunityKey::as_str).collect::<Vec<_>>(),
                 "editedAt": head.edited_at
             })
-        })
-        .collect::<Vec<_>>();
+        }),
+    );
     if let Some(persona) = input.persona_id.as_deref() {
         let persona = PersonaId::parse(persona)?;
         hits.extend(
@@ -3359,7 +3534,12 @@ fn search_local_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> 
                 }),
         );
     }
-    hits.sort_by_key(|hit| std::cmp::Reverse(hit["editedAt"].as_u64().unwrap_or_default()));
+    hits.sort_by_key(|hit| {
+        std::cmp::Reverse((
+            hit["kind"].as_str() == Some("persona"),
+            hit["editedAt"].as_u64().unwrap_or_default(),
+        ))
+    });
     hits.truncate(input.limit.clamp(1, 200));
     print_action_result(
         "search.local",
@@ -5153,6 +5333,68 @@ fn set_person_source(
     print_changed(action_name)
 }
 
+fn community_appearance_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: CommunityAppearanceInput = serde_json::from_str(input)?;
+    let persona = PersonaId::parse(&input.persona_id)?;
+    let image =
+        match input
+            .url
+            .map(|url| url.trim().to_owned())
+            .filter(|url| !url.is_empty())
+        {
+            None => None,
+            Some(url) => Some(flocking_core::CommunityImage {
+                sha256: flocking_core::EventId::parse(input.sha256.as_deref().ok_or_else(
+                    || RuntimeError::InvalidInput("image hash is required".to_owned()),
+                )?)
+                .map_err(|error| RuntimeError::InvalidInput(error.to_string()))?,
+                url,
+                mime_type: input.mime_type.ok_or_else(|| {
+                    RuntimeError::InvalidInput("image type is required".to_owned())
+                })?,
+                width: input.width.ok_or_else(|| {
+                    RuntimeError::InvalidInput("image width is required".to_owned())
+                })?,
+                height: input.height.ok_or_else(|| {
+                    RuntimeError::InvalidInput("image height is required".to_owned())
+                })?,
+                alt: input.alt.ok_or_else(|| {
+                    RuntimeError::InvalidInput("image description is required".to_owned())
+                })?,
+            }),
+        };
+    let settings = SettingsStore::new(root).load()?;
+    let mut store = DurableStore::open(root)?;
+    SocialService::new(PlatformSecretStore).set_community_appearance(
+        &mut store,
+        &SetCommunityAppearance {
+            persona_id: persona,
+            topic: CommunityKey::parse(input.topic)?,
+            image,
+            public: input.public,
+            relays: settings.write_relays_for(persona).to_vec(),
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("community_appearance.set")
+}
+
+fn appearance_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: AppearanceSourceInput = serde_json::from_str(input)?;
+    let mut store = DurableStore::open(root)?;
+    SocialService::new(PlatformSecretStore).set_appearance_source(
+        &mut store,
+        &SetAppearanceSource {
+            persona_id: PersonaId::parse(&input.persona_id)?,
+            source: NostrPublicKey::parse(input.source)?,
+            enabled: input.enabled,
+            complete: false,
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("appearance_source.set")
+}
+
 fn local_filter_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let input: LocalFilterInput = serde_json::from_str(input)?;
     let kind = match input.kind.as_str() {
@@ -5324,9 +5566,14 @@ async fn sync_flocking_person_sources(
     persona: PersonaId,
 ) -> Result<(), RuntimeError> {
     let profile = private_state(&PlatformSecretStore, store, persona)?.flocking_profile;
+    let appearance_sources = profile
+        .as_ref()
+        .map(|profile| profile.config.appearance_sources.clone())
+        .unwrap_or_default();
     let person_sources = profile
+        .as_ref()
         .into_iter()
-        .flat_map(|profile| profile.config.sources)
+        .flat_map(|profile| profile.config.sources.iter().cloned())
         .flat_map(|source| {
             source.grants.into_iter().filter_map(move |grant| {
                 matches!(
@@ -5340,7 +5587,7 @@ async fn sync_flocking_person_sources(
             })
         })
         .collect::<Vec<_>>();
-    if person_sources.is_empty() {
+    if person_sources.is_empty() && appearance_sources.is_empty() {
         return Ok(());
     }
     let relays = allowed_read_relays(settings, store, persona)?;
@@ -5350,6 +5597,7 @@ async fn sync_flocking_person_sources(
     let sources = person_sources
         .iter()
         .map(|(source, _)| source.clone())
+        .chain(appearance_sources.iter().cloned())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
@@ -5375,6 +5623,18 @@ async fn sync_flocking_person_sources(
                 rank: grant.rank.unwrap_or(1),
                 enabled: true,
                 completeness: flocking_core::Completeness::Complete,
+                changed_at: unix_now(),
+            },
+        )?;
+    }
+    for source in appearance_sources {
+        SocialService::new(PlatformSecretStore).set_appearance_source(
+            store,
+            &SetAppearanceSource {
+                persona_id: persona,
+                source: NostrPublicKey::parse(source.to_string())?,
+                enabled: true,
+                complete: true,
                 changed_at: unix_now(),
             },
         )?;

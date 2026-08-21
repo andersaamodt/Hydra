@@ -223,6 +223,7 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .community-image-preview small, .community-image-preview strong { display: block; }
 .community-image-preview small { color: var(--muted); font-size: 10px; }
 .community-image-preview strong { font: 700 19px/1.1 Georgia, serif; }
+.secondary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .community-actions, .post-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .norm-field summary { cursor: pointer; color: var(--muted); }
 .norm-card { margin-top: 10px; padding: 10px 0; border-top: 1px solid var(--line); }

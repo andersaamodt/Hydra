@@ -345,7 +345,7 @@ function renderBrand() {
   const name = brand.querySelector("strong");
   const community = session.route === "community" ? session.community : null;
   if (community) {
-    const appearance = session.state?.settings?.community_appearances?.[community];
+    const appearance = effectiveCommunityAppearance(community);
     const verified = appearance && session.communityImages.get(`${community}:${appearance.sha256}`);
     mark.src = verified || topicIdenticon(community);
     mark.alt = appearance?.alt || `${community} community identicon`;
@@ -363,6 +363,16 @@ function renderBrand() {
   }
 }
 
+function effectiveCommunityAppearance(community) {
+  const persona = activePersona(session.state);
+  return (session.state?.communityAppearances ?? []).find((item) => item.personaId === persona?.id && item.topic === community);
+}
+
+function followedAppearanceSources() {
+  const persona = activePersona(session.state);
+  return (session.state?.appearanceSources ?? []).filter((item) => item.personaId === persona?.id);
+}
+
 async function verifyCommunityImage(community, appearance) {
   const key = `${community}:${appearance.sha256}`;
   if (session.communityImages.has(key)) return;
@@ -370,27 +380,49 @@ async function verifyCommunityImage(community, appearance) {
   try {
     const response = await fetch(appearance.url, { credentials: "omit", referrerPolicy: "no-referrer" });
     if (!response.ok || Number(response.headers.get("content-length") || 0) > 5 * 1024 * 1024) throw new Error("image unavailable");
-    const reader = response.body.getReader();
-    const chunks = [];
-    let length = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      length += value.length;
-      if (length > 5 * 1024 * 1024) { await reader.cancel(); throw new Error("image too large"); }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const bytes = await boundedImageBytes(response);
     const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((value) => value.toString(16).padStart(2, "0")).join("");
     if (digest !== appearance.sha256) throw new Error("image hash mismatch");
-    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: appearance.mime_type }));
+    if (!["image/png", "image/jpeg", "image/webp"].includes(appearance.mimeType)) throw new Error("image type unsupported");
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: appearance.mimeType }));
+    const dimensions = await imageDimensions(objectUrl);
+    if (dimensions.width !== appearance.width || dimensions.height !== appearance.height) {
+      URL.revokeObjectURL(objectUrl);
+      throw new Error("image dimensions mismatch");
+    }
     session.communityImages.set(key, objectUrl);
     if (session.route === "community" && session.community === community) renderBrand();
   } catch {
     session.communityImages.set(key, false);
   }
+}
+
+async function boundedImageBytes(response) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("image body unavailable");
+  const chunks = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.length;
+    if (length > 5 * 1024 * 1024) { await reader.cancel(); throw new Error("image too large"); }
+    chunks.push(value);
+  }
+  if (!length) throw new Error("image is empty");
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return bytes;
+}
+
+function imageDimensions(objectUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("That file is not a readable image."));
+    image.src = objectUrl;
+  });
 }
 
 function renderPersona() {
@@ -557,34 +589,64 @@ function renderCommunityTools(community) {
 }
 
 function showCommunityAppearanceEditor(community) {
-  const current = session.state.settings?.community_appearances?.[community];
+  const persona = activePersona(session.state);
+  const current = effectiveCommunityAppearance(community);
   const verified = current && session.communityImages.get(`${community}:${current.sha256}`);
+  const provenance = current?.direct
+    ? "Your image is being used."
+    : current?.sources?.length
+      ? `${current.sources.length} ${current.sources.length === 1 ? "person" : "people"} you follow chose this image.`
+      : "Hydra is generating an identicon from the community name.";
+  const preview = element("img", { src: verified || topicIdenticon(community), alt: current?.alt || `${community} community identicon` });
+  const status = element("p", { class: "field-help", text: provenance });
+  const urlField = field("Image URL", "url", "url", current?.url ?? "", "Paste an HTTPS link to a PNG, JPEG, or WebP image.", { required: true });
+  const altField = field("Image description", "text", "alt", current?.alt ?? `${community} community image`, "A short description for people who cannot see the image.", { required: true });
+  const restore = current?.ownChoice ? actionButton("Use followed choice", () => mutate("community_appearance.set", {
+    persona_id: persona.id,
+    topic: community,
+    public: Boolean(current.ownPublic),
+  }, current.ownPublic ? "Your withdrawal was published; followed choices now decide the image." : "Followed choices now decide the image.")) : null;
   modal("Community image", `Choose how ${community} appears to you. The bare topic name does not change.`, element("div", {}, [
     element("div", { class: "community-image-preview" }, [
-      element("img", { src: verified || topicIdenticon(community), alt: current?.alt || `${community} community identicon` }),
+      preview,
       element("div", {}, [element("small", { text: "/h/" }), element("strong", { text: community })]),
     ]),
-    field("HTTPS image URL", "url", "url", current?.url ?? "", "Leave this empty to return to the deterministic topic identicon."),
-    field("SHA-256", "text", "sha256", current?.sha256 ?? "", "The downloaded bytes must match this content hash."),
-    field("MIME type", "select", "mime_type", current?.mime_type ?? "image/png", "", { values: [["image/png", "PNG"], ["image/jpeg", "JPEG"], ["image/webp", "WebP"]] }),
-    field("Width", "number", "width", current?.width ?? 256, "Pixels; maximum 4096.", { min: 1, max: 4096 }),
-    field("Height", "number", "height", current?.height ?? 256, "Pixels; maximum 4096.", { min: 1, max: 4096 }),
-    field("Alt text", "text", "alt", current?.alt ?? `${community} community image`, "Describe the image rather than the community."),
-    element("p", { class: "evidence-note", text: "Published appearance choices are signed, replaceable Flocking records; this local choice takes precedence in your view." }),
-  ]), { submitLabel: current ? "Save local choice" : "Use image locally", onSubmit: (data) => {
-    const appearances = { ...(session.state.settings?.community_appearances ?? {}) };
+    status,
+    urlField,
+    altField,
+    toggle("Share this choice", "public", current?.ownChoice ? current.ownPublic : true, "People who follow your image choices can use it too."),
+    restore ? element("div", { class: "secondary-actions" }, [restore]) : null,
+  ]), { submitLabel: current?.ownChoice ? "Update image" : "Use image", onSubmit: async (data) => {
     const url = String(data.get("url") ?? "").trim();
-    if (!url) delete appearances[community];
-    else appearances[community] = {
-      url,
-      sha256: String(data.get("sha256") ?? "").trim().toLowerCase(),
-      mime_type: String(data.get("mime_type")),
-      width: Number(data.get("width")),
-      height: Number(data.get("height")),
+    status.textContent = "Checking the image…";
+    const image = await inspectCommunityImage(url);
+    return mutate("community_appearance.set", {
+      persona_id: persona.id,
+      topic: community,
+      public: Boolean(data.get("public")),
+      ...image,
       alt: String(data.get("alt") ?? "").trim(),
-    };
-    return mutate("settings.update", { community_appearances: appearances }, url ? "Community image saved locally." : "Deterministic community identicon restored.");
+    }, data.get("public") ? "Community image published." : "Community image saved privately.");
   } });
+}
+
+async function inspectCommunityImage(url) {
+  if (!url.startsWith("https://")) throw new Error("Use an HTTPS image link.");
+  const response = await fetch(url, { credentials: "omit", referrerPolicy: "no-referrer" });
+  if (!response.ok) throw new Error("Hydra could not download that image.");
+  const mime_type = String(response.headers.get("content-type") ?? "").split(";", 1)[0].trim().toLowerCase();
+  if (!["image/png", "image/jpeg", "image/webp"].includes(mime_type)) throw new Error("Choose a PNG, JPEG, or WebP image.");
+  if (Number(response.headers.get("content-length") || 0) > 5 * 1024 * 1024) throw new Error("Choose an image smaller than 5 MiB.");
+  const bytes = await boundedImageBytes(response);
+  const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mime_type }));
+  const dimensions = await imageDimensions(objectUrl);
+  if (!dimensions.width || !dimensions.height || dimensions.width > 4096 || dimensions.height > 4096) {
+    URL.revokeObjectURL(objectUrl);
+    throw new Error("Choose an image no larger than 4096 × 4096 pixels.");
+  }
+  session.communityImages.set(`${session.community}:${sha256}`, objectUrl);
+  return { url, sha256, mime_type, ...dimensions };
 }
 
 function emptyState(title, body, action, onAction) {
@@ -2275,6 +2337,7 @@ function showPersonaProfile(publicKey) {
   const comments = authored.filter((item) => item.kind === "comment");
   const followSets = (session.state.publicFollowSets ?? []).filter((item) => item.personaId === known?.id);
   const alreadyFollowed = (session.state.follows ?? []).some((item) => item.personaId === active.id && item.target === publicKey);
+  const appearanceFollowed = followedAppearanceSources().some((item) => item.source === publicKey);
   modal(known?.displayName ?? "Nostr persona", "Public Nostr identity. Private identity and local credential information are not displayed.", element("div", { class: "content-list" }, [
     element("p", { class: "evidence-note", text: publicKey }),
     known?.redditProof ? element("p", { class: "evidence-note", text: `Optional public Reddit proof: ${known.redditProof}` }) : null,
@@ -2283,6 +2346,10 @@ function showPersonaProfile(publicKey) {
     ...norms.slice(0, 5).map((item) => element("p", { class: "evidence-note", text: `Norm position: ${item.body}` })),
     ...followSets.map((item) => element("p", { class: "evidence-note", text: `Public follow set: ${item.title} (${item.members.length} selected personas)` })),
     publicKey !== active.publicKey && !alreadyFollowed ? actionButton("Follow this persona", () => { closeModal(); mutate("follow.set", { persona_id: active.id, target: publicKey, public: true, following: true }, "Public follow updated."); }, "primary-button") : null,
+    publicKey !== active.publicKey ? actionButton(appearanceFollowed ? "Stop following their community images" : "Follow their community images", () => {
+      closeModal();
+      mutate("appearance_source.set", { persona_id: active.id, source: publicKey, enabled: !appearanceFollowed }, appearanceFollowed ? "Community image choices unfollowed." : "Their community image choices will be used after the next sync.");
+    }) : null,
     publicKey !== active.publicKey ? instantJudgmentButton("Silence this persona", "silence", publicKey, (event) => queueSilence(event, publicKey), "quiet-button") : null,
     publicKey !== active.publicKey ? instantJudgmentButton("Block this persona", "block", publicKey, (event) => queueBlock(event, publicKey), "danger-button") : null,
     publicKey !== active.publicKey ? actionButton("Message this persona", () => { closeModal(); showMessageComposerTo(publicKey); }) : null,
@@ -2532,7 +2599,7 @@ function showSearchResults(query, result, network = false) {
     element("div", { class: "meta-line" }, [
       element("span", { class: "provenance", text: hit.source === "nostr" ? "Nostr network" : hit.source === "draft" ? "Private draft" : "Hydra local" }),
       hit.sourceAuthor ? element("span", { text: `Source: ${hit.sourceAuthor}` }) : null,
-      hit.author ? element("span", { text: `${hit.author.slice(0, 12)}…` }) : null,
+      hit.author ? element("button", { type: "button", class: "text-action", text: hit.kind === "persona" ? "View profile" : `${hit.author.slice(0, 12)}…`, onclick: () => showPersonaProfile(hit.author) }) : null,
     ]),
     hit.title ? element("h3", { text: visibleInlineText(hit.title) }) : null,
     element("p", { class: "post-body", text: hit.body || "No text body" }),

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use flocking_core::{Config as FlockingConfig, Judgment, SourceState};
 use serde::{Deserialize, Serialize};
@@ -270,7 +270,30 @@ pub struct FlockingProfile {
     pub persona: PersonaId,
     pub config: FlockingConfig,
     pub source_states: Vec<SourceState>,
+    #[serde(default)]
+    pub appearance_complete_sources: BTreeSet<flocking_core::PublicKey>,
     pub changed_at: u64,
+}
+
+/// One persona's encrypted direct choice for a community image.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommunityAppearanceRecord {
+    pub persona: PersonaId,
+    pub public: bool,
+    pub appearance: flocking_core::CommunityAppearance,
+}
+
+impl CommunityAppearanceRecord {
+    /// Revalidates the portable image choice before it affects a persona's view.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the image reference or metadata is invalid.
+    pub fn validate(&self) -> Result<(), DomainError> {
+        self.appearance
+            .validate()
+            .map_err(|_| DomainError::InvalidFlocking)
+    }
 }
 
 impl FlockingProfile {
@@ -406,6 +429,7 @@ pub enum PrivateRecord {
     LocalFilter(LocalFilterRecord),
     FlockingProfile(FlockingProfile),
     FlockingJudgment(FlockingJudgmentRecord),
+    CommunityAppearance(CommunityAppearanceRecord),
 }
 
 impl PrivateRecord {
@@ -434,6 +458,7 @@ impl PrivateRecord {
             Self::LocalFilter(item) => item.validate(),
             Self::FlockingProfile(item) => item.validate(),
             Self::FlockingJudgment(item) => item.validate(),
+            Self::CommunityAppearance(item) => item.validate(),
         }
     }
 }
@@ -449,6 +474,7 @@ pub struct PrivateState {
     pub filters: BTreeMap<(LocalFilterKind, String), LocalFilterRecord>,
     pub flocking_profile: Option<FlockingProfile>,
     pub flocking_judgments: BTreeMap<String, FlockingJudgmentRecord>,
+    pub community_appearances: BTreeMap<String, CommunityAppearanceRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1009,6 +1009,7 @@ pub struct ReplayState {
     pub received_event_first_seen: BTreeMap<String, u64>,
     pub head_first_seen: BTreeMap<(AnchorId, u64), u64>,
     pub flocking_judgments: Vec<flocking_core::Judgment>,
+    pub community_appearances: Vec<flocking_core::CommunityAppearance>,
     pub media: BTreeMap<(AnchorId, String), MediaManifest>,
 }
 
@@ -1123,6 +1124,7 @@ impl ReplayState {
                 reactions,
                 public_projections,
                 flocking_judgments,
+                community_appearances,
             } => self.apply_remote_event(
                 event_id,
                 event_json,
@@ -1130,6 +1132,7 @@ impl ReplayState {
                 reactions,
                 public_projections,
                 flocking_judgments,
+                community_appearances,
                 recorded_at,
             ),
             DurableEvent::MediaPreserved(manifest)
@@ -1383,6 +1386,7 @@ impl ReplayState {
         reactions: &[ReactionRecord],
         public_projections: &[PublicProjectionRecord],
         flocking_judgments: &[flocking_core::Judgment],
+        community_appearances: &[flocking_core::CommunityAppearance],
         recorded_at: u64,
     ) -> Result<(), DomainError> {
         if event_id.is_empty() || event_json.is_empty() {
@@ -1428,6 +1432,8 @@ impl ReplayState {
         }
         self.flocking_judgments
             .extend(flocking_judgments.iter().cloned());
+        self.community_appearances
+            .extend(community_appearances.iter().cloned());
         self.received_events
             .insert(event_id.to_owned(), event_json.to_owned());
         self.received_event_first_seen
@@ -1800,6 +1806,7 @@ mod tests {
                     reactions: Vec::new(),
                     public_projections: Vec::new(),
                     flocking_judgments: Vec::new(),
+                    community_appearances: Vec::new(),
                 },
                 42,
             )

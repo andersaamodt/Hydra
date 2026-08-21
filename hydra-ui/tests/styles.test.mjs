@@ -146,7 +146,13 @@ test("community routes replace app branding with the bare topic identity", () =>
   assert.match(app, /domain\.textContent = "\/h\/"/);
   assert.match(app, /name\.textContent = community/);
   assert.match(app, /topicIdenticon\(community\)/);
-  assert.match(app, /community_appearances/);
+  assert.match(app, /communityAppearances/);
   assert.match(app, /showCommunityAppearanceEditor/);
+  assert.match(app, /community_appearance\.set/);
+  assert.match(app, /appearance_source\.set/);
+  assert.match(app, /Follow their community images/);
+  assert.match(app, /function showPersonaProfile/);
+  assert.doesNotMatch(app, /function showAppearanceSources/);
+  assert.doesNotMatch(app, /field\("SHA-256"/);
   assert.match(styles, /\.community-image-preview/);
 });

@@ -33,9 +33,9 @@ pub use operation::{OperationId, OperationState};
 pub use projection::{Projection, ProjectionId, ProjectionState, PublicProjectionRecord};
 pub use publication::{PublicationState, ReplicationStatus};
 pub use social::{
-    BlockRecord, CommunitySubscription, DirectMessageRecord, DraftKind, DraftRecord,
-    EncryptedPrivateRecord, FlockingJudgmentRecord, FlockingProfile, FollowRecord, LocalFilterKind,
-    LocalFilterRecord, MessageDirection, PrivateRecord, PrivateState, PublicFollowSet,
-    ReactionRecord, ReactionValue, RevisitIntent, RevisitRecord,
+    BlockRecord, CommunityAppearanceRecord, CommunitySubscription, DirectMessageRecord, DraftKind,
+    DraftRecord, EncryptedPrivateRecord, FlockingJudgmentRecord, FlockingProfile, FollowRecord,
+    LocalFilterKind, LocalFilterRecord, MessageDirection, PrivateRecord, PrivateState,
+    PublicFollowSet, ReactionRecord, ReactionValue, RevisitIntent, RevisitRecord,
 };
 pub use transport::{DeliveryState, OutboundEvent};

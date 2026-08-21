@@ -67,6 +67,36 @@ pub fn received_flocking_judgments(
     }
 }
 
+/// Parses one canonical community-appearance event.
+///
+/// # Errors
+///
+/// Returns an error when a kind-30821 event is malformed or unauthentic.
+pub fn received_community_appearances(
+    event: &Event,
+) -> Result<Vec<flocking_core::CommunityAppearance>, ProtocolError> {
+    if event.kind.as_u16() != flocking_core::COMMUNITY_APPEARANCE_KIND {
+        return Ok(Vec::new());
+    }
+    flocking_nostr::parse_community_appearance(event)
+        .map(|appearance| vec![appearance])
+        .map_err(|error| ProtocolError::Nostr(error.to_string()))
+}
+
+/// Builds and signs one canonical community-appearance event.
+///
+/// # Errors
+///
+/// Returns an error for invalid image semantics or signing failure.
+pub fn community_appearance_event(
+    signer: &impl EventSigner,
+    appearance: &flocking_core::CommunityAppearance,
+) -> Result<Event, ProtocolError> {
+    let builder = flocking_nostr::community_appearance_event_builder(appearance)
+        .map_err(|error| ProtocolError::Nostr(error.to_string()))?;
+    signer.sign(builder)
+}
+
 /// Builds and signs one canonical Flocking judgment event.
 ///
 /// # Errors
@@ -110,6 +140,7 @@ pub async fn fetch_flocking_judgment_events(
         .fetch_events(
             Filter::new().authors(authors).kinds([
                 Kind::Custom(flocking_core::JUDGMENT_KIND),
+                Kind::Custom(flocking_core::COMMUNITY_APPEARANCE_KIND),
                 Kind::Custom(10_000),
             ]),
             Duration::from_secs(8),

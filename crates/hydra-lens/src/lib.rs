@@ -349,6 +349,7 @@ pub fn block_decision(
             version: flocking_core::CONFIG_VERSION.to_owned(),
             persona: persona_key.clone(),
             sources: Vec::new(),
+            appearance_sources: BTreeSet::new(),
             local_pin_dismissals: Vec::new(),
         },
         |profile| profile.config.clone(),
@@ -440,6 +441,7 @@ pub fn visibility_decision(
             version: flocking_core::CONFIG_VERSION.to_owned(),
             persona: persona_key.clone(),
             sources: Vec::new(),
+            appearance_sources: BTreeSet::new(),
             local_pin_dismissals: Vec::new(),
         },
         |profile| profile.config.clone(),
@@ -923,6 +925,7 @@ mod tests {
                     reactions: Vec::new(),
                     public_projections: Vec::new(),
                     flocking_judgments: vec![judgment],
+                    community_appearances: Vec::new(),
                 },
                 2,
             )
@@ -943,6 +946,7 @@ mod tests {
                         }],
                         reverse_blocks: None,
                     }],
+                    appearance_sources: BTreeSet::new(),
                     local_pin_dismissals: Vec::new(),
                 },
                 source_states: vec![flocking_core::SourceState {
@@ -951,6 +955,7 @@ mod tests {
                     scope: flocking_core::Scope::Global,
                     completeness: flocking_core::Completeness::Complete,
                 }],
+                appearance_complete_sources: BTreeSet::new(),
                 changed_at: 2,
             }),
             ..PrivateState::default()
@@ -1017,6 +1022,7 @@ mod tests {
                         reactions: Vec::new(),
                         public_projections: Vec::new(),
                         flocking_judgments: Vec::new(),
+                        community_appearances: Vec::new(),
                     },
                     recorded_at,
                 )
@@ -1057,6 +1063,7 @@ mod tests {
                         '1',
                         Some(10),
                     )],
+                    community_appearances: Vec::new(),
                 },
                 10,
             )
@@ -1093,6 +1100,7 @@ mod tests {
                         '2',
                         None,
                     )],
+                    community_appearances: Vec::new(),
                 },
                 13,
             )

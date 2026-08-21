@@ -13,13 +13,13 @@ use std::{
 
 pub use hydra_domain::PrivateState;
 use hydra_domain::{
-    AnchorId, ArchiveManifest, BlockRecord, CommunityKey, CommunitySubscription, ContentBody,
-    DeliveryState, DirectMessageRecord, DomainError, DraftRecord, DurableEvent,
-    EncryptedPrivateRecord, ExternalId, FlockingJudgmentRecord, FlockingProfile, FollowRecord,
-    LocalFilterKind, LocalFilterRecord, MediaManifest, MessageDirection, NostrPublicKey,
-    ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId, PrivateRecord, Projection,
-    PublicFollowSet, PublicProjectionRecord, ReactionRecord, ReactionValue, RevisitIntent,
-    RevisitRecord,
+    AnchorId, ArchiveManifest, BlockRecord, CommunityAppearanceRecord, CommunityKey,
+    CommunitySubscription, ContentBody, DeliveryState, DirectMessageRecord, DomainError,
+    DraftRecord, DurableEvent, EncryptedPrivateRecord, ExternalId, FlockingJudgmentRecord,
+    FlockingProfile, FollowRecord, LocalFilterKind, LocalFilterRecord, MediaManifest,
+    MessageDirection, NostrPublicKey, ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId,
+    PrivateRecord, Projection, PublicFollowSet, PublicProjectionRecord, ReactionRecord,
+    ReactionValue, RevisitIntent, RevisitRecord,
 };
 pub use hydra_lens::{FeedLens, FeedService};
 use hydra_media::{BlossomClient, MediaStore};
@@ -367,6 +367,7 @@ impl ImportService {
         ) && event.kind != Kind::Custom(hydra_nostr::OBJECT_HEAD_KIND)
             && event.kind != Kind::Custom(hydra_nostr::PROJECTION_RECORD_KIND)
             && event.kind != Kind::Custom(flocking_core::JUDGMENT_KIND)
+            && event.kind != Kind::Custom(flocking_core::COMMUNITY_APPEARANCE_KIND)
             && !hydra_nostr::is_reading_surface_event(&event)
         {
             return Ok(Vec::new());
@@ -390,6 +391,7 @@ impl ImportService {
                         reactions: Vec::new(),
                         public_projections: Vec::new(),
                         flocking_judgments: Vec::new(),
+                        community_appearances: Vec::new(),
                     },
                     recorded_at,
                 )?;
@@ -404,6 +406,7 @@ impl ImportService {
                 reactions: materialized.reactions,
                 public_projections: materialized.public_projections,
                 flocking_judgments: materialized.flocking_judgments,
+                community_appearances: materialized.community_appearances,
             },
             recorded_at,
         )?;
@@ -416,6 +419,7 @@ struct PublicMaterialization {
     reactions: Vec<ReactionRecord>,
     public_projections: Vec<PublicProjectionRecord>,
     flocking_judgments: Vec<flocking_core::Judgment>,
+    community_appearances: Vec<flocking_core::CommunityAppearance>,
 }
 
 fn materialize_public_event(
@@ -427,6 +431,7 @@ fn materialize_public_event(
     let reactions = remote_reactions(store, event, &heads)?;
     let mut public_projections = Vec::new();
     let flocking_judgments = hydra_nostr::received_flocking_judgments(event)?;
+    let community_appearances = hydra_nostr::received_community_appearances(event)?;
     if let Some(projection) = hydra_nostr::received_projection_record(event)? {
         match projection_anchor_author(store, event, &heads, &projection)? {
             Some(author) if author == projection.author => public_projections.push(projection),
@@ -454,6 +459,7 @@ fn materialize_public_event(
         reactions,
         public_projections,
         flocking_judgments,
+        community_appearances,
     })
 }
 
@@ -1490,6 +1496,23 @@ pub struct SetPersonSource {
     pub changed_at: u64,
 }
 
+pub struct SetCommunityAppearance {
+    pub persona_id: PersonaId,
+    pub topic: CommunityKey,
+    pub image: Option<flocking_core::CommunityImage>,
+    pub public: bool,
+    pub relays: Vec<String>,
+    pub changed_at: u64,
+}
+
+pub struct SetAppearanceSource {
+    pub persona_id: PersonaId,
+    pub source: NostrPublicKey,
+    pub enabled: bool,
+    pub complete: bool,
+    pub changed_at: u64,
+}
+
 pub struct SetLocalFilter {
     pub persona_id: PersonaId,
     pub kind: LocalFilterKind,
@@ -1967,9 +1990,11 @@ impl<S: SecretStore> SocialService<S> {
                 version: flocking_core::CONFIG_VERSION.to_owned(),
                 persona: persona_key.clone(),
                 sources: Vec::new(),
+                appearance_sources: BTreeSet::new(),
                 local_pin_dismissals: Vec::new(),
             },
             source_states: Vec::new(),
+            appearance_complete_sources: BTreeSet::new(),
             changed_at: request.changed_at,
         });
         if profile.config.persona != persona_key {
@@ -2033,6 +2058,106 @@ impl<S: SecretStore> SocialService<S> {
                     scope: flocking_core::Scope::Topic(topic),
                     completeness: request.completeness,
                 }));
+        }
+        profile.changed_at = request.changed_at;
+        profile.validate()?;
+        store_private_record(
+            store,
+            &keys,
+            &PrivateRecord::FlockingProfile(profile.clone()),
+            PrivateCommit {
+                recorded_at: request.changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        Ok(profile)
+    }
+
+    /// Stores a direct community-image choice and optionally publishes its signed event.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid image metadata, missing credentials, signing, or persistence.
+    pub fn set_community_appearance(
+        &self,
+        store: &mut DurableStore,
+        request: &SetCommunityAppearance,
+    ) -> Result<CommunityAppearanceRecord, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let appearance = flocking_core::CommunityAppearance {
+            author: hydra_nostr::flocking_public_key(&persona.public_key)?,
+            topic: flocking_core::Topic::parse(request.topic.as_str())
+                .map_err(|error| AppError::Flocking(error.to_string()))?,
+            image: request.image.clone(),
+            created_at: request.changed_at,
+            event_id: None,
+        };
+        appearance
+            .validate()
+            .map_err(|error| AppError::Flocking(error.to_owned()))?;
+        let mut record = CommunityAppearanceRecord {
+            persona: request.persona_id,
+            public: request.public,
+            appearance,
+        };
+        let mut outbound = Vec::new();
+        if request.public {
+            let event = hydra_nostr::community_appearance_event(&keys, &record.appearance)?;
+            record.appearance = hydra_nostr::received_community_appearances(&event)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    AppError::Flocking("signed appearance was not readable".to_owned())
+                })?;
+            outbound.push(outbound_event(&event, &request.relays));
+        }
+        store_private_record(
+            store,
+            &keys,
+            &PrivateRecord::CommunityAppearance(record.clone()),
+            PrivateCommit {
+                outbound,
+                recorded_at: request.changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        Ok(record)
+    }
+
+    /// Selects whether one person's image choices influence this persona.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid identities, self-selection, or encrypted persistence.
+    pub fn set_appearance_source(
+        &self,
+        store: &mut DurableStore,
+        request: &SetAppearanceSource,
+    ) -> Result<FlockingProfile, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let persona_key = hydra_nostr::flocking_public_key(&persona.public_key)?;
+        let source_key = hydra_nostr::flocking_public_key(&request.source)?;
+        let current = private_state(&self.secrets, store, request.persona_id)?;
+        let mut profile = current.flocking_profile.unwrap_or(FlockingProfile {
+            persona: request.persona_id,
+            config: flocking_core::Config {
+                version: flocking_core::CONFIG_VERSION.to_owned(),
+                persona: persona_key.clone(),
+                sources: Vec::new(),
+                appearance_sources: BTreeSet::new(),
+                local_pin_dismissals: Vec::new(),
+            },
+            source_states: Vec::new(),
+            appearance_complete_sources: BTreeSet::new(),
+            changed_at: request.changed_at,
+        });
+        profile.config.appearance_sources.remove(&source_key);
+        profile.appearance_complete_sources.remove(&source_key);
+        if request.enabled {
+            profile.config.appearance_sources.insert(source_key.clone());
+            if request.complete {
+                profile.appearance_complete_sources.insert(source_key);
+            }
         }
         profile.changed_at = request.changed_at;
         profile.validate()?;
@@ -3220,6 +3345,7 @@ fn store_private_record(
             PrivateRecord::LocalFilter(item) => item.persona,
             PrivateRecord::FlockingProfile(item) => item.persona,
             PrivateRecord::FlockingJudgment(item) => item.persona,
+            PrivateRecord::CommunityAppearance(item) => item.persona,
         },
         ciphertext: hydra_nostr::encrypt_private(&keys.storage_keys, &plaintext)?,
         stored_at: commit.recorded_at,
@@ -3318,6 +3444,11 @@ pub fn private_state(
                 state
                     .flocking_judgments
                     .insert(item.judgment.address(), item);
+            }
+            PrivateRecord::CommunityAppearance(item) => {
+                state
+                    .community_appearances
+                    .insert(item.appearance.topic.to_string(), item);
             }
         }
     }
@@ -5233,5 +5364,74 @@ mod tests {
         let result = PersonaService::new(secrets).create(&mut FailingSink, "Alice".to_owned(), 10);
         assert!(matches!(result, Err(AppError::Store(_))));
         assert!(observer.0.borrow().is_empty());
+    }
+
+    #[test]
+    fn community_images_are_persona_scoped_signed_and_followable() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let personas = PersonaService::new(secrets.clone());
+        let alice = personas.create(&mut store, "Alice".to_owned(), 10).unwrap();
+        let bob = personas.create(&mut store, "Bob".to_owned(), 11).unwrap();
+        let service = SocialService::new(secrets.clone());
+        let initial_outbound = store.state().outbound.len();
+        let image = flocking_core::CommunityImage {
+            sha256: flocking_core::EventId::parse("1".repeat(64)).unwrap(),
+            url: "https://images.example/science.png".to_owned(),
+            mime_type: "image/png".to_owned(),
+            width: 256,
+            height: 256,
+            alt: "A violet atom".to_owned(),
+        };
+
+        let record = service
+            .set_community_appearance(
+                &mut store,
+                &SetCommunityAppearance {
+                    persona_id: alice.id,
+                    topic: CommunityKey::parse("science").unwrap(),
+                    image: Some(image.clone()),
+                    public: true,
+                    relays: vec!["wss://relay.example".to_owned()],
+                    changed_at: 20,
+                },
+            )
+            .unwrap();
+        assert!(record.appearance.event_id.is_some());
+        assert_eq!(store.state().outbound.len(), initial_outbound + 1);
+        let event_json = store
+            .state()
+            .outbound
+            .values()
+            .find(|event| event.event_json.contains("\"kind\":30821"))
+            .unwrap()
+            .event_json
+            .clone();
+        ImportService::receive_public(&mut store, &event_json, 21).unwrap();
+        assert_eq!(store.state().community_appearances.len(), 1);
+        assert_eq!(
+            private_state(&secrets, &store, alice.id)
+                .unwrap()
+                .community_appearances["science"]
+                .appearance
+                .image,
+            Some(image)
+        );
+
+        let profile = service
+            .set_appearance_source(
+                &mut store,
+                &SetAppearanceSource {
+                    persona_id: alice.id,
+                    source: bob.public_key,
+                    enabled: true,
+                    complete: false,
+                    changed_at: 21,
+                },
+            )
+            .unwrap();
+        assert_eq!(profile.config.appearance_sources.len(), 1);
+        assert!(profile.appearance_complete_sources.is_empty());
     }
 }
