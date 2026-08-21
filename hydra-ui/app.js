@@ -864,9 +864,7 @@ function updatePendingJudgmentStatus() {
   const seconds = Math.max(0, Math.ceil((pending.paused ? pending.remainingMs : pending.deadline - Date.now()) / 1000));
   const status = pending.committing
     ? (pending.payload.public ? "Publishing…" : "Saving…")
-    : pending.paused
-      ? "Timer paused while you decide."
-      : `${pending.payload.public ? "Publishing" : "Saving privately"} in ${seconds}s.`;
+    : `${pending.payload.public ? "Publishing" : "Saving privately"} in ${seconds}s.`;
   if (pending.statusNode) pending.statusNode.textContent = status;
   if (pending.recallNode) pending.recallNode.textContent = `${pending.pastLabel} · ${seconds}s`;
 }
@@ -944,18 +942,30 @@ function renderPendingJudgmentCallout() {
     element("label", { class: "judgment-callout-toggle" }, [publish, element("span", { text: "Publish for followers" })]),
   ];
   if (pending.scopeTopic) {
-    const scope = element("select", {
-      "aria-label": "Scope",
-      disabled: pending.committing,
-      onchange: (event) => {
-        pending.topic = event.currentTarget.value || null;
-        pending.payload.topic = pending.topic;
-      },
-    }, [
-      element("option", { value: pending.scopeTopic, text: `/h/${pending.scopeTopic}`, selected: pending.topic === pending.scopeTopic }),
-      element("option", { value: "", text: "Everywhere", selected: !pending.topic }),
+    const choices = [
+      [pending.scopeTopic, `/h/${pending.scopeTopic}`],
+      [null, "Everywhere"],
+    ];
+    const scope = element("div", { class: "judgment-callout-scope", role: "group", "aria-label": "Scope" }, [
+      element("span", { text: "Scope" }),
+      ...choices.map(([topic, label]) => element("button", {
+        type: "button",
+        class: `judgment-scope-choice${pending.topic === topic ? " is-active" : ""}`,
+        text: label,
+        "aria-pressed": pending.topic === topic ? "true" : "false",
+        disabled: pending.committing,
+        onclick: (event) => {
+          pending.topic = topic;
+          pending.payload.topic = topic;
+          for (const button of event.currentTarget.parentElement.querySelectorAll("button")) {
+            const active = button === event.currentTarget;
+            button.classList.toggle("is-active", active);
+            button.setAttribute("aria-pressed", String(active));
+          }
+        },
+      })),
     ]);
-    options.unshift(element("label", { class: "judgment-callout-field" }, [element("span", { text: "Scope" }), scope]));
+    options.unshift(scope);
   }
   const reason = element("input", {
     type: "text",
@@ -989,8 +999,8 @@ function renderPendingJudgmentCallout() {
     ...options,
     reason,
     element("div", { class: "judgment-callout-actions" }, [
-      actionButton("Undo", undoPendingJudgment),
-      actionButton("Apply now", () => void commitPendingJudgment(), "primary-button"),
+      element("button", { type: "button", class: "icon-button judgment-undo", text: "↶", title: "Undo", "aria-label": "Undo", onclick: undoPendingJudgment }),
+      actionButton("Apply", () => void commitPendingJudgment(), "primary-button"),
     ]),
   ]);
   document.body.append(callout);

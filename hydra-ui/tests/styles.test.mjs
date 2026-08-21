@@ -135,6 +135,10 @@ test("one-click judgments use a pausable anchored grace-period callout", () => {
   assert.match(styles, /\.is-pending-hide/);
   assert.match(styles, /transition: opacity 2\.4s ease, filter 2\.4s ease/);
   assert.match(styles, /judgment-callout-arrive \.8s \.18s/);
+  assert.match(app, /class: "judgment-callout-scope"/);
+  assert.doesNotMatch(app, /Timer paused while you decide/);
+  assert.doesNotMatch(app, /Apply now/);
+  assert.match(app, /class: "icon-button judgment-undo".*"aria-label": "Undo"/);
 });
 
 test("community routes replace app branding with the bare topic identity", () => {

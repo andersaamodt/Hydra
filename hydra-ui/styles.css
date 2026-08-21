@@ -286,12 +286,16 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .judgment-callout::before { content: ""; position: absolute; top: -8px; left: calc(var(--callout-pointer-x) - 7px); width: 14px; height: 14px; border-top: 1px solid rgba(179,223,199,.24); border-left: 1px solid rgba(179,223,199,.24); background: var(--modal); transform: rotate(45deg); }
 .judgment-callout.is-above::before { top: auto; bottom: -8px; border: 0; border-right: 1px solid rgba(179,223,199,.24); border-bottom: 1px solid rgba(179,223,199,.24); }
 .judgment-callout-status { margin: 4px 0 10px; color: var(--muted); font-size: 11px; }
-.judgment-callout-field { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 8px; margin: 8px 0; color: var(--muted); font-size: 11px; }
-.judgment-callout select, .judgment-callout input[type="text"] { min-width: 0; border: 1px solid var(--line); border-radius: 5px; padding: 7px 8px; color: var(--ink); background: var(--panel-2); }
+.judgment-callout-scope { display: flex; align-items: center; gap: 5px; margin: 8px 0; color: var(--muted); font-size: 11px; }
+.judgment-callout-scope > span { margin-right: 3px; }
+.judgment-scope-choice { border: 0; border-radius: 4px; padding: 4px 8px; color: var(--muted); background: transparent; cursor: pointer; }
+.judgment-scope-choice:hover, .judgment-scope-choice.is-active { color: var(--ink); background: var(--panel-2); }
+.judgment-callout input[type="text"] { min-width: 0; border: 1px solid var(--line); border-radius: 5px; padding: 7px 8px; color: var(--ink); background: var(--panel-2); }
 .judgment-callout input[type="text"] { width: 100%; margin-top: 8px; }
 .judgment-callout-toggle { display: flex; align-items: center; gap: 7px; margin: 8px 0; color: var(--muted); font-size: 11px; }
 .judgment-callout-toggle input { width: 16px; height: 16px; accent-color: var(--green-strong); }
 .judgment-callout-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
+.judgment-callout-actions .judgment-undo { align-self: center; margin-right: auto; font-size: 20px; line-height: 1; }
 .loading { padding: 20vh 20px; color: var(--muted); text-align: center; }
 .raw-event { border: 1px solid var(--line); border-radius: 10px; background: var(--shade); }
 .raw-event summary { padding: 10px 12px; cursor: pointer; color: var(--muted); }
