@@ -9,16 +9,62 @@ const tauri = await readFile(new URL("../../apps/desktop/tauri/tauri.conf.json",
 const desktop = await readFile(new URL("../../apps/desktop/tauri/src/main.rs", import.meta.url), "utf8");
 const capability = await readFile(new URL("../../apps/desktop/tauri/capabilities/default.json", import.meta.url), "utf8");
 
-test("light mode supplies semantic surfaces instead of inheriting dark literals", () => {
-  for (const variable of ["--nav-ink", "--bar", "--card-hover", "--body-ink", "--modal"]) {
-    assert.match(styles, new RegExp(`:root\\[data-theme=\"light\"\\][\\s\\S]*${variable}:`));
-    assert.match(styles, new RegExp(`:root\\[data-theme=\"system\"\\][\\s\\S]*${variable}:`));
+test("the default light stone-blue scheme uses derived semantic surfaces", () => {
+  for (const variable of ["--accent-seed", "--canvas", "--sidebar-surface", "--bar", "--card-hover", "--modal"]) {
+    assert.match(styles, new RegExp(`${variable}:`));
   }
 
+  assert.match(styles, /--accent-seed:\s*#6f8299/);
+  assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--accent-seed\)/);
+  assert.match(styles, /:root\[data-resolved-theme="dark"\]/);
+  assert.match(styles, /body\s*\{[^}]*background:\s*var\(--canvas\)/);
+  assert.match(styles, /\.topbar\s*\{[^}]*background:\s*var\(--chrome\)/);
   assert.match(styles, /\.post-card\s*\{[^}]*background:\s*transparent/);
   assert.match(styles, /\.context-card\s*\{[^}]*border-bottom:\s*1px solid var\(--line\)/);
   assert.match(styles, /\.lens-bar\s*\{[^}]*background:\s*var\(--bar\)/);
   assert.match(styles, /\.modal\s*\{[^}]*background:\s*var\(--modal\)/);
+});
+
+test("dark mode keeps every major surface on the dark palette", () => {
+  for (const [selector, token] of [
+    ["\\.topbar", "--chrome"],
+    ["\\.sidebar, \\.context-panel", "--sidebar-surface"],
+    ["\\.main-panel", "--canvas"],
+    ["\\.view-header", "--chrome"],
+    ["\\.lens-bar", "--bar"],
+    ["\\.settings-tabs", "--panel"],
+    ["\\.settings-actions", "--panel"],
+    ["\\.modal", "--modal"],
+  ]) {
+    assert.match(styles, new RegExp(`${selector}\\s*\\{[^}]*background:\\s*var\\(${token}\\)`));
+  }
+
+  assert.match(styles, /--paper:\s*var\(--panel\)/);
+  assert.match(styles, /:root\[data-resolved-theme="dark"\][\s\S]*--on-accent:\s*#18212b/);
+  assert.match(styles, /\.primary-button\s*\{[^}]*color:\s*var\(--on-accent\)/);
+});
+
+test("dark text and controls remain legible for every accent", () => {
+  const accents = ["#6f8299", "#6574a8", "#826fa3", "#a56f5d", "#6f846f"];
+  const rgb = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  const mix = (foreground, amount, background) => rgb(foreground).map((channel, index) => Math.round(channel * amount + rgb(background)[index] * (1 - amount)));
+  const luminance = (color) => {
+    const [red, green, blue] = color.map((channel) => channel / 255).map((channel) => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const contrast = (foreground, background) => {
+    const [light, dark] = [luminance(foreground), luminance(background)].sort((left, right) => right - left);
+    return (light + 0.05) / (dark + 0.05);
+  };
+
+  for (const accent of accents) {
+    const panel = mix(accent, 0.08, "#151b21");
+    const accentStrong = mix(accent, 0.58, "#e5edf5");
+    assert.ok(contrast(rgb("#edf1f5"), panel) >= 7, `${accent} primary text`);
+    assert.ok(contrast(rgb("#9ca9b7"), panel) >= 4.5, `${accent} secondary text`);
+    assert.ok(contrast(rgb("#8796a5"), panel) >= 4.5, `${accent} faint text`);
+    assert.ok(contrast(rgb("#18212b"), accentStrong) >= 4.5, `${accent} button text`);
+  }
 });
 
 test("the permanent shell avoids AI-generated interface foibles", () => {
@@ -81,9 +127,11 @@ test("startup uses the real icon and one atomic splash handoff", () => {
   assert.doesNotMatch(styles, /button[^{]*:[^{]*\{[^}]*transform:/);
 });
 
-test("themes and chamber tabs honor desktop input contracts", () => {
-  assert.match(app, /function saveThemeChoice\(event\)/);
-  assert.match(app, /runtime\("settings\.update", \{ theme: selected \}\)/);
+test("appearance and chamber tabs honor desktop input contracts", () => {
+  assert.match(app, /function saveAppearanceChoice\(event\)/);
+  assert.match(app, /runtime\("settings\.update", selected\)/);
+  assert.match(app, /"stone-blue": "#6f8299"/);
+  assert.match(app, /Hydra derives selection, focus, and lightly tinted surfaces from this one color/);
   assert.match(app, /role:\s*"tab"/);
   assert.match(app, /"ArrowLeft",\s*"ArrowRight"/);
   assert.match(app, /tabindex:\s*session\.chamber/);

@@ -22,6 +22,14 @@ const invoke = window.__TAURI__?.core?.invoke;
 const deepLink = window.__TAURI__?.deepLink;
 const desktopDialog = window.__TAURI__?.dialog;
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
+const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+const ACCENT_COLORS = {
+  "stone-blue": "#6f8299",
+  indigo: "#6574a8",
+  violet: "#826fa3",
+  terracotta: "#a56f5d",
+  moss: "#6f846f",
+};
 document.documentElement.classList.toggle("settings-window", isSettingsWindow);
 document.body.classList.toggle("settings-window", isSettingsWindow);
 const session = {
@@ -43,6 +51,20 @@ const session = {
   communityImages: new Map(),
   busy: false,
 };
+
+function applyAppearance(settings = {}) {
+  const theme = ["light", "dark", "system"].includes(settings.theme) ? settings.theme : "light";
+  const accent = ACCENT_COLORS[settings.accent] ?? ACCENT_COLORS["stone-blue"];
+  const resolvedTheme = theme === "system" ? (systemColorScheme.matches ? "dark" : "light") : theme;
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.resolvedTheme = resolvedTheme;
+  document.documentElement.style.setProperty("--accent-seed", accent);
+}
+
+applyAppearance();
+systemColorScheme.addEventListener("change", () => {
+  if ((session.state?.settings?.theme ?? "light") === "system") applyAppearance(session.state?.settings);
+});
 
 const view = document.querySelector("#view");
 const contextPanel = document.querySelector("#context-panel");
@@ -326,7 +348,7 @@ async function handleHydraLinks(links) {
 }
 
 function render() {
-  document.documentElement.dataset.theme = session.state?.settings?.theme ?? "system";
+  applyAppearance(session.state?.settings);
   if (isSettingsWindow) {
     if (activePersona(session.state)) renderSettings();
     else renderWelcome();
@@ -1832,21 +1854,28 @@ async function chooseRedditExport(directory) {
   } });
 }
 
-async function saveThemeChoice(event) {
-  const select = event.currentTarget;
-  const previous = session.state.settings?.theme ?? "system";
-  const selected = select.value;
-  document.documentElement.dataset.theme = selected;
+async function saveAppearanceChoice(event) {
+  const form = event.currentTarget.form;
+  const previous = {
+    theme: session.state.settings?.theme ?? "light",
+    accent: session.state.settings?.accent ?? "stone-blue",
+  };
+  const selected = {
+    theme: form.elements.namedItem("theme").value,
+    accent: form.elements.namedItem("accent").value,
+  };
+  applyAppearance(selected);
   setBusy(true);
   try {
-    const result = await runtime("settings.update", { theme: selected });
+    const result = await runtime("settings.update", selected);
     const snapshot = extractState(result);
     if (snapshot?.personas) session.state = snapshot;
-    else session.state.settings.theme = selected;
-    toast("Theme saved locally.");
+    else Object.assign(session.state.settings, selected);
+    toast("Appearance saved locally.");
   } catch (error) {
-    select.value = previous;
-    document.documentElement.dataset.theme = previous;
+    form.elements.namedItem("theme").value = previous.theme;
+    form.elements.namedItem("accent").value = previous.accent;
+    applyAppearance(previous);
     toast(readableError(error), true);
   } finally {
     setBusy(false);
@@ -1968,7 +1997,8 @@ function renderSettings() {
     settingsTabs(),
     settingsPane("general", [
       field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
-      field("Theme", "select", "theme", settings.theme ?? "system", "", { values: [["system", "Follow system"], ["light", "Light"], ["dark", "Dark"]], onchange: saveThemeChoice }),
+      field("Mode", "select", "theme", settings.theme ?? "light", "", { values: [["light", "Light"], ["dark", "Dark"], ["system", "Follow system"]], onchange: saveAppearanceChoice }),
+      field("Accent color", "select", "accent", settings.accent ?? "stone-blue", "Hydra derives selection, focus, and lightly tinted surfaces from this one color.", { values: [["stone-blue", "Stone blue"], ["indigo", "Indigo"], ["violet", "Violet"], ["terracotta", "Terracotta"], ["moss", "Moss"],], onchange: saveAppearanceChoice }),
       element("section", { class: "context-card" }, [
         element("h2", { text: "Privacy" }),
         element("p", { text: "Personas are pseudonymous, not guaranteed anonymous. Timing, relays, media servers, IP addresses, writing style, and mistakes can correlate separate keys. Telemetry is off by default." }),
@@ -2813,7 +2843,7 @@ async function saveSettings(event) {
   const blobServers = String(data.get("blob_servers")).split(/\s+/).map((item) => item.trim()).filter(Boolean);
   const personaBlobServers = { ...(settings.persona_blob_servers ?? {}), [persona.id]: blobServers };
   const feedSourceWeights = { followed: Number(data.get("feed_followed")), communities: Number(data.get("feed_communities")), replies: Number(data.get("feed_replies")), revisit: Number(data.get("feed_revisit")) };
-  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
+  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), accent: data.get("accent"), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
   if (String(data.get("display_name")).trim() !== persona.displayName) {
     await mutate("persona.profile.update", { persona_id: persona.id, display_name: String(data.get("display_name")).trim() }, "Public persona profile updated and queued for publication.");
   }

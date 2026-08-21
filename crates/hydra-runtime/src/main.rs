@@ -760,6 +760,7 @@ struct SettingsUpdateInput {
     inbox_relays: Option<Vec<String>>,
     replication_threshold: Option<usize>,
     theme: Option<String>,
+    accent: Option<String>,
     onboarding_complete: Option<bool>,
     crosspost_default: Option<bool>,
     book_club_cross_links_enabled: Option<bool>,
@@ -4585,6 +4586,9 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     }
     if let Some(value) = input.theme {
         settings.theme = value;
+    }
+    if let Some(value) = input.accent {
+        settings.accent = value;
     }
     if let Some(value) = input.onboarding_complete {
         settings.onboarding_complete = value;

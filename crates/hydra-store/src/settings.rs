@@ -91,6 +91,8 @@ pub struct Settings {
     pub replication_threshold: usize,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_accent")]
+    pub accent: String,
     #[serde(default)]
     pub onboarding_complete: bool,
     #[serde(default)]
@@ -150,7 +152,11 @@ const fn default_max_media_bytes() -> u64 {
 }
 
 fn default_theme() -> String {
-    "system".to_owned()
+    "light".to_owned()
+}
+
+fn default_accent() -> String {
+    "stone-blue".to_owned()
 }
 
 fn default_inbox_relays() -> Vec<String> {
@@ -196,6 +202,7 @@ impl Default for Settings {
             inbox_relays: default_inbox_relays(),
             replication_threshold: 2,
             theme: default_theme(),
+            accent: default_accent(),
             onboarding_complete: false,
             active_persona_id: None,
             last_backup_at: None,
@@ -280,6 +287,14 @@ impl Settings {
         if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
             return Err(StoreError::InvalidSettings(
                 "theme must be system, light, or dark".to_owned(),
+            ));
+        }
+        if !matches!(
+            self.accent.as_str(),
+            "stone-blue" | "indigo" | "violet" | "terracotta" | "moss"
+        ) {
+            return Err(StoreError::InvalidSettings(
+                "accent must be stone-blue, indigo, violet, terracotta, or moss".to_owned(),
             ));
         }
         if self
@@ -545,6 +560,27 @@ mod tests {
         fs::write(root.path().join("settings.yaml"), legacy).unwrap();
 
         assert!(store.load().unwrap().cross_links.book_club_enabled);
+    }
+
+    #[test]
+    fn appearance_defaults_are_light_stone_blue_and_migrate_older_settings() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.theme, "light");
+        assert_eq!(defaults.accent, "stone-blue");
+
+        let root = tempdir().unwrap();
+        let serialized = serde_yaml::to_string(&defaults).unwrap();
+        let legacy = serialized
+            .lines()
+            .filter(|line| !line.starts_with("accent:"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(root.path().join("settings.yaml"), legacy).unwrap();
+
+        assert_eq!(
+            SettingsStore::new(root.path()).load().unwrap().accent,
+            "stone-blue"
+        );
     }
 
     #[cfg(unix)]
