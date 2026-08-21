@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use fs2::FileExt;
 use hydra_app::{
     ArchiveService, BackupService, CreateComment, CreateExternalComment, CreateNorm, CreatePost,
     CurateEvent, DiscussionService, DraftService, EditObject, ImportAuthoredPost, ImportService,
@@ -5854,6 +5855,15 @@ fn local_filter_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> 
 
 fn sync_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let _: serde_json::Value = serde_json::from_str(input)?;
+    let Some(sync_probe) = acquire_sync_lock(root)? else {
+        print_action_result(
+            "sync.now",
+            operation_view(OperationId::new(), OperationState::Running, true),
+            serde_json::json!({"changed": false, "accepted": 0, "failed": 0}),
+        )?;
+        return Ok(());
+    };
+    drop(sync_probe);
     let mut store = DurableStore::open(root)?;
     let operation = OperationId::new();
     store.append(
@@ -5897,6 +5907,9 @@ fn sync_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
 }
 
 async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), RuntimeError> {
+    let Some(_sync_lock) = acquire_sync_lock(root)? else {
+        return Ok(());
+    };
     let mut store = DurableStore::open(root)?;
     store.append(
         DurableEvent::OperationChanged {
@@ -5987,6 +6000,23 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
         unix_now(),
     )?;
     result
+}
+
+fn acquire_sync_lock(root: &Path) -> Result<Option<fs::File>, RuntimeError> {
+    let path = root.join(".sync.lock");
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .truncate(false)
+        .write(true)
+        .open(path)?;
+    #[cfg(unix)]
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    match file.try_lock_exclusive() {
+        Ok(()) => Ok(Some(file)),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 async fn sync_flocking_person_sources(
@@ -6410,6 +6440,18 @@ mod tests {
         assert_eq!(storage_folder(root, "data").unwrap(), root);
         assert_eq!(storage_folder(root, "media").unwrap(), root.join("media"));
         assert!(storage_folder(root, "other").is_err());
+    }
+
+    #[test]
+    fn sync_workers_are_single_flight_across_processes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+
+        let first = acquire_sync_lock(root).unwrap().unwrap();
+        assert!(acquire_sync_lock(root).unwrap().is_none());
+
+        drop(first);
+        assert!(acquire_sync_lock(root).unwrap().is_some());
     }
 
     #[test]

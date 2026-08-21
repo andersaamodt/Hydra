@@ -6,9 +6,9 @@
   "scripts": {
     "prepare:sidecar": "cargo build --locked -p hydra-runtime && node tools/tauri/stage-sidecar.mjs debug",
     "prepare:sidecar:release": "cargo build --locked --release -p hydra-runtime && node tools/tauri/stage-sidecar.mjs release",
-    "tauri": "npm run prepare:sidecar && tauri",
+    "tauri": "npm run prepare:sidecar && sh tools/tauri/with-macos-signing tauri",
     "dev": "npm run tauri -- dev",
-    "build": "npm run prepare:sidecar:release && tauri build",
+    "build": "npm run prepare:sidecar:release && sh tools/tauri/with-macos-signing tauri build",
     "test": "npm run test:ui",
     "test:ui": "node --test hydra-ui/tests/*.test.mjs"
   },

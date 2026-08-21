@@ -2285,6 +2285,7 @@ name = "hydra-runtime"
 version = "1.0.0"
 dependencies = [
  "flocking-core",
+ "fs2",
  "hydra-app",
  "hydra-bridge",
  "hydra-domain",

@@ -1,0 +1,24 @@
+#!/bin/sh
+# Give local Tauri builds a stable code identity so macOS can remember Hydra's
+# Keychain authorization across rebuilds. Other platforms and certificate-free
+# builders retain Tauri's configured fallback.
+set -eu
+
+if [ "$(uname -s)" != Darwin ]; then
+  exec "$@"
+fi
+
+identity=${HYDRA_MACOS_SIGNING_IDENTITY-${WIZARDRY_CODESIGN_IDENTITY-}}
+if [ -z "$identity" ]; then
+  default_identity="Artificer Local Development Code Signing"
+  if security find-certificate -c "$default_identity" >/dev/null 2>&1; then
+    identity=$default_identity
+  fi
+fi
+
+if [ -z "$identity" ]; then
+  exec "$@"
+fi
+
+config=$(node -e 'process.stdout.write(JSON.stringify({bundle:{macOS:{signingIdentity:process.argv[1]}}}))' "$identity")
+exec "$@" --config "$config"
