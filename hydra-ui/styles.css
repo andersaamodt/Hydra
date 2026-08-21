@@ -190,6 +190,8 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .post-card:hover { background: var(--card-hover); }
 .blocked-placeholder { margin: 0; padding: 16px; border-bottom: 1px solid var(--line); color: var(--muted); background: rgba(127,127,127,.055); }
 .blocked-placeholder p { margin: 6px 0 10px; overflow-wrap: anywhere; }
+.pending-judgment-label { border: 0; padding: 0; color: var(--ink); background: transparent; cursor: pointer; font: inherit; font-weight: 700; }
+.pending-judgment-recall { position: fixed; z-index: 69; border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; color: var(--muted); background: var(--modal); box-shadow: 0 5px 18px rgba(0,0,0,.24); cursor: pointer; font-size: 10px; }
 .reddit-card.is-focused { outline: 2px solid var(--accent); outline-offset: 3px; }
 .vote-column { display: flex; flex-direction: column; align-items: center; padding: 13px 6px; border-right: 1px solid var(--line); background: var(--shade); }
 .vote-button { width: 30px; height: 27px; border: 0; border-radius: 7px; color: #81958a; background: transparent; cursor: pointer; }
@@ -264,6 +266,16 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .toast-region { position: fixed; right: 22px; bottom: 22px; z-index: 80; display: grid; gap: 8px; }
 .toast { max-width: 390px; padding: 12px 14px; border: 1px solid rgba(108,224,167,.25); border-radius: 11px; color: #dff8ea; background: #163126; box-shadow: var(--shadow); font-size: 12px; }
 .toast.error { border-color: rgba(255,118,111,.35); color: #ffd4d0; background: #361b1a; }
+.judgment-callout { position: fixed; z-index: 70; width: min(330px, calc(100vw - 24px)); padding: 14px; border: 1px solid rgba(179,223,199,.24); border-radius: 8px; color: var(--ink); background: var(--modal); box-shadow: var(--shadow); }
+.judgment-callout::before { content: ""; position: absolute; top: -8px; left: calc(var(--callout-pointer-x) - 7px); width: 14px; height: 14px; border-top: 1px solid rgba(179,223,199,.24); border-left: 1px solid rgba(179,223,199,.24); background: var(--modal); transform: rotate(45deg); }
+.judgment-callout.is-above::before { top: auto; bottom: -8px; border: 0; border-right: 1px solid rgba(179,223,199,.24); border-bottom: 1px solid rgba(179,223,199,.24); }
+.judgment-callout-status { margin: 4px 0 10px; color: var(--muted); font-size: 11px; }
+.judgment-callout-field { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 8px; margin: 8px 0; color: var(--muted); font-size: 11px; }
+.judgment-callout select, .judgment-callout input[type="text"] { min-width: 0; border: 1px solid var(--line); border-radius: 5px; padding: 7px 8px; color: var(--ink); background: var(--panel-2); }
+.judgment-callout input[type="text"] { width: 100%; margin-top: 8px; }
+.judgment-callout-toggle { display: flex; align-items: center; gap: 7px; margin: 8px 0; color: var(--muted); font-size: 11px; }
+.judgment-callout-toggle input { width: 16px; height: 16px; accent-color: var(--green-strong); }
+.judgment-callout-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
 .loading { padding: 20vh 20px; color: var(--muted); text-align: center; }
 .raw-event { border: 1px solid var(--line); border-radius: 10px; background: var(--shade); }
 .raw-event summary { padding: 10px 12px; cursor: pointer; color: var(--muted); }
@@ -278,4 +290,10 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 
 @media (prefers-reduced-motion: no-preference) {
   button, .post-card { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+  .judgment-callout { animation: judgment-callout-arrive .16s ease-out; }
+}
+
+@keyframes judgment-callout-arrive {
+  from { opacity: 0; translate: 0 3px; }
+  to { opacity: 1; translate: 0 0; }
 }

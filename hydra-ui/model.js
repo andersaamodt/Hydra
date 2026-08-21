@@ -10,6 +10,19 @@ export const LENSES = [
   ["recovered", "Recovered"],
 ];
 
+export const JUDGMENT_GRACE_MS = 12_000;
+
+export function pendingJudgmentDecision(pending, kind, object, community) {
+  if (!pending || pending.kind !== kind) return null;
+  if (pending.topic && pending.topic !== community) return null;
+  const matches = pending.targetType === "author"
+    ? object.author === pending.target
+    : object.anchor === pending.target;
+  if (!matches) return null;
+  if (kind === "silence" && pending.excludes && Number(object.editedAt) < pending.cutoff) return null;
+  return pending.excludes ? "exclude" : "allow";
+}
+
 export function activePersona(state) {
   return state?.personas?.find((persona) => persona.active) ?? null;
 }

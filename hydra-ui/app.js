@@ -1,9 +1,11 @@
 import {
   LENSES,
+  JUDGMENT_GRACE_MS,
   activePersona,
   commentsFor,
   durabilityLabel,
   parseRedditObjectUrl,
+  pendingJudgmentDecision,
   provenance,
   redditDepth,
   relativeTime,
@@ -31,6 +33,7 @@ const session = {
   companions: { checked: false, bookClubInstalled: false },
   revealedBlocks: new Set(),
   confirmingReveals: new Set(),
+  pendingJudgment: null,
   busy: false,
 };
 
@@ -315,6 +318,7 @@ function render() {
   else if (session.route === "reddit") renderRedditBridge();
   else if (session.route === "settings") renderSettings();
   else renderFeed();
+  renderPendingJudgmentCallout();
 }
 
 function renderPersona() {
@@ -519,8 +523,8 @@ function postCard(post, lens, community) {
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(post.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(post) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(post) }),
-      element("button", { type: "button", class: "text-action", text: "Hide…", onclick: () => showHideEditor(post) }),
-      community ? element("button", { type: "button", class: "text-action", text: `Remove from /h/${community}…`, onclick: () => showRemovalEditor(post, community) }) : null,
+      instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post)),
+      community ? instantJudgmentButton(`Remove from /h/${community}`, "removal", post.anchor, (event) => queueRemoval(event, post, community)) : null,
       element("button", { type: "button", class: "text-action", text: "Feed reason", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
     ]),
   ]);
@@ -560,8 +564,8 @@ function renderDiscussion(anchor) {
       actionButton("Reset vote", () => react(post.anchor, "0")),
       actionButton("Vote views", () => showVoteViews(post)),
       actionButton("React…", () => showEmojiReaction(post)),
-      actionButton("Hide…", () => showHideEditor(post)),
-      session.community ? actionButton(`Remove from /h/${session.community}…`, () => showRemovalEditor(post, session.community)) : null,
+      instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post), "quiet-button"),
+      session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", post.anchor, (event) => queueRemoval(event, post, session.community), "quiet-button") : null,
       actionButton("Reply", () => showReply(post), "primary-button"),
       actionButton("Revisit", () => showRevisit(post)),
       post.author === activePersona(session.state)?.publicKey ? actionButton("Preserve media", () => preserveMedia(post)) : null,
@@ -599,8 +603,8 @@ function commentView(comment) {
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(comment.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(comment) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(comment) }),
-      element("button", { type: "button", class: "text-action", text: "Hide…", onclick: () => showHideEditor(comment) }),
-      session.community ? element("button", { type: "button", class: "text-action", text: `Remove from /h/${session.community}…`, onclick: () => showRemovalEditor(comment, session.community) }) : null,
+      instantJudgmentButton("Hide", "hide", comment.anchor, (event) => queueHide(event, comment)),
+      session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", comment.anchor, (event) => queueRemoval(event, comment, session.community)) : null,
       comment.author === persona?.publicKey ? element("button", { type: "button", class: "text-action", text: "Edit", onclick: () => showEdit(comment) }) : null,
       comment.author === persona?.publicKey && !comment.disowned ? element("button", { type: "button", class: "text-action danger-button", text: "Disown…", onclick: () => showDisown(comment) }) : null,
     ]),
@@ -608,14 +612,336 @@ function commentView(comment) {
 }
 
 function judgmentEffect(object, community) {
-  const block = (community && object.topicBlocks?.[community]) || object.block;
-  if (block) return { ...block, kind: "block" };
-  const silence = (community && object.topicSilences?.[community]) || object.silence;
-  if (silence) return { ...silence, kind: "silence" };
-  const hide = (community && object.topicHides?.[community]) || object.hide;
-  if (hide) return { ...hide, kind: "hide" };
-  const removal = community && object.topicRemovals?.[community];
-  return removal ? { ...removal, kind: "removal", topic: community } : null;
+  for (const [kind, persisted] of [
+    ["block", (community && object.topicBlocks?.[community]) || object.block],
+    ["silence", (community && object.topicSilences?.[community]) || object.silence],
+    ["hide", (community && object.topicHides?.[community]) || object.hide],
+    ["removal", community && object.topicRemovals?.[community]],
+  ]) {
+    const decision = pendingJudgmentDecision(session.pendingJudgment, kind, object, community);
+    if (decision === "exclude") {
+      return {
+        kind,
+        topic: kind === "removal" ? community : session.pendingJudgment.topic,
+        inherited: false,
+        pending: true,
+        cutoff: session.pendingJudgment.cutoff,
+        reason: session.pendingJudgment.payload.reason,
+      };
+    }
+    if (decision !== "allow" && persisted) {
+      return { ...persisted, kind, ...(kind === "removal" ? { topic: community } : {}) };
+    }
+  }
+  return null;
+}
+
+function judgmentOrigin(event) {
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  if (!rect) return { x: window.innerWidth / 2, top: window.innerHeight / 2, bottom: window.innerHeight / 2 };
+  return { x: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom };
+}
+
+function queueJudgment(event, options) {
+  if (session.pendingJudgment) {
+    toast("Apply or undo the pending judgment first.");
+    return;
+  }
+  const persona = activePersona(session.state);
+  if (!persona) return;
+  const topic = options.topic ?? null;
+  const cutoff = Math.floor(Date.now() / 1000);
+  const origin = judgmentOrigin(event);
+  closeModal();
+  session.pendingJudgment = {
+    ...options,
+    topic,
+    cutoff,
+    origin,
+    remainingMs: JUDGMENT_GRACE_MS,
+    deadline: Date.now() + JUDGMENT_GRACE_MS,
+    paused: false,
+    pauseAfter: Date.now() + 300,
+    committing: false,
+    timeout: null,
+    ticker: null,
+    callout: null,
+    outsideListener: null,
+    payload: {
+      persona_id: persona.id,
+      target: options.target,
+      public: false,
+      action: options.action,
+      topic,
+      reason: null,
+      ...(options.kind === "block" ? { blocked: options.excludes } : {}),
+      ...(options.kind === "silence" ? { silenced: options.excludes } : {}),
+    },
+  };
+  session.revealedBlocks.delete(options.target);
+  render();
+  schedulePendingJudgment();
+}
+
+function pausePendingJudgment() {
+  const pending = session.pendingJudgment;
+  if (!pending || pending.paused || pending.committing) return;
+  pending.remainingMs = Math.max(0, pending.deadline - Date.now());
+  pending.paused = true;
+  window.clearTimeout(pending.timeout);
+  window.clearInterval(pending.ticker);
+  pending.timeout = null;
+  pending.ticker = null;
+  updatePendingJudgmentStatus();
+}
+
+function resumePendingJudgment() {
+  const pending = session.pendingJudgment;
+  if (!pending || !pending.paused || pending.committing || pending.pointerInside || pending.focusInside) return;
+  pending.paused = false;
+  schedulePendingJudgment();
+}
+
+function dismissPendingJudgmentCallout() {
+  const pending = session.pendingJudgment;
+  if (!pending || pending.committing) return;
+  pending.calloutDismissed = true;
+  pending.pointerInside = false;
+  pending.focusInside = false;
+  pending.callout?.remove();
+  pending.callout = null;
+  pending.statusNode = null;
+  renderPendingJudgmentCallout();
+  resumePendingJudgment();
+}
+
+function reopenPendingJudgmentCallout(event, kind, target) {
+  const pending = session.pendingJudgment;
+  if (!pending || pending.kind !== kind || pending.target !== target) return false;
+  if (pending.calloutDismissed) {
+    pending.origin = judgmentOrigin(event);
+    pending.calloutDismissed = false;
+    renderPendingJudgmentCallout();
+  }
+  return true;
+}
+
+function instantJudgmentButton(label, kind, target, onAction, className = "text-action") {
+  const reveal = (event) => reopenPendingJudgmentCallout(event, kind, target);
+  return element("button", {
+    type: "button",
+    class: className,
+    text: label,
+    disabled: session.busy,
+    onpointerenter: reveal,
+    onfocus: reveal,
+    onclick: (event) => { if (!reveal(event)) onAction(event); },
+  });
+}
+
+function schedulePendingJudgment() {
+  const pending = session.pendingJudgment;
+  if (!pending || pending.paused || pending.committing) return;
+  window.clearTimeout(pending.timeout);
+  window.clearInterval(pending.ticker);
+  pending.deadline = Date.now() + pending.remainingMs;
+  pending.timeout = window.setTimeout(() => void commitPendingJudgment(), pending.remainingMs);
+  pending.ticker = window.setInterval(updatePendingJudgmentStatus, 250);
+  updatePendingJudgmentStatus();
+}
+
+function updatePendingJudgmentStatus() {
+  const pending = session.pendingJudgment;
+  if (!pending) return;
+  const seconds = Math.max(0, Math.ceil((pending.paused ? pending.remainingMs : pending.deadline - Date.now()) / 1000));
+  const status = pending.committing
+    ? (pending.payload.public ? "Publishing…" : "Saving…")
+    : pending.paused
+      ? "Timer paused while you decide."
+      : `${pending.payload.public ? "Publishing" : "Saving privately"} in ${seconds}s.`;
+  if (pending.statusNode) pending.statusNode.textContent = status;
+  if (pending.recallNode) pending.recallNode.textContent = `${pending.pastLabel} · ${seconds}s`;
+}
+
+function undoPendingJudgment() {
+  const pending = session.pendingJudgment;
+  if (!pending || pending.committing) return;
+  window.clearTimeout(pending.timeout);
+  window.clearInterval(pending.ticker);
+  if (pending.outsideListener) document.removeEventListener("pointerdown", pending.outsideListener, true);
+  pending.callout?.remove();
+  session.pendingJudgment = null;
+  render();
+}
+
+async function commitPendingJudgment() {
+  const pending = session.pendingJudgment;
+  if (!pending || pending.committing) return;
+  window.clearTimeout(pending.timeout);
+  window.clearInterval(pending.ticker);
+  pending.committing = true;
+  updatePendingJudgmentStatus();
+  try {
+    await mutate(pending.command, pending.payload, pending.success);
+  } catch (error) {
+    if (!error?.hydraSurfaced) toast(readableError(error), true);
+  } finally {
+    if (session.pendingJudgment === pending) {
+      if (pending.outsideListener) document.removeEventListener("pointerdown", pending.outsideListener, true);
+      pending.callout?.remove();
+      session.pendingJudgment = null;
+      render();
+    }
+  }
+}
+
+function renderPendingJudgmentCallout() {
+  const pending = session.pendingJudgment;
+  if (pending?.outsideListener) {
+    document.removeEventListener("pointerdown", pending.outsideListener, true);
+    pending.outsideListener = null;
+  }
+  document.querySelector(".judgment-callout")?.remove();
+  document.querySelector(".pending-judgment-recall")?.remove();
+  if (!pending) return;
+  pending.recallNode = null;
+  if (pending.calloutDismissed) {
+    const recall = element("button", {
+      type: "button",
+      class: "pending-judgment-recall",
+      "aria-label": `Reopen ${pending.pastLabel.toLowerCase()} options`,
+      onpointerenter: (event) => reopenPendingJudgmentCallout(event, pending.kind, pending.target),
+      onfocus: (event) => reopenPendingJudgmentCallout(event, pending.kind, pending.target),
+      onclick: (event) => reopenPendingJudgmentCallout(event, pending.kind, pending.target),
+    });
+    recall.style.left = `${Math.min(window.innerWidth - 120, Math.max(12, pending.origin.x - 52))}px`;
+    recall.style.top = `${Math.min(window.innerHeight - 36, Math.max(12, pending.origin.top))}px`;
+    document.body.append(recall);
+    pending.recallNode = recall;
+    updatePendingJudgmentStatus();
+    return;
+  }
+
+  const status = element("p", { class: "judgment-callout-status", "aria-live": "polite" });
+  const publish = element("input", {
+    type: "checkbox",
+    checked: pending.payload.public,
+    disabled: pending.committing,
+    onchange: (event) => {
+      pending.payload.public = event.currentTarget.checked;
+      updatePendingJudgmentStatus();
+    },
+  });
+  const options = [
+    element("label", { class: "judgment-callout-toggle" }, [publish, element("span", { text: "Publish for followers" })]),
+  ];
+  if (pending.scopeTopic) {
+    const scope = element("select", {
+      "aria-label": "Scope",
+      disabled: pending.committing,
+      onchange: (event) => {
+        pending.topic = event.currentTarget.value || null;
+        pending.payload.topic = pending.topic;
+      },
+    }, [
+      element("option", { value: pending.scopeTopic, text: `/h/${pending.scopeTopic}`, selected: pending.topic === pending.scopeTopic }),
+      element("option", { value: "", text: "Everywhere", selected: !pending.topic }),
+    ]);
+    options.unshift(element("label", { class: "judgment-callout-field" }, [element("span", { text: "Scope" }), scope]));
+  }
+  const reason = element("input", {
+    type: "text",
+    value: pending.payload.reason ?? "",
+    placeholder: "Reason (optional)",
+    "aria-label": "Reason",
+    disabled: pending.committing,
+    oninput: (event) => { pending.payload.reason = event.currentTarget.value || null; },
+  });
+  const callout = element("aside", {
+    class: "judgment-callout",
+    role: "dialog",
+    "aria-label": `${pending.pastLabel} options`,
+    onpointerenter: () => {
+      pending.pointerInside = true;
+      if (Date.now() >= pending.pauseAfter) pausePendingJudgment();
+    },
+    onpointermove: () => {
+      if (Date.now() >= pending.pauseAfter) pausePendingJudgment();
+    },
+    onpointerleave: () => { pending.pointerInside = false; resumePendingJudgment(); },
+    onfocusin: () => { pending.focusInside = true; pausePendingJudgment(); },
+    onfocusout: () => window.setTimeout(() => {
+      pending.focusInside = Boolean(pending.callout?.contains(document.activeElement));
+      resumePendingJudgment();
+    }, 0),
+    onpointerdown: pausePendingJudgment,
+  }, [
+    element("strong", { text: pending.pastLabel }),
+    status,
+    ...options,
+    reason,
+    element("div", { class: "judgment-callout-actions" }, [
+      actionButton("Undo", undoPendingJudgment),
+      actionButton("Apply now", () => void commitPendingJudgment(), "primary-button"),
+    ]),
+  ]);
+  document.body.append(callout);
+  pending.callout = callout;
+  pending.statusNode = status;
+  const margin = 12;
+  const box = callout.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - box.width - margin, Math.max(margin, pending.origin.x - box.width / 2));
+  const fitsBelow = pending.origin.bottom + box.height + 18 < window.innerHeight;
+  callout.classList.toggle("is-above", !fitsBelow);
+  callout.style.left = `${left}px`;
+  callout.style.top = `${fitsBelow ? pending.origin.bottom + 12 : Math.max(margin, pending.origin.top - box.height - 12)}px`;
+  callout.style.setProperty("--callout-pointer-x", `${Math.min(box.width - 22, Math.max(22, pending.origin.x - left))}px`);
+  updatePendingJudgmentStatus();
+  window.setTimeout(() => {
+    const closeOnOutsidePress = (event) => {
+      if (session.pendingJudgment !== pending) {
+        document.removeEventListener("pointerdown", closeOnOutsidePress, true);
+        pending.outsideListener = null;
+        return;
+      }
+      if (pending.callout?.contains(event.target)) return;
+      dismissPendingJudgmentCallout();
+      document.removeEventListener("pointerdown", closeOnOutsidePress, true);
+      pending.outsideListener = null;
+    };
+    pending.outsideListener = closeOnOutsidePress;
+    document.addEventListener("pointerdown", closeOnOutsidePress, true);
+  }, 0);
+}
+
+function queueHide(event, object) {
+  const currentTopic = session.route === "community" && session.community ? session.community : null;
+  queueJudgment(event, { kind: "hide", command: "hide.set", targetType: "anchor", target: object.anchor, excludes: true, action: "hide", topic: currentTopic, scopeTopic: currentTopic, pastLabel: "Hidden", success: "Item hidden from this persona’s view." });
+}
+
+function queueRemoval(event, object, topic) {
+  queueJudgment(event, { kind: "removal", command: "membership.set", targetType: "anchor", target: object.anchor, excludes: true, action: "remove", topic, pastLabel: `Removed from /h/${topic}`, success: `Item removed from /h/${topic} in this persona’s view.` });
+}
+
+function queueBlock(event, target) {
+  const currentTopic = session.route === "community" && session.community ? session.community : null;
+  queueJudgment(event, { kind: "block", command: "block.set", targetType: "author", target, excludes: true, action: "block", topic: currentTopic, scopeTopic: currentTopic, pastLabel: "Blocked", success: "Block applied to this persona’s view." });
+}
+
+function queueSilence(event, target) {
+  const currentTopic = session.route === "community" && session.community ? session.community : null;
+  queueJudgment(event, { kind: "silence", command: "silence.set", targetType: "author", target, excludes: true, action: "silence", topic: currentTopic, scopeTopic: currentTopic, pastLabel: "Silenced from now on", success: "New activity from this persona is now silenced." });
+}
+
+function queueReverseJudgment(event, kind, target, effect) {
+  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : effect.topic ?? null;
+  const settings = {
+    block: ["block.set", "author", "unblock", "Unblocked", "Direct unblock applied."],
+    silence: ["silence.set", "author", "unsilence", "Unsilenced", "Direct unsilence applied."],
+    hide: ["hide.set", "anchor", "unhide", "Unhidden", "Direct unhide applied."],
+    removal: ["membership.set", "anchor", "restore", `Restored to /h/${topic}`, `Direct restoration applied in /h/${topic}.`],
+  }[kind];
+  queueJudgment(event, { kind, command: settings[0], targetType: settings[1], target, excludes: false, action: settings[2], topic, pastLabel: settings[3], success: settings[4] });
 }
 
 function blockedPlaceholder(object, label, effect, style = "") {
@@ -626,14 +952,18 @@ function blockedPlaceholder(object, label, effect, style = "") {
   const cutoff = silenced && effect.cutoff ? `New activity since ${new Date(effect.cutoff * 1000).toLocaleString()} is silenced.` : null;
   const timing = effect.localTimingEvidence ? "Its signed time predates the silence, but Hydra first observed it afterward." : null;
   const explanation = [effect.why, cutoff, timing, effect.reason ? `Reason: ${effect.reason}` : null, effect.uncertain ? "Source data is incomplete, so Hydra is hiding this conservatively." : null].filter(Boolean).join(" ");
-  return element("article", { class: "blocked-placeholder", style }, [
-    element("strong", { text: silenced
+  const placeholderLabel = silenced
       ? `Silenced ${label.toLowerCase()}`
       : hidden
         ? `Hidden ${label.toLowerCase()}`
         : removed
           ? `${label} removed from /h/${effect.topic}`
-          : `${label} from blocked user` }),
+          : `${label} from blocked user`;
+  const target = silenced || (!hidden && !removed) ? object.author : object.anchor;
+  return element("article", { class: "blocked-placeholder", style }, [
+    effect.pending
+      ? instantJudgmentButton(placeholderLabel, effect.kind, target, () => {}, "pending-judgment-label")
+      : element("strong", { text: placeholderLabel }),
     confirming
       ? element("p", { text: `${label} is from ${object.author}. Reveal now?` })
       : element("p", { text: silenced
@@ -651,16 +981,15 @@ function blockedPlaceholder(object, label, effect, style = "") {
       : [
           actionButton("Reveal anyway", () => { session.confirmingReveals.add(object.anchor); render(); }),
           explanation ? actionButton("Why?", () => toast(explanation)) : null,
-          actionButton(
-            silenced ? "Unsilence…" : hidden ? "Unhide…" : removed ? "Restore…" : "Unblock…",
-            () => silenced
-              ? showUnsilenceEditor(object.author, effect)
-              : hidden
-                ? showUnhideEditor(object.anchor, effect)
-                : removed
-                  ? showRestoreEditor(object.anchor, effect)
-                  : showUnblockEditor(object.author, effect),
-          ),
+          effect.pending
+            ? actionButton("Undo", undoPendingJudgment)
+            : instantJudgmentButton(
+                silenced ? "Unsilence" : hidden ? "Unhide" : removed ? "Restore" : "Unblock",
+                effect.kind,
+                target,
+                (event) => queueReverseJudgment(event, effect.kind, target, effect),
+                "quiet-button",
+              ),
         ]),
   ]);
 }
@@ -1836,8 +2165,8 @@ function showPersonaProfile(publicKey) {
     ...norms.slice(0, 5).map((item) => element("p", { class: "evidence-note", text: `Norm position: ${item.body}` })),
     ...followSets.map((item) => element("p", { class: "evidence-note", text: `Public follow set: ${item.title} (${item.members.length} selected personas)` })),
     publicKey !== active.publicKey && !alreadyFollowed ? actionButton("Follow this persona", () => { closeModal(); mutate("follow.set", { persona_id: active.id, target: publicKey, public: true, following: true }, "Public follow updated."); }, "primary-button") : null,
-    publicKey !== active.publicKey ? actionButton("Silence this persona…", () => { closeModal(); showSilenceEditor(publicKey); }) : null,
-    publicKey !== active.publicKey ? actionButton("Block this persona…", () => { closeModal(); showBlockEditor(publicKey); }, "danger-button") : null,
+    publicKey !== active.publicKey ? instantJudgmentButton("Silence this persona", "silence", publicKey, (event) => queueSilence(event, publicKey), "quiet-button") : null,
+    publicKey !== active.publicKey ? instantJudgmentButton("Block this persona", "block", publicKey, (event) => queueBlock(event, publicKey), "danger-button") : null,
     publicKey !== active.publicKey ? actionButton("Message this persona", () => { closeModal(); showMessageComposerTo(publicKey); }) : null,
   ]), { submitLabel: "Close", onSubmit: closeModal });
 }
@@ -1852,29 +2181,6 @@ function showFollowSetEditor(existing = null) {
     const members = String(data.get("members") ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
     return mutate("follow_set.publish", { persona_id: persona.id, identifier: data.get("identifier"), title: data.get("title"), members }, "Public NIP-51 follow set queued to this persona’s write relays.");
   } });
-}
-
-function showHideEditor(object) {
-  const persona = activePersona(session.state);
-  const currentTopic = session.route === "community" && session.community ? session.community : null;
-  modal("Hide this item", "This changes your view without deleting the underlying Nostr event or hiding its author’s other activity.", element("div", {}, [
-    element("p", { class: "evidence-note", text: object.title || object.body.slice(0, 160) }),
-    field("Scope", "select", "scope", currentTopic ? `topic:${currentTopic}` : "global", "A community hide applies only within that /h/ topic.", { values: [["global", "Everywhere"], ...(currentTopic ? [[`topic:${currentTopic}`, `/h/${currentTopic}`]] : [])] }),
-    toggle("Publish this hide", "public", false, "Publishing lets people who follow your hides apply the same judgment voluntarily."),
-    field("Reason", "textarea", "reason", "", "Optional. A private reason remains encrypted; a published reason is shared."),
-  ]), { submitLabel: "Hide", onSubmit: (data) => {
-    const scope = String(data.get("scope"));
-    return mutate("hide.set", { persona_id: persona.id, target: object.anchor, public: Boolean(data.get("public")), action: "hide", topic: scope.startsWith("topic:") ? scope.slice(6) : null, reason: data.get("reason") || null }, "Item hidden from this persona’s view.");
-  } });
-}
-
-function showRemovalEditor(object, topic) {
-  const persona = activePersona(session.state);
-  modal(`Remove from /h/${topic}`, "This rejects the item’s membership in this community for your view and people who follow this judgment. It remains available elsewhere.", element("div", {}, [
-    element("p", { class: "evidence-note", text: object.title || object.body.slice(0, 160) }),
-    toggle("Publish this removal", "public", false, "Publishing shares a community-membership judgment; it does not delete or globally hide the item."),
-    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
-  ]), { submitLabel: "Remove", onSubmit: (data) => mutate("membership.set", { persona_id: persona.id, target: object.anchor, public: Boolean(data.get("public")), action: "remove", topic, reason: data.get("reason") || null }, `Item removed from /h/${topic} in this persona’s view.`) });
 }
 
 function showBlockEditor(target = "") {
@@ -1970,49 +2276,6 @@ function contentSourceRow(item, kind) {
     ]),
     actionButton(`Stop following ${label}`, () => mutate(removal ? "removal_source.set" : "hide_source.set", { persona_id: persona.id, source: item.source, global: false, topics: [], rank: item.rank, enabled: false }, `${label[0].toUpperCase()}${label.slice(1)} source removed.`)),
   ]);
-}
-
-function showUnblockEditor(target, effect) {
-  const persona = activePersona(session.state);
-  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : null;
-  modal("Unblock this persona", "A direct unblock overrides block judgments you follow. You can withdraw it later to follow them again.", element("div", {}, [
-    element("p", { class: "evidence-note", text: target }),
-    element("p", { text: topic ? `Scope: /h/${topic}` : "Scope: everywhere" }),
-    toggle("Publish this unblock", "public", false, "Off keeps the exception encrypted for this persona."),
-    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
-  ]), { submitLabel: "Unblock", onSubmit: (data) => mutate("block.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), blocked: false, action: "unblock", topic, reason: data.get("reason") || null }, "Direct unblock applied.") });
-}
-
-function showUnsilenceEditor(target, effect) {
-  const persona = activePersona(session.state);
-  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : null;
-  modal("Unsilence this persona", "A direct unsilence overrides silence judgments you follow. You can withdraw it later.", element("div", {}, [
-    element("p", { class: "evidence-note", text: target }),
-    element("p", { text: topic ? `Scope: /h/${topic}` : "Scope: everywhere" }),
-    toggle("Publish this unsilence", "public", false, "Off keeps the exception encrypted for this persona."),
-    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
-  ]), { submitLabel: "Unsilence", onSubmit: (data) => mutate("silence.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), silenced: false, action: "unsilence", topic, reason: data.get("reason") || null }, "Direct unsilence applied.") });
-}
-
-function showUnhideEditor(target, effect) {
-  const persona = activePersona(session.state);
-  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : null;
-  modal("Unhide this item", "A direct unhide overrides hide judgments you follow. Independent blocks, silences, and community removals still apply.", element("div", {}, [
-    element("p", { class: "evidence-note", text: target }),
-    element("p", { text: topic ? `Scope: /h/${topic}` : "Scope: everywhere" }),
-    toggle("Publish this unhide", "public", false, "Off keeps the exception encrypted for this persona."),
-    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
-  ]), { submitLabel: "Unhide", onSubmit: (data) => mutate("hide.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), action: "unhide", topic, reason: data.get("reason") || null }, "Direct unhide applied.") });
-}
-
-function showRestoreEditor(target, effect) {
-  const persona = activePersona(session.state);
-  const topic = effect.scope?.startsWith("topic:") ? effect.scope.slice(6) : effect.topic;
-  modal(`Restore to /h/${topic}`, "A direct restoration accepts this item’s membership in the community. Independent hides and author judgments still apply.", element("div", {}, [
-    element("p", { class: "evidence-note", text: target }),
-    toggle("Publish this restoration", "public", false, "Off keeps the exception encrypted for this persona."),
-    field("Reason", "textarea", "reason", "", "Optional. A published reason becomes public."),
-  ]), { submitLabel: "Restore", onSubmit: (data) => mutate("membership.set", { persona_id: persona.id, target, public: Boolean(data.get("public")), action: "restore", topic, reason: data.get("reason") || null }, `Direct restoration applied in /h/${topic}.`) });
 }
 
 function showLocalFilterEditor() {

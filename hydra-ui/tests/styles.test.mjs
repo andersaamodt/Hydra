@@ -120,3 +120,15 @@ test("background Reddit refresh cannot overwrite a newer interaction", () => {
   assert.match(app, /session\.busy \|\| modalRoot\.childElementCount \|\| document\.hidden/);
   assert.match(app, /document\.addEventListener\("visibilitychange"/);
 });
+
+test("one-click judgments use a pausable anchored grace-period callout", () => {
+  assert.match(app, /JUDGMENT_GRACE_MS/);
+  assert.match(app, /pendingJudgmentDecision/);
+  assert.match(app, /onpointerenter:.*pausePendingJudgment/s);
+  assert.match(app, /onpointerleave:.*resumePendingJudgment/s);
+  assert.match(app, /dismissPendingJudgmentCallout/);
+  assert.match(app, /pending-judgment-recall/);
+  assert.match(styles, /\.judgment-callout::before/);
+  assert.match(styles, /@keyframes judgment-callout-arrive/);
+  assert.doesNotMatch(app, /text: "Hide…"/);
+});

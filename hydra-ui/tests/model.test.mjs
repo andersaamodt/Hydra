@@ -5,7 +5,9 @@ import {
   commentsFor,
   discussionItemMatches,
   isRedditDiscussionProjection,
+  JUDGMENT_GRACE_MS,
   parseRedditObjectUrl,
+  pendingJudgmentDecision,
   myFeedPosts,
   normalizeCommunity,
   redditDepth,
@@ -14,6 +16,18 @@ import {
   validCommunity,
   visibleInlineText,
 } from "../model.js";
+
+test("optimistic judgments preserve category, target, scope, and silence time", () => {
+  const object = { anchor: "note", author: "npub-alice", editedAt: 100 };
+  const hide = { kind: "hide", targetType: "anchor", target: "note", topic: "science", excludes: true };
+  assert.equal(JUDGMENT_GRACE_MS, 12_000);
+  assert.equal(pendingJudgmentDecision(hide, "hide", object, "science"), "exclude");
+  assert.equal(pendingJudgmentDecision(hide, "hide", object, "history"), null);
+  assert.equal(pendingJudgmentDecision({ ...hide, excludes: false }, "hide", object, "science"), "allow");
+  assert.equal(pendingJudgmentDecision({ kind: "block", targetType: "author", target: "npub-alice", excludes: true }, "block", object, null), "exclude");
+  assert.equal(pendingJudgmentDecision({ kind: "silence", targetType: "author", target: "npub-alice", excludes: true, cutoff: 101 }, "silence", object, null), null);
+  assert.equal(pendingJudgmentDecision({ kind: "silence", targetType: "author", target: "npub-alice", excludes: true, cutoff: 100 }, "silence", object, null), "exclude");
+});
 
 test("community paths normalize without collapsing namespaces", () => {
   assert.equal(normalizeCommunity(" /H/Science "), "science");
