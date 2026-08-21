@@ -699,7 +699,7 @@ function filterCommunityAudience(posts) {
 
 function renderFeed() {
   const community = session.route === "community" ? session.community : null;
-  const title = community ? `/${session.chamber === "reddit" ? "r" : "h"}/${community}` : session.route === "front" ? "Hydra Front Page" : session.route === "revisited" ? "Revisit" : "My Feed";
+  const title = community ? `/${session.chamber === "reddit" ? "r" : "h"}/${community}` : session.route === "front" ? "Hydra Front Page" : session.route === "revisited" ? "Saved" : "My Feed";
   const extras = community
     ? [chamberTabs()]
     : session.route === "front"
@@ -721,8 +721,8 @@ function renderFeed() {
   if (posts.length === 0) {
     const revisit = session.route === "revisited";
     list.append(emptyState(
-      community ? `No posts in /h/${community}` : revisit ? "Nothing saved for revisit" : "No posts in My Feed",
-      community ? "The Reddit tab may contain posts from the corresponding subreddit." : revisit ? "Use Revisit on a post to keep it in this persona’s private saved-for-later memory." : "Follow a persona or subscribe to a community to add posts.",
+      community ? `No posts in /h/${community}` : revisit ? "Nothing saved yet" : "No posts in My Feed",
+      community ? "The Reddit tab may contain posts from the corresponding subreddit." : revisit ? "Use Save on a post to keep it privately for this persona." : "Follow a persona or subscribe to a community to add posts.",
       null,
       null,
     ));
@@ -731,7 +731,7 @@ function renderFeed() {
   }
   const normBanner = community ? renderCommunityNormBanner(community) : null;
   const pins = community ? renderCommunityPins(community) : null;
-  const revisitIntro = session.route === "revisited" ? element("p", { class: "view-intro", text: "Posts you deliberately mark Revisit appear here for this persona; this is not browsing history." }) : null;
+  const revisitIntro = session.route === "revisited" ? element("p", { class: "view-intro", text: "Posts you save appear here for this persona; this is not browsing history." }) : null;
   view.replaceChildren(...[header, revisitIntro, normBanner, pins, community ? audienceBar(community) : null, session.route === "revisited" ? null : lensBar(), list].filter(Boolean));
 }
 
@@ -889,7 +889,7 @@ function postCard(post, lens, community) {
     emojiReactionStrip(post),
     element("div", { class: "post-actions" }, [
       element("button", { type: "button", class: "text-action", text: `${post.discussionCount ?? 0} replies`, onclick: () => { session.selected = post.anchor; render(); } }),
-      element("button", { type: "button", class: "text-action", text: "Revisit", onclick: () => showRevisit(post) }),
+      element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(post) }),
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(post.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(post) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(post) }),
@@ -980,7 +980,7 @@ function renderDiscussion(anchor) {
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", post.anchor, (event) => queueRemoval(event, post, session.community), "quiet-button") : null,
       session.community ? pinAction(post, session.community) : null,
       actionButton("Reply", () => showReply(post), "primary-button"),
-      actionButton("Revisit", () => showRevisit(post)),
+      actionButton("Save", () => showRevisit(post)),
       post.author === activePersona(session.state)?.publicKey ? actionButton("Preserve media", () => preserveMedia(post)) : null,
       post.author === activePersona(session.state)?.publicKey ? actionButton("Edit", () => showEdit(post)) : null,
       post.author === activePersona(session.state)?.publicKey && !post.disowned ? actionButton("Disown…", () => showDisown(post), "danger-button") : null,
@@ -1013,7 +1013,7 @@ function commentView(comment) {
       element("button", { type: "button", class: "text-action", text: `▲ ${comment.currentScore ?? 0}`, onclick: () => react(comment.anchor, "+") }),
       element("button", { type: "button", class: "text-action", text: "▼", onclick: () => react(comment.anchor, "-") }),
       element("button", { type: "button", class: "text-action", text: "Reply", onclick: () => showReply(comment) }),
-      element("button", { type: "button", class: "text-action", text: "Revisit", onclick: () => showRevisit(comment) }),
+      element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(comment) }),
       element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(comment.anchor, "0") }),
       element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(comment) }),
       element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(comment) }),
@@ -2150,7 +2150,7 @@ function renderSettings() {
       field("Followed personas", "number", "feed_followed", feedWeights.followed, "", { min: 0, max: 200 }),
       field("Subscribed communities", "number", "feed_communities", feedWeights.communities, "", { min: 0, max: 200 }),
       field("Replies involving me", "number", "feed_replies", feedWeights.replies, "", { min: 0, max: 200 }),
-      field("Revisit memory", "number", "feed_revisit", feedWeights.revisit, "", { min: 0, max: 200 }),
+      field("Saved posts", "number", "feed_revisit", feedWeights.revisit, "", { min: 0, max: 200 }),
     ]),
     settingsPane("reddit", [
       element("h2", { class: "settings-subheading", text: "Reddit Bridge" }),
@@ -2588,19 +2588,19 @@ function showRevisit(object) {
   const persona = activePersona(session.state);
   const existing = (session.state.revisits ?? []).find((item) => item.personaId === persona.id && item.target === object.anchor);
   const intentions = [["return_soon", "Return soon"], ["reconsider_vote", "Reconsider my vote"], ["study", "Study"], ["notify_on_activity", "When discussion resumes"], ["review_on_date", "On a chosen date"], ["collection", "Place in a private collection"]];
-  modal("Revisit this", "Private remembering is separate from public approval.", element("div", {}, [
+  modal("Save this", "Saving is private and separate from public approval.", element("div", {}, [
     field("Intent", "select", "intent", "return_soon", "", { values: intentions }),
     field("Date", "date", "due", "", "Optional. Stored locally or in an encrypted Nostr list."),
     field("Private collection", "text", "collection", "", "Optional label visible only to this persona."),
-    existing ? actionButton("Remove from Revisit", async () => {
-      await mutate("revisit.remove", { persona_id: persona.id, target: object.anchor }, "Removed from this persona’s Revisit memory.");
+    existing ? actionButton("Remove from Saved", async () => {
+      await mutate("revisit.remove", { persona_id: persona.id, target: object.anchor }, "Removed from this persona’s saved posts.");
     }, "danger-button") : null,
-  ]), { submitLabel: "Add to Revisit", onSubmit: (data) => {
+  ]), { submitLabel: "Save", onSubmit: (data) => {
     const intent = data.get("intent");
-    if (intent === "review_on_date" && !data.get("due")) throw new Error("Choose a date for a scheduled Revisit.");
+    if (intent === "review_on_date" && !data.get("due")) throw new Error("Choose a date for the scheduled review.");
     if (intent === "collection" && !String(data.get("collection") ?? "").trim()) throw new Error("Name the private collection.");
     const due = data.get("due") ? Math.floor(new Date(`${data.get("due")}T12:00:00`).getTime() / 1000) : null;
-    return mutate("revisit.set", { persona_id: persona.id, target: object.anchor, intent, due_at: due, collection: data.get("collection") || null }, "Added to this persona’s private Revisit memory.");
+    return mutate("revisit.set", { persona_id: persona.id, target: object.anchor, intent, due_at: due, collection: data.get("collection") || null }, "Saved privately for this persona.");
   } });
 }
 

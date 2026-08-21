@@ -225,13 +225,14 @@ test("posting is community-scoped and synchronization is ambient", () => {
   assert.match(app, /scheduleAutomaticSync\(\)/);
 });
 
-test("Revisit is explicit private saved-for-later memory, not browsing history", () => {
-  assert.match(index, /data-nav="revisited" title="Posts you privately saved to revisit"/);
-  assert.match(index, /class="nav-icon"[\s\S]*Revisit/);
-  assert.doesNotMatch(index, /↺|>Revisited</);
-  assert.match(app, /session\.route === "revisited" \? "Revisit"/);
+test("Saved is explicit private saved-for-later memory, not browsing history", () => {
+  assert.match(index, /data-nav="revisited" title="Posts saved privately for this persona"/);
+  assert.match(index, /class="nav-icon"[\s\S]*Saved/);
+  assert.doesNotMatch(index, /↺|>Revisited|>Revisit</);
+  assert.match(app, /session\.route === "revisited" \? "Saved"/);
   assert.match(app, /this is not browsing history/);
-  assert.match(app, /Nothing saved for revisit/);
+  assert.match(app, /Nothing saved yet/);
+  assert.match(app, /text: "Save", onclick: \(\) => showRevisit/);
 });
 
 test("interface copy stays functional instead of adopting a persona", () => {
