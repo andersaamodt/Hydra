@@ -30,13 +30,15 @@ tools/package/build-macos-app
 tools/package/build-linux-deb
 ```
 
-Local macOS artifacts are ad-hoc signed. Public Developer ID signing and notarization require release credentials.
+Local macOS artifacts use Forge's dedicated local signing identity when it is
+available, which preserves Keychain authorization across rebuilds. They fall
+back to ad-hoc signing otherwise. Public Developer ID signing and notarization
+require release credentials.
 
 Hydra includes `wizardry.workspace.conf` for App Forge. Import the project folder into Forge to build and install the native macOS app; its canonical square icon master and generated platform assets live under `assets/`.
 Forge reads `app-blueprint/app.ir.yaml` only for native bundle metadata; the Tauri configuration and Rust sidecar remain Hydra's canonical application architecture.
-For local builds that must retain Keychain authorization across rebuilds, set
-`HYDRA_MACOS_SIGNING_IDENTITY` to an explicit stable Apple signing identity when
-Forge stages the bundle. The staging helper never guesses or embeds an identity.
+Hydra honors `HYDRA_MACOS_SIGNING_IDENTITY` first and Forge's
+`WIZARDRY_CODESIGN_IDENTITY` second when an explicit signing identity is needed.
 
 For Firefox development, load `extensions/firefox/manifest.json` as a temporary add-on from `about:debugging`. The companion only opens Reddit objects in Hydra, compacts visible Hydra markers, and sends narrowly validated native messages; it never receives Nostr keys or Reddit credentials.
 

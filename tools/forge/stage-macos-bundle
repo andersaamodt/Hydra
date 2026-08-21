@@ -48,8 +48,16 @@ runtime="$staging/Hydra.app/Contents/MacOS/hydra-runtime"
   printf '%s\n' "stage-macos-bundle: Hydra runtime sidecar is unavailable" >&2
   exit 1
 }
-identity=${HYDRA_MACOS_SIGNING_IDENTITY-}
+identity=${HYDRA_MACOS_SIGNING_IDENTITY-${WIZARDRY_CODESIGN_IDENTITY-}}
+if [ -z "$identity" ]; then
+  default_identity="Artificer Local Development Code Signing"
+  if security find-certificate -c "$default_identity" >/dev/null 2>&1; then
+    identity=$default_identity
+  fi
+fi
 if [ -n "$identity" ]; then
+  # A stable local identity lets macOS retain Hydra's Keychain authorization
+  # across rebuilds. Ad-hoc signatures change whenever the executable does.
   codesign --force --sign "$identity" \
     --identifier org.hydra.desktop.runtime \
     --options runtime --timestamp=none "$runtime"
