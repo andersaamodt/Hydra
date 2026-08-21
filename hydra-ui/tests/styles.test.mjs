@@ -62,7 +62,8 @@ test("macOS integrates the native title bar with Hydra's toolbar", () => {
   assert.match(app, /classList\.toggle\("platform-macos", isMacOS\)/);
   assert.match(app, /"data-tauri-drag-region": true/);
   assert.match(styles, /\.platform-macos \.app-shell\s*\{[^}]*grid-template-rows:\s*56px 1fr/);
-  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*padding:\s*7px 18px 7px 78px/);
+  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 610px\) 1fr;[^}]*padding:\s*7px 18px 7px 78px/);
+  assert.match(styles, /\.platform-macos #settings-button\s*\{\s*display:\s*none;/);
 });
 
 test("dark text and controls remain legible for every accent", () => {
@@ -187,15 +188,39 @@ test("macOS Settings opens in one dedicated window with horizontal keyboard tabs
   assert.match(styles, /\.settings-window \.sidebar/);
 });
 
-test("secondary destinations leave the sidebar and Messages uses an orangered toolbar envelope", () => {
+test("the quiet toolbar keeps messages gray until unread mail arrives", () => {
   const sidebar = index.match(/<aside class="sidebar"[\s\S]*?<\/aside>/)?.[0] ?? "";
   assert.doesNotMatch(sidebar, /Messages|Reddit Bridge|Settings/);
   assert.match(index, /<div class="top-actions">[\s\S]*id="messages-button"[\s\S]*id="settings-button"/);
+  assert.doesNotMatch(index, /class="brand"|id="sync-button"|id="compose-button"/);
+  assert.match(index, /class="toolbar-icon-glyph message-icon"[\s\S]*viewBox="0 0 24 24"/);
+  assert.match(index, /class="toolbar-icon-glyph settings-icon"[\s\S]*viewBox="0 0 14 14"/);
   assert.match(index, /id="message-badge" class="message-count" hidden/);
   assert.match(app, /messageRequestCount \?\? 0/);
   assert.match(app, /`Messages, \$\{unreadCount\} unread`/);
-  assert.match(styles, /\.message-button \.toolbar-icon-glyph\s*\{[^}]*color:\s*#ff4500/);
+  assert.match(app, /messagesButton\.classList\.toggle\("has-unread", unreadCount > 0\)/);
+  assert.match(styles, /\.message-icon\s*\{[^}]*width:\s*26px;[^}]*height:\s*26px;[^}]*color:\s*var\(--muted\)/);
+  assert.match(styles, /\.message-button\.has-unread \.message-icon\s*\{[^}]*color:\s*#ff4500/);
   assert.match(styles, /\.message-count\s*\{[^}]*background:\s*#ff4500/);
+});
+
+test("posting is community-scoped and synchronization is ambient", () => {
+  assert.doesNotMatch(index, /id="sync-button"|id="compose-button"/);
+  assert.match(app, /function audienceBar\(community\)/);
+  assert.match(app, /actionButton\("New post", \(\) => showComposer\(community\), "primary-button community-new-post"\)/);
+  assert.match(app, /const AUTOMATIC_SYNC_INTERVAL_MS = 120_000/);
+  assert.match(app, /async function automaticSync\(force = false\)/);
+  assert.match(app, /await runtime\("sync\.now"\)/);
+  assert.match(app, /scheduleAutomaticSync\(\)/);
+});
+
+test("Revisit is explicit private saved-for-later memory, not browsing history", () => {
+  assert.match(index, /data-nav="revisited" title="Posts you privately saved to revisit"/);
+  assert.match(index, /class="nav-icon"[\s\S]*Revisit/);
+  assert.doesNotMatch(index, /↺|>Revisited</);
+  assert.match(app, /session\.route === "revisited" \? "Revisit"/);
+  assert.match(app, /this is not browsing history/);
+  assert.match(app, /Nothing saved for revisit/);
 });
 
 test("interface copy stays functional instead of adopting a persona", () => {
@@ -246,14 +271,14 @@ test("one-click judgments use a pausable anchored grace-period callout", () => {
   assert.match(app, /class: "icon-button judgment-undo".*"aria-label": "Undo"/);
 });
 
-test("community routes replace app branding with the bare topic identity", () => {
-  assert.match(app, /function renderBrand\(\)/);
-  assert.match(app, /mark\.hidden = true/);
-  assert.match(styles, /\.brand-mark\[hidden\]\s*\{\s*display:\s*none;/);
-  assert.match(app, /domain\.textContent = "\/h\/"/);
-  assert.match(app, /name\.textContent = community/);
+test("community routes use one compact heading with art and actions", () => {
+  assert.doesNotMatch(app, /function renderBrand\(\)/);
+  assert.doesNotMatch(index, /class="brand"|brand-mark|brand-copy/);
   assert.match(app, /function communityViewHeader\(community, title, extras = \[\]\)/);
   assert.match(app, /function communityActionMenu\(community\)/);
+  assert.match(app, /class: "community-header-actions"[^\n]*\.\.\.extras, communityActionMenu\(community\)/);
+  assert.match(app, /text: "\/h"/);
+  assert.match(app, /text: "\/r"/);
   assert.match(app, /class: "community-menu-trigger"[^\n]*text: "⋮"/);
   assert.match(app, /function renderCommunityNormBanner\(community\)/);
   assert.match(app, /if \(!norms\.length\) return null;/);
@@ -269,8 +294,9 @@ test("community routes replace app branding with the bare topic identity", () =>
   assert.doesNotMatch(app, /function showAppearanceSources/);
   assert.doesNotMatch(app, /field\("SHA-256"/);
   assert.match(styles, /\.community-image-preview/);
-  assert.match(styles, /\.community-heading-art\s*\{[^}]*width:\s*92px;[^}]*height:\s*64px/);
-  assert.match(styles, /\.community-heading-image\s*\{[^}]*max-width:\s*100%;[^}]*max-height:\s*100%;[^}]*width:\s*auto;[^}]*height:\s*auto/);
+  assert.match(styles, /\.view-header\s*\{[^}]*height:\s*82px;[^}]*padding:\s*5px 28px/);
+  assert.match(styles, /\.community-heading-art\s*\{[^}]*max-width:\s*100px;[^}]*height:\s*72px/);
+  assert.match(styles, /\.community-heading-image\s*\{[^}]*max-width:\s*100px;[^}]*max-height:\s*100%;[^}]*width:\s*auto;[^}]*height:\s*72px/);
   assert.match(styles, /\.community-menu-trigger/);
   assert.match(styles, /\.community-menu-popover/);
   assert.match(styles, /\.community-norm-banner/);

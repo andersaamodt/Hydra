@@ -56,6 +56,10 @@ const session = {
   communityImages: new Map(),
   busy: false,
 };
+const AUTOMATIC_SYNC_INTERVAL_MS = 120_000;
+const AUTOMATIC_SYNC_MIN_GAP_MS = 15_000;
+let automaticSyncStartedAt = 0;
+let automaticSyncDebounce = null;
 
 function applyAppearance(settings = {}) {
   const theme = ["light", "dark", "system"].includes(settings.theme) ? settings.theme : "light";
@@ -162,6 +166,26 @@ async function refresh() {
   }
 }
 
+async function automaticSync(force = false) {
+  if (!invoke || isSettingsWindow || document.hidden || !activePersona(session.state)) return;
+  const elapsed = Date.now() - automaticSyncStartedAt;
+  if (elapsed < (force ? AUTOMATIC_SYNC_MIN_GAP_MS : AUTOMATIC_SYNC_INTERVAL_MS)) return;
+  automaticSyncStartedAt = Date.now();
+  try {
+    await runtime("sync.now");
+    for (const delay of [4_000, 15_000, 45_000]) {
+      window.setTimeout(() => { if (!document.hidden && !session.busy) void refresh(); }, delay);
+    }
+  } catch {
+    // Synchronization is ambient; transient relay failures should not interrupt the interface.
+  }
+}
+
+function scheduleAutomaticSync(delay = 750) {
+  window.clearTimeout(automaticSyncDebounce);
+  automaticSyncDebounce = window.setTimeout(() => void automaticSync(true), delay);
+}
+
 async function mutate(action, payload, success) {
   if (session.busy) return null;
   setBusy(true);
@@ -173,6 +197,7 @@ async function mutate(action, payload, success) {
     if (snapshot?.personas) session.state = snapshot;
     else session.state = extractState(await runtime("state"));
     render();
+    scheduleAutomaticSync();
     return result;
   } catch (error) {
     toast(readableError(error), true);
@@ -371,7 +396,6 @@ function render() {
     renderPendingJudgmentCallout();
     return;
   }
-  renderBrand();
   renderPersona();
   renderCommunities();
   if (!activePersona(session.state)) renderWelcome();
@@ -396,28 +420,6 @@ function topicIdenticon(topic) {
   const squares = mirrored.map(([x, y]) => `<rect x="${x * 20}" y="${y * 20}" width="20" height="20"/>`).join("");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="18" fill="hsl(${hue} 32% 18%)"/><g fill="hsl(${(hue + 38) % 360} 72% 70%)">${squares}</g></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
-
-function renderBrand() {
-  const brand = document.querySelector(".brand");
-  const mark = brand.querySelector(".brand-mark");
-  const domain = brand.querySelector("small");
-  const name = brand.querySelector("strong");
-  const community = session.route === "community" ? session.community : null;
-  if (community) {
-    mark.hidden = true;
-    domain.hidden = false;
-    domain.textContent = "/h/";
-    name.textContent = community;
-    brand.setAttribute("aria-label", `${community} community`);
-  } else {
-    mark.hidden = false;
-    mark.src = "hydra-icon.png";
-    mark.alt = "";
-    domain.hidden = true;
-    name.textContent = "Hydra";
-    brand.setAttribute("aria-label", "Hydra home");
-  }
 }
 
 function effectiveCommunityAppearance(community) {
@@ -494,6 +496,7 @@ function renderPersona() {
   const badge = document.querySelector("#message-badge");
   badge.hidden = unreadCount === 0;
   badge.textContent = String(unreadCount);
+  messagesButton.classList.toggle("has-unread", unreadCount > 0);
   messagesButton.setAttribute("aria-label", unreadCount ? `Messages, ${unreadCount} unread` : "Messages");
   messagesButton.title = unreadCount ? `${unreadCount} unread message${unreadCount === 1 ? "" : "s"}` : "Messages";
 }
@@ -566,9 +569,8 @@ function communityViewHeader(community, title, extras = []) {
         }),
       ]),
       element("h1", { text: title }),
-      communityActionMenu(community),
     ]),
-    ...extras,
+    element("div", { class: "community-header-actions" }, [...extras, communityActionMenu(community)]),
   ]);
 }
 
@@ -587,12 +589,12 @@ function chamberTabs() {
   return element("div", { class: "view-tabs", role: "tablist", "aria-label": "Community chamber" }, [
     element("button", {
       type: "button", role: "tab", class: `tab-button${session.chamber === "hydra" ? " is-active" : ""}`,
-      "aria-selected": session.chamber === "hydra", tabindex: session.chamber === "hydra" ? "0" : "-1", text: `/h/${session.community}`,
+      "aria-selected": session.chamber === "hydra", tabindex: session.chamber === "hydra" ? "0" : "-1", text: "/h",
       onclick: () => selectChamber("hydra"), onkeydown: move,
     }),
     element("button", {
       type: "button", role: "tab", class: `tab-button reddit${session.chamber === "reddit" ? " is-active" : ""}`,
-      "aria-selected": session.chamber === "reddit", tabindex: session.chamber === "reddit" ? "0" : "-1", text: `/r/${session.community}`,
+      "aria-selected": session.chamber === "reddit", tabindex: session.chamber === "reddit" ? "0" : "-1", text: "/r",
       onclick: () => selectChamber("reddit"), onkeydown: move,
     }),
   ]);
@@ -608,12 +610,15 @@ function lensBar() {
   })));
 }
 
-function audienceBar() {
+function audienceBar(community) {
   const audiences = [["all", "All personas"], ["reddit", "Reddit-linked"], ["followed", "Followed"]];
-  return element("div", { class: "lens-bar", "aria-label": "Community audience" }, audiences.map(([id, label]) => element("button", {
+  return element("div", { class: "lens-bar community-audience-bar", "aria-label": "Community audience" }, [
+    ...audiences.map(([id, label]) => element("button", {
     type: "button", class: `lens-button${session.audience === id ? " is-active" : ""}`, text: label,
     onclick: () => { session.audience = id; renderFeed(); },
-  })));
+    })),
+    actionButton("New post", () => showComposer(community), "primary-button community-new-post"),
+  ]);
 }
 
 function filterCommunityAudience(posts) {
@@ -627,7 +632,7 @@ function filterCommunityAudience(posts) {
 
 function renderFeed() {
   const community = session.route === "community" ? session.community : null;
-  const title = community ? `/${session.chamber === "reddit" ? "r" : "h"}/${community}` : session.route === "front" ? "Hydra Front Page" : session.route === "revisited" ? "Revisited" : "My Feed";
+  const title = community ? `/${session.chamber === "reddit" ? "r" : "h"}/${community}` : session.route === "front" ? "Hydra Front Page" : session.route === "revisited" ? "Revisit" : "My Feed";
   const extras = community
     ? [chamberTabs()]
     : session.route === "front"
@@ -647,18 +652,20 @@ function renderFeed() {
   if (!community && session.route === "feed") posts = myFeedPosts(session.state, posts);
   const list = element("div", { class: "content-list" });
   if (posts.length === 0) {
+    const revisit = session.route === "revisited";
     list.append(emptyState(
-      community ? `No posts in /h/${community}` : "No posts in My Feed",
-      community ? "The Reddit tab may contain posts from the corresponding subreddit." : "Follow a persona or subscribe to a community to add posts.",
-      "New post",
-      () => showComposer(community),
+      community ? `No posts in /h/${community}` : revisit ? "Nothing saved for revisit" : "No posts in My Feed",
+      community ? "The Reddit tab may contain posts from the corresponding subreddit." : revisit ? "Use Revisit on a post to keep it in this persona’s private saved-for-later memory." : "Follow a persona or subscribe to a community to add posts.",
+      null,
+      null,
     ));
   } else {
     list.append(...posts.map((post) => postCard(post, lens, community)));
   }
   const normBanner = community ? renderCommunityNormBanner(community) : null;
   const pins = community ? renderCommunityPins(community) : null;
-  view.replaceChildren(...[header, normBanner, pins, community ? audienceBar() : null, lensBar(), list].filter(Boolean));
+  const revisitIntro = session.route === "revisited" ? element("p", { class: "view-intro", text: "Posts you deliberately mark Revisit appear here for this persona; this is not browsing history." }) : null;
+  view.replaceChildren(...[header, revisitIntro, normBanner, pins, community ? audienceBar(community) : null, session.route === "revisited" ? null : lensBar(), list].filter(Boolean));
 }
 
 function renderCommunityPins(community) {
@@ -782,7 +789,7 @@ function emptyState(title, body, action, onAction) {
   return element("div", { class: "empty-state" }, [
     element("h2", { text: title }),
     body ? element("p", { text: body }) : null,
-    actionButton(action, onAction, "primary-button"),
+    action ? actionButton(action, onAction, "primary-button") : null,
   ]);
 }
 
@@ -1350,6 +1357,7 @@ function renderRedditCommunity(header, community) {
   const cached = session.reddit.community === community ? session.reddit.items : [];
   if (persona.redditLinked && (cached.length || session.reddit.community === community)) {
     const toolbar = element("div", { class: "community-actions" }, [
+      actionButton("New post", () => showComposer(community), "primary-button"),
       actionButton("Refresh Reddit", () => loadRedditCommunity(community)),
       actionButton("Leave thread", () => { stopRedditThreadRefresh(); session.reddit.threadRoot = null; session.reddit.threadItems = []; renderFeed(); }),
     ]);
@@ -2969,10 +2977,6 @@ document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListe
   if (button.dataset.nav === "settings") void openSettings();
   else setRoute(button.dataset.nav);
 }));
-document.querySelector("#compose-button").addEventListener("click", () => showComposer(session.community));
-document.querySelector("#sync-button").addEventListener("click", async () => {
-  try { await mutate("sync.now", {}, "Relay and active Reddit synchronization completed."); } catch { /* toast shown */ }
-});
 document.querySelector("#persona-button").addEventListener("click", () => activePersona(session.state) ? showPersonaMenu() : showPersonaCreator());
 document.querySelector("#add-community").addEventListener("click", () => {
   modal("Open a community", "Hydra communities are ownerless topics without membership approval.", field("Community", "text", "community", "", "Use a bare name or /h/name.", { required: true, placeholder: "science" }), { submitLabel: "Open /h/", onSubmit: (data) => {
@@ -3008,8 +3012,13 @@ document.addEventListener("click", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden || session.busy || modalRoot.childElementCount) return;
   refresh();
+  void automaticSync();
   if (session.reddit.threadRoot) resetRedditThreadRefresh();
 });
 
 void listenForSettingsTabRequests();
-refresh().then(listenForHydraLinks).catch((error) => toast(readableError(error), true));
+refresh().then(async () => {
+  await listenForHydraLinks();
+  void automaticSync(true);
+  window.setInterval(() => void automaticSync(), AUTOMATIC_SYNC_INTERVAL_MS);
+}).catch((error) => toast(readableError(error), true));

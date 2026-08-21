@@ -22,24 +22,23 @@
     <a class="skip-link" href="#main">Skip to discussion</a>
     <div id="app" class="app-shell" aria-busy="true" hidden>
       <header class="topbar" data-tauri-drag-region>
-        <button class="brand" type="button" data-nav="feed" aria-label="Hydra home">
-          <img class="brand-mark" src="hydra-icon.png" alt="" />
-          <span class="brand-copy"><small hidden></small><strong>Hydra</strong></span>
-        </button>
+        <div class="topbar-spacer" aria-hidden="true" data-tauri-drag-region></div>
         <label class="search-box">
           <span class="sr-only">Search Hydra</span>
           <input id="global-search" type="search" placeholder="Search people, /h/ communities, or Reddit URLs" autocomplete="off" />
           <kbd>⌘K</kbd>
         </label>
         <div class="top-actions">
-          <button id="sync-button" class="quiet-button" type="button">Sync</button>
-          <button id="compose-button" class="primary-button" type="button">New post</button>
           <button id="messages-button" class="toolbar-icon-button message-button" type="button" data-nav="messages" aria-label="Messages" title="Messages">
-            <span class="toolbar-icon-glyph" aria-hidden="true">✉</span>
+            <svg class="toolbar-icon-glyph message-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M2.25 5h19.5v14H2.25zM3 5.8l9 6.7 9-6.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+            </svg>
             <span id="message-badge" class="message-count" hidden></span>
           </button>
           <button id="settings-button" class="toolbar-icon-button settings-button" type="button" data-nav="settings" aria-label="Settings" title="Settings (⌘,)">
-            <span class="toolbar-icon-glyph" aria-hidden="true">⚙</span>
+            <svg class="toolbar-icon-glyph settings-icon" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+              <path d="M14 8.3V5.73l-1.58-.264c-.117-.44-.292-.848-.496-1.2l.93-1.285-1.81-1.84-1.31.908c-.371-.205-.781-.38-1.187-.497L8.288 0H5.72l-.263 1.578c-.437.117-.816.293-1.196.497L2.979 1.17 1.141 2.98l.934 1.287c-.2.38-.376.79-.493 1.228L.004 5.73V8.3l1.575.264c.117.438.292.818.496 1.198l-.93 1.315 1.809 1.813 1.312-.938c.38.205.787.38 1.224.497l.26 1.55h2.566l.263-1.58c.408-.117.817-.293 1.196-.497l1.315.935 1.81-1.812-.935-1.315c.203-.38.38-.76.495-1.2L14 8.305zM7 9.704c-1.488 0-2.683-1.2-2.683-2.69S5.542 4.327 7 4.327s2.683 1.198 2.683 2.69c0 1.49-1.195 2.688-2.683 2.688z" fill="currentColor" />
+            </svg>
           </button>
           <button id="persona-button" class="persona-button" type="button" aria-haspopup="menu" aria-expanded="false">
             <span class="avatar" aria-hidden="true">?</span>
@@ -53,7 +52,10 @@
           <button class="nav-item is-active" type="button" data-nav="feed"><span>⌂</span>My Feed</button>
           <button class="nav-item" type="button" data-nav="front"><span>✦</span>Front Page</button>
           <button class="nav-item" type="button" data-nav="open-nostr"><span>◎</span>Open Nostr</button>
-          <button class="nav-item" type="button" data-nav="revisited"><span>↺</span>Revisited</button>
+          <button class="nav-item" type="button" data-nav="revisited" title="Posts you privately saved to revisit">
+            <span><svg class="nav-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path d="M5 2.5h8v13l-4-2.7-4 2.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /></svg></span>
+            Revisit
+          </button>
         </nav>
         <section class="community-nav" aria-labelledby="community-heading">
           <div class="section-heading-row">
