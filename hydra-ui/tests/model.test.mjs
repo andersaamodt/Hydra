@@ -4,12 +4,14 @@ import {
   activePersona,
   commentsFor,
   discussionItemMatches,
+  filterOpenNostrItems,
   isRedditDiscussionProjection,
   JUDGMENT_GRACE_MS,
   parseRedditObjectUrl,
   pendingJudgmentDecision,
   myFeedPosts,
   normalizeCommunity,
+  openNostrKindLabel,
   redditDepth,
   relativeTime,
   sortedPosts,
@@ -73,6 +75,25 @@ test("Reddit URLs preserve exact post and comment targets", () => {
 test("active persona remains an explicit public persona", () => {
   const state = { personas: [{ id: "one", active: false }, { id: "two", active: true }] };
   assert.equal(activePersona(state).id, "two");
+});
+
+test("Open Nostr filtering narrows only the transient relay sample", () => {
+  const items = [
+    { id: "one", kind: 1, author: "alice", body: "A biology note", topics: ["science"], createdAt: 9_900 },
+    { id: "two", kind: 30023, author: "bob", body: "An essay", topics: [], createdAt: 1_000 },
+    { id: "three", kind: 30078, author: "carol", body: "", topics: ["books"], createdAt: 9_950, canon: { title: "The Dispossessed", creators: ["Ursula K. Le Guin"], identifiers: ["isbn:9780061054884"] } },
+  ];
+
+  assert.deepEqual(filterOpenNostrItems(items, { query: "biology" }, 10_000).map(({ id }) => id), ["one"]);
+  assert.deepEqual(filterOpenNostrItems(items, { query: "le guin" }, 10_000).map(({ id }) => id), ["three"]);
+  assert.deepEqual(filterOpenNostrItems(items, { query: "isbn:978" }, 10_000).map(({ id }) => id), ["three"]);
+  assert.deepEqual(filterOpenNostrItems(items, { topicState: "uncategorized" }, 10_000).map(({ id }) => id), ["two"]);
+  assert.deepEqual(filterOpenNostrItems(items, { kind: "30078" }, 10_000).map(({ id }) => id), ["three"]);
+  assert.deepEqual(filterOpenNostrItems(items, { age: "hour" }, 10_000).map(({ id }) => id), ["one", "three"]);
+  assert.deepEqual(filterOpenNostrItems(items, { query: "note", topicState: "tagged", age: "hour" }, 10_000).map(({ id }) => id), ["one"]);
+  assert.equal(openNostrKindLabel(30023), "Long-form note");
+  assert.equal(openNostrKindLabel(42), "Kind 42");
+  assert.equal(items.length, 3);
 });
 
 test("one post keeps one nested comment tree", () => {

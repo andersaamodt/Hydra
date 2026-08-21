@@ -141,6 +141,58 @@ export function relativeTime(timestamp, now = Math.floor(Date.now() / 1000)) {
   return `${Math.floor(seconds / 31_536_000)}y`;
 }
 
+const OPEN_NOSTR_AGE_SECONDS = {
+  hour: 3_600,
+  day: 86_400,
+  week: 604_800,
+};
+
+export function openNostrKindLabel(kind) {
+  return ({
+    1: "Text note",
+    11: "Thread",
+    20: "Picture",
+    21: "Video",
+    22: "Short video",
+    1063: "File metadata",
+    30023: "Long-form note",
+    30078: "Canon record",
+  })[Number(kind)] ?? `Kind ${kind}`;
+}
+
+export function filterOpenNostrItems(items, filters = {}, now = Math.floor(Date.now() / 1000)) {
+  const query = String(filters.query ?? "").trim().toLocaleLowerCase();
+  const topicState = filters.topicState ?? "all";
+  const kind = String(filters.kind ?? "all");
+  const maximumAge = OPEN_NOSTR_AGE_SECONDS[filters.age] ?? null;
+
+  return (items ?? []).filter((item) => {
+    const topics = item.topics ?? [];
+    if (topicState === "tagged" && !topics.length) return false;
+    if (topicState === "uncategorized" && topics.length) return false;
+    if (kind !== "all" && String(item.kind) !== kind) return false;
+    if (maximumAge !== null && (!Number.isFinite(item.createdAt) || now - item.createdAt > maximumAge)) return false;
+    if (!query) return true;
+
+    const canon = item.canon ?? {};
+    const searchable = [
+      item.id,
+      item.author,
+      item.body,
+      item.kind,
+      openNostrKindLabel(item.kind),
+      ...topics,
+      canon.role,
+      canon.objectId,
+      canon.title,
+      canon.summary,
+      ...(canon.creators ?? []),
+      ...(canon.identifiers ?? []),
+    ].filter((value) => value !== null && value !== undefined).join("\n").toLocaleLowerCase();
+    return searchable.includes(query);
+  });
+}
+
 export function provenance(object) {
   if (object.redditProjected) return { label: "Hydra → Reddit", tone: "projected" };
   return { label: "Hydra native", tone: "native" };

@@ -179,6 +179,12 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .lens-bar { display: flex; gap: 6px; padding: 12px 28px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--bar); }
 .lens-button { flex: 0 0 auto; padding: 6px 10px; border: 1px solid transparent; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
 .lens-button:hover, .lens-button.is-active { color: var(--ink); border-color: var(--line); background: rgba(255,255,255,.05); }
+.open-nostr-filters { border-bottom: 1px solid var(--line); background: var(--bar); }
+.open-nostr-filter-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 12px 28px; }
+.open-nostr-search { flex: 1 1 260px; display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.open-nostr-search input { min-height: 34px; width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 6px 10px; color: var(--ink); background: var(--panel); }
+.open-nostr-result-count { align-self: center; margin-left: auto; color: var(--muted); font-size: 12px; }
+.open-nostr-filters .lens-bar { padding-top: 0; border-bottom: 0; }
 .tree-filter-bar { align-items: center; margin: 10px 0; padding: 8px 0; border: 0; background: transparent; }
 .filter-select { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .filter-select select { border: 1px solid var(--line); border-radius: 5px; padding: 6px 24px 6px 10px; color: var(--ink); background: var(--panel); }

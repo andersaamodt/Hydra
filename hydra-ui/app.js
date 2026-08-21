@@ -4,6 +4,8 @@ import {
   activePersona,
   commentsFor,
   durabilityLabel,
+  filterOpenNostrItems,
+  openNostrKindLabel,
   parseRedditObjectUrl,
   pendingJudgmentDecision,
   provenance,
@@ -29,7 +31,7 @@ const session = {
   selected: null,
   treeFilters: {},
   reddit: { community: null, items: [], rules: [], rulesAvailable: false, after: null, threadRoot: null, threadItems: [], focusedFullname: null, refreshTimer: null, refreshStep: 0, requestEpoch: 0 },
-  openNostr: { items: [], loaded: false, filter: "all" },
+  openNostr: { items: [], loaded: false, filter: "all", query: "", kind: "all", age: "all" },
   companions: { checked: false, bookClubInstalled: false },
   revealedBlocks: new Set(),
   confirmingReveals: new Set(),
@@ -263,6 +265,7 @@ async function openHydraLink(value) {
       const resolved = await runtime("nostr.resolve", { persona_id: persona?.id ?? null, uri });
       session.openNostr.items = [resolved.result.item];
       session.openNostr.loaded = true;
+      resetOpenNostrFilters();
       setRoute("open-nostr");
       toast("Verified Nostr event opened. It remains transient until saved or used.");
       return;
@@ -1397,18 +1400,13 @@ function renderOpenNostr() {
   const controls = element("div", { class: "community-actions" }, [
     actionButton("Refresh from relays", loadOpenNostr, "primary-button"),
   ]);
-  const list = element("div", { class: "content-list" });
+  const list = element("div", { class: "content-list open-nostr-results" });
   if (!session.openNostr.loaded) {
     list.append(emptyState("No relay sample loaded", "Reading remains transient until you curate or categorize an event.", "Load from relays", loadOpenNostr));
   } else if (!session.openNostr.items.length) {
     list.append(emptyState("No recent discussion returned", "Try again later or choose different read relays in Settings.", "Refresh", loadOpenNostr));
   } else {
-    const items = filteredOpenNostrItems();
-    if (items.length) list.append(...items.map(openNostrCard));
-    else list.append(emptyState("Nothing in this view", "The current relay sample contains no events matching this category.", "Show everything", () => {
-      session.openNostr.filter = "all";
-      renderOpenNostr();
-    }));
+    renderOpenNostrResults(list);
   }
   const surfaces = [header];
   if (session.openNostr.loaded) surfaces.push(controls);
@@ -1418,26 +1416,73 @@ function renderOpenNostr() {
 }
 
 function filteredOpenNostrItems() {
-  if (session.openNostr.filter === "tagged") {
-    return session.openNostr.items.filter((item) => item.topics?.length);
-  }
-  if (session.openNostr.filter === "uncategorized") {
-    return session.openNostr.items.filter((item) => !item.topics?.length);
-  }
-  return session.openNostr.items;
+  return filterOpenNostrItems(session.openNostr.items, {
+    topicState: session.openNostr.filter,
+    query: session.openNostr.query,
+    kind: session.openNostr.kind,
+    age: session.openNostr.age,
+  });
+}
+
+function resetOpenNostrFilters() {
+  Object.assign(session.openNostr, { filter: "all", query: "", kind: "all", age: "all" });
 }
 
 function openNostrFilterBar() {
   const filters = [["all", "All"], ["tagged", "Tagged"], ["uncategorized", "Uncategorized"]];
-  return element("div", { class: "lens-bar", "aria-label": "Open Nostr view" }, filters.map(([id, label]) => element("button", {
-    type: "button",
-    class: `lens-button${session.openNostr.filter === id ? " is-active" : ""}`,
-    text: label,
-    onclick: () => {
-      session.openNostr.filter = id;
-      renderOpenNostr();
+  const kinds = [...new Set(session.openNostr.items.map((item) => Number(item.kind)).filter(Number.isFinite))].sort((a, b) => a - b);
+  const search = element("input", {
+    type: "search",
+    value: session.openNostr.query,
+    placeholder: "Filter this relay sample",
+    autocomplete: "off",
+    "aria-label": "Filter loaded Nostr events",
+    oninput: (event) => {
+      session.openNostr.query = event.currentTarget.value;
+      renderOpenNostrResults();
     },
-  })));
+  });
+  const selectFilter = (label, value, values, update) => element("label", { class: "filter-select" }, [
+    element("span", { text: label }),
+    element("select", { value, onchange: (event) => { update(event.currentTarget.value); renderOpenNostrResults(); } }, values.map(([id, text]) => element("option", {
+      value: id,
+      text,
+      selected: id === value ? "selected" : null,
+    }))),
+  ]);
+  return element("section", { class: "open-nostr-filters", "aria-label": "Filter loaded Nostr events" }, [
+    element("div", { class: "open-nostr-filter-controls" }, [
+      element("label", { class: "open-nostr-search" }, [element("span", { text: "Filter" }), search]),
+      selectFilter("Kind", session.openNostr.kind, [["all", "All kinds"], ...kinds.map((kind) => [String(kind), openNostrKindLabel(kind)])], (value) => { session.openNostr.kind = value; }),
+      selectFilter("Age", session.openNostr.age, [["all", "Any age"], ["hour", "Last hour"], ["day", "Last day"], ["week", "Last week"]], (value) => { session.openNostr.age = value; }),
+      element("output", { class: "open-nostr-result-count", "aria-live": "polite", text: `${filteredOpenNostrItems().length} of ${session.openNostr.items.length}` }),
+    ]),
+    element("div", { class: "lens-bar", "aria-label": "Topic tag state" }, filters.map(([id, label]) => element("button", {
+      type: "button",
+      class: `lens-button${session.openNostr.filter === id ? " is-active" : ""}`,
+      text: label,
+      onclick: (event) => {
+        session.openNostr.filter = id;
+        event.currentTarget.parentElement.querySelectorAll(".lens-button").forEach((button) => button.classList.toggle("is-active", button === event.currentTarget));
+        renderOpenNostrResults();
+      },
+    }))),
+  ]);
+}
+
+function renderOpenNostrResults(list = view.querySelector(".open-nostr-results")) {
+  if (!list) return;
+  const items = filteredOpenNostrItems();
+  const count = view.querySelector(".open-nostr-result-count");
+  if (count) count.textContent = `${items.length} of ${session.openNostr.items.length}`;
+  if (items.length) {
+    list.replaceChildren(...items.map(openNostrCard));
+    return;
+  }
+  list.replaceChildren(emptyState("No matching events", "No events in this relay sample match the current filters.", "Clear filters", () => {
+    resetOpenNostrFilters();
+    renderOpenNostr();
+  }));
 }
 
 function openNostrCard(item) {
@@ -1554,6 +1599,7 @@ async function loadOpenNostr() {
     const response = await runtime("nostr.open", { persona_id: persona?.id ?? null, since: null, limit: 30 });
     session.openNostr.items = response.result?.items ?? [];
     session.openNostr.loaded = true;
+    resetOpenNostrFilters();
     renderOpenNostr();
     toast(`Loaded ${session.openNostr.items.length} recent Nostr event${session.openNostr.items.length === 1 ? "" : "s"}.`);
   } catch (error) {

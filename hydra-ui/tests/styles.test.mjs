@@ -48,6 +48,11 @@ test("Open Nostr uses a readable one-column card and bounded first page", () => 
   assert.match(app, /\["tagged",\s*"Tagged"\]/);
   assert.match(app, /\["uncategorized",\s*"Uncategorized"\]/);
   assert.match(app, /limit:\s*30/);
+  assert.match(app, /placeholder:\s*"Filter this relay sample"/);
+  assert.match(app, /\["all",\s*"All kinds"\]/);
+  assert.match(app, /\["hour",\s*"Last hour"\]/);
+  assert.match(app, /open-nostr-result-count/);
+  assert.match(styles, /\.open-nostr-filter-controls\s*\{[^}]*flex-wrap:\s*wrap/);
 });
 
 test("Book Club cross-links require both local consent and an installed handler", () => {
