@@ -23,6 +23,7 @@ const deepLink = window.__TAURI__?.deepLink;
 const desktopDialog = window.__TAURI__?.dialog;
 const desktopEvent = window.__TAURI__?.event;
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
+const isMacOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
 const requestedSettingsTab = new URLSearchParams(window.location.search).get("tab");
 const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
 const ACCENT_COLORS = {
@@ -33,6 +34,7 @@ const ACCENT_COLORS = {
   moss: "#6f846f",
 };
 document.documentElement.classList.toggle("settings-window", isSettingsWindow);
+document.documentElement.classList.toggle("platform-macos", isMacOS);
 document.body.classList.toggle("settings-window", isSettingsWindow);
 const session = {
   state: null,
@@ -1920,6 +1922,7 @@ function settingsTabs() {
   ]));
   return element("div", {
     class: "settings-tabs",
+    "data-tauri-drag-region": true,
     role: "tablist",
     "aria-label": "Settings sections",
     onkeydown: (event) => {

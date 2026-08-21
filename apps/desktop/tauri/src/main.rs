@@ -12,7 +12,7 @@ use std::process::Command as ProcessCommand;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(target_os = "macos")]
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::{
     ShellExt,
     process::{CommandChild, CommandEvent},
@@ -70,6 +70,8 @@ fn open_settings_window(app: AppHandle, tab: Option<String>) -> Result<bool, Str
             WebviewUrl::App(format!("index.html?window=settings&tab={tab}").into()),
         )
         .title("Hydra Settings")
+        .hidden_title(true)
+        .title_bar_style(TitleBarStyle::Overlay)
         .inner_size(760.0, 680.0)
         .min_inner_size(640.0, 520.0)
         .maximizable(false)

@@ -51,6 +51,19 @@ test("the application shell has no permanent right status sidebar", () => {
   assert.match(styles, /\.app-shell\s*\{[^}]*grid-template-columns:\s*230px minmax\(480px, 1fr\)/);
 });
 
+test("macOS integrates the native title bar with Hydra's toolbar", () => {
+  assert.match(tauri, /"hiddenTitle": true/);
+  assert.match(tauri, /"titleBarStyle": "Overlay"/);
+  assert.match(tauri, /"trafficLightPosition": \{ "x": 15, "y": 20 \}/);
+  assert.match(desktop, /TitleBarStyle::Overlay/);
+  assert.match(desktop, /\.hidden_title\(true\)/);
+  assert.match(index, /<header class="topbar" data-tauri-drag-region>/);
+  assert.match(app, /classList\.toggle\("platform-macos", isMacOS\)/);
+  assert.match(app, /"data-tauri-drag-region": true/);
+  assert.match(styles, /\.platform-macos \.app-shell\s*\{[^}]*grid-template-rows:\s*56px 1fr/);
+  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*padding:\s*7px 18px 7px 78px/);
+});
+
 test("dark text and controls remain legible for every accent", () => {
   const accents = ["#6f8299", "#6574a8", "#826fa3", "#a56f5d", "#6f846f"];
   const rgb = (hex) => [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
