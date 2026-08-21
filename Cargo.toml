@@ -8,6 +8,7 @@ members = [
   "crates/hydra-runtime",
   "crates/hydra-nostr",
   "crates/hydra-protocol",
+  "crates/hydra-bridge",
   "crates/hydra-reddit",
   "crates/hydra-lens",
   "crates/hydra-media",

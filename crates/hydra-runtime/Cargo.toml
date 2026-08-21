@@ -11,6 +11,7 @@ hydra-domain = { path = "../hydra-domain" }
 hydra-store = { path = "../hydra-store" }
 hydra-nostr = { path = "../hydra-nostr" }
 hydra-reddit = { path = "../hydra-reddit" }
+hydra-bridge = { path = "../hydra-bridge" }
 hydra-media = { path = "../hydra-media" }
 hydra-lens = { path = "../hydra-lens" }
 nostr.workspace = true

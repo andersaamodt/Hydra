@@ -2148,6 +2148,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hydra-bridge"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.19",
+ "uuid",
+]
+
+[[package]]
 name = "hydra-desktop"
 version = "1.0.0"
 dependencies = [
@@ -2270,6 +2282,7 @@ version = "1.0.0"
 dependencies = [
  "flocking-core",
  "hydra-app",
+ "hydra-bridge",
  "hydra-domain",
  "hydra-lens",
  "hydra-media",

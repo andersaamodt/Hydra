@@ -49,6 +49,7 @@ const session = {
   reddit: { community: null, items: [], rules: [], rulesAvailable: false, after: null, threadRoot: null, threadItems: [], focusedFullname: null, refreshTimer: null, refreshStep: 0, requestEpoch: 0 },
   openNostr: { items: [], loaded: false, filter: "all", query: "", kind: "all", age: "all" },
   companions: { checked: false, bookClubInstalled: false },
+  foreignBridges: {},
   revealedBlocks: new Set(),
   confirmingReveals: new Set(),
   pendingJudgment: null,
@@ -142,14 +143,16 @@ async function refresh() {
   if (session.busy) return;
   setBusy(true);
   try {
-    const [result, companions] = await Promise.all([
+    const [result, companions, bridges] = await Promise.all([
       runtime("state"),
       session.companions.checked
         ? Promise.resolve(session.companions)
         : invoke("companion_status").catch(() => session.companions),
+      runtime("bridge.status").catch(() => null),
     ]);
     session.state = extractState(result);
     session.companions = { checked: true, bookClubInstalled: Boolean(companions.bookClubInstalled) };
+    session.foreignBridges = bridges?.result?.bridges ?? bridges?.data?.bridges ?? session.foreignBridges;
     render();
     finishBoot();
   } catch (error) {
@@ -1762,14 +1765,18 @@ function redditBridgeSections() {
     .sort((left, right) => right.editedAt - left.editedAt);
   const visibleImportedWriting = importedWriting.slice(0, 25);
   const duplicateGroups = new Map();
+  const installed = Boolean(session.foreignBridges.reddit);
   for (const projection of projections.filter((item) => !["abandoned", "withdrawn"].includes(item.state))) {
     const key = `${projection.anchor}\n${projection.destinationSystem}\n${projection.destination}`;
     duplicateGroups.set(key, (duplicateGroups.get(key) ?? 0) + 1);
   }
   return [
     element("section", { class: "context-card" }, [
-      element("h2", { text: persona.redditLinked ? "Reddit connected" : "No Reddit account linked" }),
-      actionButton(persona.redditLinked ? "Disconnect Reddit" : "Connect with Reddit OAuth", persona.redditLinked ? disconnectReddit : connectReddit, persona.redditLinked ? "danger-button" : "primary-button"),
+      element("h2", { text: installed ? (persona.redditLinked ? "Reddit connected" : "Reddit Bridge installed") : "Reddit Bridge is optional" }),
+      installed
+        ? actionButton(persona.redditLinked ? "Disconnect Reddit" : "Connect with Reddit OAuth", persona.redditLinked ? disconnectReddit : connectReddit, persona.redditLinked ? "danger-button" : "primary-button")
+        : actionButton("Install Reddit Bridge", installRedditBridge, "primary-button"),
+      !installed ? element("p", { class: "evidence-note", text: "Hydra installs and configures the selected bridge executable. Reddit credentials and API behavior remain inside Reddit Bridge." }) : null,
       persona.redditLinked ? actionButton(persona.redditProof ? "Replace public identity proof" : "Publish optional identity proof", showRedditIdentityProof) : null,
       persona.redditProof ? element("p", { class: "evidence-note", text: `Public proof: ${persona.redditProof}` }) : null,
     ]),
@@ -2753,6 +2760,25 @@ async function showBackupRestore() {
     submitLabel: "Restore archive",
     onSubmit: (data) => mutate("backup.restore", { persona_id: null, path, passphrase: data.get("passphrase") }, "Encrypted persona archive restored and verified."),
   });
+}
+
+async function installRedditBridge() {
+  if (!desktopDialog) { toast("The desktop file chooser is unavailable.", true); return; }
+  const path = await desktopDialog.open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "Reddit Bridge", extensions: navigator.platform.startsWith("Win") ? ["exe"] : ["*"] }],
+  });
+  if (!path) return;
+  try {
+    const response = await runtime("bridge.install_local", { id: "reddit", path });
+    const installed = response?.result?.bridge ?? response?.data?.bridge;
+    if (installed) session.foreignBridges.reddit = installed;
+    toast("Reddit Bridge installed and configured.");
+    render();
+  } catch (error) {
+    toast(readableError(error), true);
+  }
 }
 
 async function connectReddit() {

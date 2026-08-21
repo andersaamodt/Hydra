@@ -22,6 +22,7 @@ use hydra_app::{
     SetPersonSource, SetPinDismissal, SetReverseBlockSource, SetRevisit, SocialService,
     SyncService, private_state,
 };
+use hydra_bridge::{BridgeError as ForeignBridgeError, BridgeRegistry};
 use hydra_domain::{
     AnchorId, CommunityKey, ContinuityState, ContinuityWorkflow, DraftKind, DraftRecord,
     DurableEvent, ExternalId, LocalFilterKind, MessageDirection, NostrPublicKey, OperationId,
@@ -67,6 +68,8 @@ enum RuntimeError {
     Reddit(#[from] RedditError),
     #[error(transparent)]
     Bridge(#[from] BridgeError),
+    #[error(transparent)]
+    ForeignBridge(#[from] ForeignBridgeError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("URL is invalid: {0}")]
@@ -811,6 +814,22 @@ struct RedditOAuthUnlinkInput {
 struct RedditIdentityProofInput {
     persona_id: String,
     artifact_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForeignBridgeInstallInput {
+    id: String,
+    path: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForeignBridgeInvokeInput {
+    id: String,
+    operation: String,
+    #[serde(default)]
+    persona_id: Option<String>,
+    #[serde(default)]
+    payload: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3091,6 +3110,9 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "settings.update" => settings_update_action(root, input),
         "firefox.install" => firefox_install_action(input),
         "readiness.probe" => readiness_probe_action(root).await,
+        "bridge.status" => foreign_bridge_status_action(root),
+        "bridge.install_local" => foreign_bridge_install_action(root, input),
+        "bridge.invoke" => foreign_bridge_invoke_action(root, input),
         "reddit.oauth.begin" => reddit_oauth_begin_action(input),
         "reddit.oauth.complete" => reddit_oauth_complete_action(root, input),
         "reddit.oauth.connect" => reddit_oauth_connect_action(root, input),
@@ -3231,6 +3253,40 @@ const REDDIT_USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (by /u/raisondecalcul)"
 );
+
+fn foreign_bridge_status_action(root: &Path) -> Result<(), RuntimeError> {
+    let registry = BridgeRegistry::new(root).load()?;
+    print_action_result(
+        "bridge.status",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": false, "bridges": registry.bridges}),
+    )
+}
+
+fn foreign_bridge_install_action(root: &Path, input: &str) -> Result<(), RuntimeError> {
+    let input: ForeignBridgeInstallInput = serde_json::from_str(input)?;
+    let installed = BridgeRegistry::new(root).install_local(&input.id, &input.path)?;
+    print_action_result(
+        "bridge.install_local",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": true, "bridge": installed}),
+    )
+}
+
+fn foreign_bridge_invoke_action(root: &Path, input: &str) -> Result<(), RuntimeError> {
+    let input: ForeignBridgeInvokeInput = serde_json::from_str(input)?;
+    let result = BridgeRegistry::new(root).invoke(
+        &input.id,
+        &input.operation,
+        input.persona_id.as_deref(),
+        &input.payload,
+    )?;
+    print_action_result(
+        "bridge.invoke",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": false, "adapter": input.id, "result": result}),
+    )
+}
 
 fn reddit_oauth_begin_action(input: &str) -> Result<(), RuntimeError> {
     let input: RedditOAuthBeginInput = serde_json::from_str(input)?;
