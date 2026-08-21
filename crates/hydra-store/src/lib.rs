@@ -50,6 +50,10 @@ where
     T: Send + 'static,
     F: FnOnce() -> Option<T> + Send + 'static,
 {
+    if env::var_os("HYDRA_DISABLE_KEYRING").is_some() {
+        return None;
+    }
+
     #[cfg(target_os = "macos")]
     {
         operation()
@@ -710,7 +714,17 @@ fn load_or_create_store_key(root: &Path) -> Result<[u8; 32], StoreError> {
                 .ok_or_else(|| {
                     StoreError::Credential("platform keyring is unavailable".to_owned())
                 })?;
-                decode_store_key(&encoded)
+                let key = decode_store_key(&encoded)?;
+                write_private_key_file(root, &encoded)?;
+                write_json_atomic(
+                    &metadata_path,
+                    &StoreKeyMetadata {
+                        schema: METADATA_SCHEMA.to_owned(),
+                        id: metadata.id,
+                        mode: StoreKeyMode::LocalFile,
+                    },
+                )?;
+                Ok(key)
             }
             StoreKeyMode::LocalFile => {
                 let path = root.join(".store-key");
@@ -743,33 +757,13 @@ fn load_or_create_store_key(root: &Path) -> Result<[u8; 32], StoreError> {
     let mut key = [0_u8; 32];
     OsRng.fill_bytes(&mut key);
     let encoded = BASE64.encode(key);
-    let use_local_file = root.starts_with(std::env::temp_dir())
-        || std::env::var_os("HYDRA_LOCAL_STORE_KEY").is_some();
-    let mode = if use_local_file {
-        write_private_key_file(root, &encoded)?;
-        StoreKeyMode::LocalFile
-    } else {
-        let keyring_id = id.clone();
-        let keyring_value = encoded.clone();
-        let stored = try_platform_keyring(move || {
-            let entry = keyring::Entry::new(SERVICE, &keyring_id).ok()?;
-            entry.set_password(&keyring_value).ok()?;
-            entry.get_password().ok()
-        })
-        .is_some_and(|value| value == encoded);
-        if stored {
-            StoreKeyMode::Keyring
-        } else {
-            write_private_key_file(root, &encoded)?;
-            StoreKeyMode::LocalFile
-        }
-    };
+    write_private_key_file(root, &encoded)?;
     write_json_atomic(
         &metadata_path,
         &StoreKeyMetadata {
             schema: METADATA_SCHEMA.to_owned(),
             id,
-            mode,
+            mode: StoreKeyMode::LocalFile,
         },
     )?;
     Ok(key)
@@ -792,10 +786,26 @@ fn write_private_key_file(root: &Path, encoded: &str) -> Result<(), StoreError> 
         use std::os::unix::fs::OpenOptionsExt as _;
         options.mode(0o600);
     }
-    let mut file = options.open(path)?;
-    file.write_all(encoded.as_bytes())?;
-    file.sync_all()?;
-    Ok(())
+    match options.open(&path) {
+        Ok(mut file) => {
+            file.write_all(encoded.as_bytes())?;
+            file.sync_all()?;
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            reject_symlink(&path)?;
+            let existing = String::from_utf8(read_bounded_regular_file(&path, 1024)?)
+                .map_err(|error| StoreError::Encryption(error.to_string()))?;
+            if existing.trim() == encoded {
+                Ok(())
+            } else {
+                Err(StoreError::Credential(
+                    "local event-storage key conflicts with Keychain".to_owned(),
+                ))
+            }
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn load_or_create_credential_key(root: &Path) -> Result<[u8; 32], StoreError> {

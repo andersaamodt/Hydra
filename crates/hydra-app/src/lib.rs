@@ -238,32 +238,25 @@ impl PlatformSecretStore {
         }) {
             return "secure credential vault";
         }
-        if try_platform_keyring(move || Self::entry(persona).ok()?.get_password().ok()).is_some() {
-            return "system credential vault";
-        }
         "credential unavailable"
+    }
+
+    #[must_use]
+    pub fn available_without_keyring(persona: PersonaId) -> bool {
+        Self::local().is_ok_and(|vault| vault.get(&persona.to_string()).is_ok())
+            || Self::cache_key(persona).is_some_and(|key| {
+                Self::cache()
+                    .lock()
+                    .is_ok_and(|cache| cache.contains_key(&key))
+            })
     }
 }
 
 impl SecretStore for PlatformSecretStore {
     fn set(&self, persona: PersonaId, secret: &str) -> Result<(), AppError> {
-        let keyring_secret = secret.to_owned();
-        let keyring_stored = try_platform_keyring(move || {
-            let entry = Self::entry(persona).ok()?;
-            entry.set_password(&keyring_secret).ok()?;
-            entry.get_password().ok()
-        })
-        .is_some_and(|stored| stored == secret);
-        let local = Self::local()?;
-        let result = if keyring_stored {
-            let _ = local.delete(&persona.to_string());
-            Ok(())
-        } else {
-            local
-                .set(&persona.to_string(), secret)
-                .map_err(|error| AppError::Credential(error.to_string()))
-        };
-        result?;
+        Self::local()?
+            .set(&persona.to_string(), secret)
+            .map_err(|error| AppError::Credential(error.to_string()))?;
         if let Some(key) = Self::cache_key(persona) {
             Self::cache()
                 .lock()
@@ -292,6 +285,9 @@ impl SecretStore for PlatformSecretStore {
         }
         let secret = try_platform_keyring(move || Self::entry(persona).ok()?.get_password().ok())
             .ok_or_else(|| AppError::Credential("credential not found".to_owned()))?;
+        Self::local()?
+            .set(&persona.to_string(), &secret)
+            .map_err(|error| AppError::Credential(error.to_string()))?;
         if let Some(key) = cache_key {
             Self::cache()
                 .lock()

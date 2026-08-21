@@ -116,10 +116,17 @@ impl PlatformRedditCredentialStore {
         }) {
             return "secure credential vault";
         }
-        if try_platform_keyring(move || Self::entry(persona).ok()?.get_password().ok()).is_some() {
-            return "system credential vault";
-        }
         "credential unavailable"
+    }
+
+    #[must_use]
+    pub fn available_without_keyring(persona: PersonaId) -> bool {
+        Self::local().is_ok_and(|vault| vault.get(&persona.to_string()).is_ok())
+            || Self::cache_key(persona).is_some_and(|key| {
+                Self::cache()
+                    .lock()
+                    .is_ok_and(|cache| cache.contains_key(&key))
+            })
     }
 }
 
@@ -127,23 +134,9 @@ impl RedditCredentialStore for PlatformRedditCredentialStore {
     fn set(&self, persona: PersonaId, credential: &RedditCredential) -> Result<(), BridgeError> {
         let encoded = serde_json::to_string(credential)
             .map_err(|error| BridgeError::Credential(error.to_string()))?;
-        let keyring_value = encoded.clone();
-        let keyring_stored = try_platform_keyring(move || {
-            let entry = Self::entry(persona).ok()?;
-            entry.set_password(&keyring_value).ok()?;
-            entry.get_password().ok()
-        })
-        .is_some_and(|stored| stored == encoded);
-        let local = Self::local()?;
-        let result = if keyring_stored {
-            let _ = local.delete(&persona.to_string());
-            Ok(())
-        } else {
-            local
-                .set(&persona.to_string(), &encoded)
-                .map_err(|error| BridgeError::Credential(error.to_string()))
-        };
-        result?;
+        Self::local()?
+            .set(&persona.to_string(), &encoded)
+            .map_err(|error| BridgeError::Credential(error.to_string()))?;
         if let Some(key) = Self::cache_key(persona) {
             Self::cache()
                 .lock()
@@ -161,11 +154,17 @@ impl RedditCredentialStore for PlatformRedditCredentialStore {
         {
             return Ok(credential);
         }
-        let encoded = if let Ok(encoded) = Self::local()?.get(&persona.to_string()) {
+        let local = Self::local()?;
+        let encoded = if let Ok(encoded) = local.get(&persona.to_string()) {
             encoded
         } else {
-            try_platform_keyring(move || Self::entry(persona).ok()?.get_password().ok())
-                .ok_or_else(|| BridgeError::Credential("credential not found".to_owned()))?
+            let encoded =
+                try_platform_keyring(move || Self::entry(persona).ok()?.get_password().ok())
+                    .ok_or_else(|| BridgeError::Credential("credential not found".to_owned()))?;
+            local
+                .set(&persona.to_string(), &encoded)
+                .map_err(|error| BridgeError::Credential(error.to_string()))?;
+            encoded
         };
         let credential: RedditCredential = serde_json::from_str(&encoded)
             .map_err(|error| BridgeError::Credential(error.to_string()))?;

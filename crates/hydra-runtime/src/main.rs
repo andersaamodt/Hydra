@@ -5877,6 +5877,7 @@ fn sync_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     if let Err(error) = Command::new(executable)
         .args(["worker-sync", &operation.to_string()])
         .env("HYDRA_HOME", root)
+        .env("HYDRA_DISABLE_KEYRING", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -5933,7 +5934,13 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
             SyncService::sync_pending(&mut store, &publisher, unix_now()).await?;
         }
         let active_persona = active_persona_id(&store, &settings);
-        let communities = subscribed_communities(&store, &settings)?;
+        let active_available =
+            active_persona.is_some_and(PlatformSecretStore::available_without_keyring);
+        let communities = if active_available {
+            subscribed_communities(&store, &settings)?
+        } else {
+            Vec::new()
+        };
         if !communities.is_empty() {
             let since = store
                 .state()
@@ -5957,33 +5964,11 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
                 ImportService::receive_public(&mut store, &event.as_json(), unix_now())?;
             }
         }
-        if let Some(persona) = active_persona {
+        if active_available && let Some(persona) = active_persona {
             sync_flocking_person_sources(&mut store, &settings, persona).await?;
         }
         synchronize_recent_reddit_projections(&mut store, &settings);
-        let personas = store
-            .state()
-            .personas
-            .iter()
-            .map(|persona| persona.id)
-            .collect::<Vec<_>>();
-        for persona in personas {
-            let relays = store
-                .state()
-                .inbox_relays
-                .get(&persona)
-                .cloned()
-                .unwrap_or_else(|| settings.inbox_relays.clone());
-            let since = private_state(&PlatformSecretStore, &store, persona)?
-                .messages
-                .iter()
-                .map(|message| message.created_at)
-                .max()
-                .map(|latest| latest.saturating_sub(3 * 24 * 60 * 60));
-            MessagingService::new(PlatformSecretStore)
-                .receive_from_relays(&mut store, persona, &relays, since, unix_now())
-                .await?;
-        }
+        sync_persona_inboxes(&mut store, &settings).await?;
         Ok::<(), RuntimeError>(())
     }
     .await;
@@ -6000,6 +5985,39 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
         unix_now(),
     )?;
     result
+}
+
+async fn sync_persona_inboxes(
+    store: &mut DurableStore,
+    settings: &Settings,
+) -> Result<(), RuntimeError> {
+    let personas = store
+        .state()
+        .personas
+        .iter()
+        .map(|persona| persona.id)
+        .collect::<Vec<_>>();
+    for persona in personas {
+        if !PlatformSecretStore::available_without_keyring(persona) {
+            continue;
+        }
+        let relays = store
+            .state()
+            .inbox_relays
+            .get(&persona)
+            .cloned()
+            .unwrap_or_else(|| settings.inbox_relays.clone());
+        let since = private_state(&PlatformSecretStore, store, persona)?
+            .messages
+            .iter()
+            .map(|message| message.created_at)
+            .max()
+            .map(|latest| latest.saturating_sub(3 * 24 * 60 * 60));
+        MessagingService::new(PlatformSecretStore)
+            .receive_from_relays(store, persona, &relays, since, unix_now())
+            .await?;
+    }
+    Ok(())
 }
 
 fn acquire_sync_lock(root: &Path) -> Result<Option<fs::File>, RuntimeError> {
@@ -6160,6 +6178,9 @@ fn synchronize_recent_reddit_projections(store: &mut DurableStore, settings: &Se
     projections.sort_by_key(|(_, _, last_attempt)| *last_attempt);
     projections.truncate(50);
     for (projection, persona, _) in projections {
+        if !PlatformRedditCredentialStore::available_without_keyring(persona) {
+            continue;
+        }
         let Ok(adapter) = reddit_api(persona) else {
             continue;
         };
