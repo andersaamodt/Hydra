@@ -28,7 +28,7 @@ test("the default light stone-blue scheme uses derived semantic surfaces", () =>
 test("dark mode keeps every major surface on the dark palette", () => {
   for (const [selector, token] of [
     ["\\.topbar", "--chrome"],
-    ["\\.sidebar, \\.context-panel", "--sidebar-surface"],
+    ["\\.sidebar", "--sidebar-surface"],
     ["\\.main-panel", "--canvas"],
     ["\\.view-header", "--chrome"],
     ["\\.lens-bar", "--bar"],
@@ -42,6 +42,13 @@ test("dark mode keeps every major surface on the dark palette", () => {
   assert.match(styles, /--paper:\s*var\(--panel\)/);
   assert.match(styles, /:root\[data-resolved-theme="dark"\][\s\S]*--on-accent:\s*#18212b/);
   assert.match(styles, /\.primary-button\s*\{[^}]*color:\s*var\(--on-accent\)/);
+});
+
+test("the application shell has no permanent right status sidebar", () => {
+  assert.doesNotMatch(index, /context-panel|Context and activity/);
+  assert.doesNotMatch(app, /contextPanel|renderContext/);
+  assert.doesNotMatch(styles, /\.context-panel|\.context-status|\.status-dot/);
+  assert.match(styles, /\.app-shell\s*\{[^}]*grid-template-columns:\s*230px minmax\(480px, 1fr\)/);
 });
 
 test("dark text and controls remain legible for every accent", () => {

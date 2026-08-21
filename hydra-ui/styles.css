@@ -99,7 +99,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .skip-link { position: fixed; left: 16px; top: -60px; z-index: 1000; padding: 10px 14px; border-radius: 6px; color: var(--on-accent); background: var(--accent-strong); }
 .skip-link:focus { top: 12px; }
 
-.app-shell { height: 100vh; display: grid; grid-template-columns: 230px minmax(480px, 1fr) 290px; grid-template-rows: 68px 1fr; }
+.app-shell { height: 100vh; display: grid; grid-template-columns: 230px minmax(480px, 1fr); grid-template-rows: 68px 1fr; }
 .topbar { grid-column: 1 / -1; display: grid; grid-template-columns: 230px minmax(280px, 610px) 1fr; align-items: center; gap: 22px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--chrome); z-index: 5; }
 .brand { display: flex; align-items: center; gap: 11px; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
 .brand-mark { width: 40px; height: 40px; display: block; border-radius: 8px; }
@@ -133,7 +133,7 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .imported-writing-item { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
 .source-link { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; overflow-wrap: anywhere; }
 
-.sidebar, .context-panel { min-height: 0; overflow: auto; background: var(--sidebar-surface); }
+.sidebar { min-height: 0; overflow: auto; background: var(--sidebar-surface); }
 .sidebar { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; padding: 17px 12px 14px; border-right: 1px solid var(--line); }
 .nav-heading { margin: 8px 10px; color: var(--faint); font-size: 11px; font-weight: 750; letter-spacing: .03em; }
 .nav-item { width: 100%; min-height: 40px; display: grid; grid-template-columns: 23px 1fr auto; align-items: center; gap: 5px; margin: 2px 0; padding: 0 10px; border: 0; border-radius: 5px; color: var(--nav-ink); background: transparent; text-align: left; cursor: pointer; }
@@ -218,19 +218,11 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .text-action { border: 0; padding: 3px 5px; color: var(--muted); background: none; cursor: pointer; font-size: 11px; }
 .text-action:hover { color: var(--ink); }
 
-.context-panel { grid-column: 3; grid-row: 2; padding: 20px 16px; border-left: 1px solid var(--line); }
 .context-card { padding: 14px 0; border-bottom: 1px solid var(--line); }
 .context-card:first-child { padding-top: 0; }
 .context-card h2 { margin: 0 0 8px; font-size: 15px; }
 .context-card p, .context-card li { color: var(--muted); line-height: 1.5; }
-.context-status { padding: 0 0 14px; border-bottom: 1px solid var(--line); }
-.context-status h2 { margin: 0 0 9px; font-size: 12px; }
-.context-status p { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .readiness-row { display: grid; grid-template-columns: 9px 1fr; gap: 8px; margin: 9px 0; }
-.status-dot { width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--faint); }
-.status-dot.ready { background: var(--accent); }
-.status-dot.warning { background: var(--amber); }
-.status-dot.error { background: var(--red); }
 
 .discussion { max-width: 850px; margin: 0 auto; padding: 25px 28px 70px; }
 .back-button { border: 0; padding: 0 0 16px; color: var(--muted); background: none; cursor: pointer; }
@@ -259,7 +251,6 @@ html.settings-window,
 body.settings-window { min-width: 0; min-height: 0; }
 .settings-window .topbar,
 .settings-window .sidebar,
-.settings-window .context-panel,
 .settings-window .skip-link { display: none; }
 .settings-window .main-panel { width: 100%; height: 100vh; overflow: auto; background: var(--panel); }
 .settings-window .settings-page { min-height: 100%; }
@@ -308,7 +299,6 @@ body.settings-window { min-width: 0; min-height: 0; }
 
 @media (max-width: 1100px) {
   .app-shell { grid-template-columns: 210px minmax(470px, 1fr); }
-  .context-panel { display: none; }
   .topbar { grid-template-columns: 210px minmax(260px, 1fr) auto; }
   .persona-copy { display: none; }
 }

@@ -69,7 +69,6 @@ systemColorScheme.addEventListener("change", () => {
 });
 
 const view = document.querySelector("#view");
-const contextPanel = document.querySelector("#context-panel");
 const modalRoot = document.querySelector("#modal-root");
 const toastRegion = document.querySelector("#toast-region");
 
@@ -370,7 +369,6 @@ function render() {
   renderBrand();
   renderPersona();
   renderCommunities();
-  renderContext();
   if (!activePersona(session.state)) renderWelcome();
   else if (session.selected) renderDiscussion(session.selected);
   else if (session.route === "messages") renderMessages();
@@ -516,19 +514,6 @@ function renderCommunities() {
       onclick: () => setRoute("community", community),
     }, [element("span", { text: "#" }), element("span", { text: `/h/${community}` })]);
   }));
-}
-
-function renderContext() {
-  const state = session.state;
-  const readiness = state?.readiness ?? [];
-  const status = element("section", { class: "context-status" }, [
-    element("h2", { text: "Status" }),
-    ...readiness.map((item) => element("div", { class: "readiness-row" }, [
-      element("span", { class: `status-dot ${item.state}` }),
-      element("div", {}, [element("strong", { text: item.label }), element("p", { text: item.detail })]),
-    ])),
-  ]);
-  contextPanel.replaceChildren(status);
 }
 
 function viewHeader(title, extras = []) {
@@ -2226,7 +2211,6 @@ function renderUnavailable(error) {
   finishBoot();
   document.querySelector("#app").setAttribute("aria-busy", "false");
   view.replaceChildren(viewHeader("Hydra could not open"), element("div", { class: "content-list" }, [emptyState("Local runtime unavailable", readableError(error), "Try again", refresh)]));
-  contextPanel.replaceChildren();
 }
 
 function field(label, type, name, value = "", help = "", options = {}) {
