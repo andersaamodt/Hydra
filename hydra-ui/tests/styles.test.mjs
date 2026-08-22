@@ -24,7 +24,7 @@ test("the default light-blue scheme uses visibly tinted semantic surfaces", () =
   assert.match(styles, /\.topbar\s*\{[^}]*background:\s*var\(--chrome\)/);
   assert.match(styles, /\.post-card\s*\{[^}]*background:\s*transparent/);
   assert.match(styles, /\.context-card\s*\{[^}]*border-bottom:\s*1px solid var\(--line\)/);
-  assert.match(styles, /\.lens-bar\s*\{[^}]*background:\s*var\(--bar\)/);
+  assert.match(styles, /\.lens-bar\s*\{[^}]*padding:\s*5px 28px;[^}]*background:\s*var\(--bar\)/);
   assert.match(styles, /\.modal\s*\{[^}]*background:\s*var\(--modal\)/);
 });
 
