@@ -87,7 +87,12 @@ const SIDEBAR_WIDTH_DEFAULT = 230;
 const SIDEBAR_WIDTH_STORAGE_KEY = "hydra.sidebarWidth";
 const FAVORITE_REACTION_EMOJIS_STORAGE_KEY = "hydra.favoriteReactionEmojis";
 const RECENT_REACTION_EMOJIS_STORAGE_KEY = "hydra.recentReactionEmojis";
-const DEFAULT_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😂", "😮", "😢"];
+const COMPACT_REACTION_SLOT_COUNT_STORAGE_KEY = "hydra.compactReactionSlotCount";
+const LEGACY_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😂", "😮", "😢"];
+const DEFAULT_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😆", "😮", "😢", "🎉"];
+const DEFAULT_COMPACT_REACTION_SLOT_COUNT = 7;
+const MIN_COMPACT_REACTION_SLOT_COUNT = 3;
+const MAX_COMPACT_REACTION_SLOT_COUNT = 10;
 const EMOJI_CATEGORIES = [
   {
     id: "smileys",
@@ -413,7 +418,26 @@ function storeEmojiList(key, value) {
 }
 
 function favoriteReactionEmojis() {
-  return storedEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
+  const favorites = storedEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
+  if (favorites.length === LEGACY_FAVORITE_REACTION_EMOJIS.length && favorites.every((emoji, index) => emoji === LEGACY_FAVORITE_REACTION_EMOJIS[index])) {
+    return storeEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
+  }
+  return favorites;
+}
+
+function compactReactionSlotCount() {
+  try {
+    const stored = Number.parseInt(localStorage.getItem(COMPACT_REACTION_SLOT_COUNT_STORAGE_KEY), 10);
+    return Number.isFinite(stored) ? Math.min(MAX_COMPACT_REACTION_SLOT_COUNT, Math.max(MIN_COMPACT_REACTION_SLOT_COUNT, stored)) : DEFAULT_COMPACT_REACTION_SLOT_COUNT;
+  } catch {
+    return DEFAULT_COMPACT_REACTION_SLOT_COUNT;
+  }
+}
+
+function storeCompactReactionSlotCount(value) {
+  const count = Math.min(MAX_COMPACT_REACTION_SLOT_COUNT, Math.max(MIN_COMPACT_REACTION_SLOT_COUNT, Number(value) || DEFAULT_COMPACT_REACTION_SLOT_COUNT));
+  try { localStorage.setItem(COMPACT_REACTION_SLOT_COUNT_STORAGE_KEY, String(count)); } catch { /* The default still works without preference persistence. */ }
+  return count;
 }
 
 function recentReactionEmojis() {
@@ -3240,11 +3264,44 @@ function emojiPickerSection(title, emojis, picker, choose, options = {}) {
   return element("section", { class: `emoji-picker-section${options.favorites ? " emoji-favorites" : ""}`, id: options.id ?? null }, [
     element("div", { class: "emoji-section-heading" }, [
       element("h2", { text: title }),
-      options.hint ? element("span", { text: options.hint }) : null,
+      element("div", { class: "emoji-section-tools" }, [
+        options.hint ? element("span", { text: options.hint }) : null,
+        options.actions ?? null,
+      ]),
     ]),
     emojis.length
       ? emojiChoiceGrid(emojis, picker, choose, { favorites: options.favorites, label: title })
       : element("p", { class: "emoji-empty-state", text: options.empty ?? "No emoji here yet." }),
+  ]);
+}
+
+function changeCompactReactionSlotCount(picker, change) {
+  picker.slotCount = storeCompactReactionSlotCount(picker.slotCount + change);
+  refreshExpandedEmojiPicker(picker);
+  window.requestAnimationFrame(() => picker.scroll?.querySelector(`[data-slot-action="${change < 0 ? "decrease" : "increase"}"]`)?.focus());
+}
+
+function compactReactionSlotControls(picker) {
+  return element("div", { class: "emoji-slot-controls", role: "group", "aria-label": "Quick reaction slots" }, [
+    element("button", {
+      type: "button",
+      text: "−",
+      title: "Show fewer quick reactions",
+      "aria-label": "Show fewer quick reactions",
+      dataset: { slotAction: "decrease" },
+      disabled: picker.slotCount <= MIN_COMPACT_REACTION_SLOT_COUNT,
+      onclick: () => changeCompactReactionSlotCount(picker, -1),
+    }),
+    element("output", { text: `${picker.slotCount} slots`, "aria-live": "polite" }),
+    element("button", {
+      type: "button",
+      text: "+",
+      title: "Show more quick reactions",
+      "aria-label": "Show more quick reactions",
+      dataset: { slotAction: "increase" },
+      disabled: picker.slotCount >= MAX_COMPACT_REACTION_SLOT_COUNT,
+      onclick: () => changeCompactReactionSlotCount(picker, 1),
+    }),
   ]);
 }
 
@@ -3268,6 +3325,7 @@ function expandedEmojiPickerSections(picker, choose) {
   const favorites = emojiPickerSection("Favorites", picker.favorites, picker, choose, {
     favorites: true,
     hint: "Drag to arrange · drag out to remove · F toggles",
+    actions: compactReactionSlotControls(picker),
     empty: "Drag emoji here to make a quick reaction.",
   });
   if (picker.query.trim()) {
@@ -3293,7 +3351,7 @@ function refreshExpandedEmojiPicker(picker, focusEmoji = null) {
 function renderCompactEmojiPicker(picker) {
   picker.expanded = false;
   picker.callout.classList.remove("is-expanded");
-  const favorites = picker.favorites.slice(0, 6);
+  const favorites = picker.favorites.slice(0, picker.slotCount);
   const choices = emojiChoiceGrid(favorites, picker, picker.choose, { compact: true, label: "Favorite reactions" });
   const expand = element("button", {
     type: "button",
@@ -3364,6 +3422,7 @@ function showEmojiReaction(event, object) {
     query: "",
     favorites: favoriteReactionEmojis(),
     recent: recentReactionEmojis(),
+    slotCount: compactReactionSlotCount(),
     dragging: null,
     pointerDrag: null,
     suppressEmojiClick: false,

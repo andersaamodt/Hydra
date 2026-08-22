@@ -303,11 +303,15 @@ test("React uses one Signal-style favorites-first emoji picker", () => {
   assert.doesNotMatch(app, /actionButton\("React"|text: "React", onclick: \(event\) => showEmojiReaction/);
   assert.match(app, /function showEmojiReaction\(event, object\)/);
   assert.match(app, /class: "emoji-reaction-callout"/);
-  assert.match(app, /DEFAULT_FAVORITE_REACTION_EMOJIS = \["❤️", "👍", "👎", "😂", "😮", "😢"\]/);
+  assert.match(app, /DEFAULT_FAVORITE_REACTION_EMOJIS = \["❤️", "👍", "👎", "😆", "😮", "😢", "🎉"\]/);
+  assert.match(app, /DEFAULT_COMPACT_REACTION_SLOT_COUNT = 7/);
+  assert.match(app, /LEGACY_FAVORITE_REACTION_EMOJIS[\s\S]*storeEmojiList\(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS\)/);
   assert.match(app, /renderCompactEmojiPicker\(picker\)/);
   assert.match(app, /class: "emoji-picker-expand"/);
   assert.match(app, /function renderExpandedEmojiPicker\(picker\)/);
   assert.match(app, /emojiPickerSection\("Favorites"[\s\S]*emojiPickerSection\("Recently Used"/);
+  assert.match(app, /class: "emoji-slot-controls"[\s\S]*Show fewer quick reactions[\s\S]*Show more quick reactions/);
+  assert.match(app, /picker\.favorites\.slice\(0, picker\.slotCount\)/);
   assert.match(app, /placeholder: "Search emoji"/);
   assert.doesNotMatch(app, /emoji-callout-note|emoji-custom-row|settings gear/i);
   assert.match(app, /FAVORITE_REACTION_EMOJIS_STORAGE_KEY/);
@@ -323,6 +327,7 @@ test("React uses one Signal-style favorites-first emoji picker", () => {
   assert.match(styles, /\.emoji-reaction-callout::before\s*\{[^}]*transform:\s*rotate\(45deg\)/);
   assert.match(styles, /\.emoji-reaction-callout\.is-above::before/);
   assert.match(styles, /\.emoji-category-navigation button\s*\{[^}]*filter:\s*grayscale\(1\);[^}]*opacity:\s*\.68/);
+  assert.match(styles, /\.emoji-slot-controls\s*\{[^}]*grid-template-columns:\s*22px auto 22px/);
 });
 
 test("background Reddit refresh cannot overwrite a newer interaction", () => {

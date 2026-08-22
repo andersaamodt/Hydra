@@ -372,6 +372,12 @@ body.settings-window { min-width: 0; min-height: 0; }
 .emoji-section-heading { min-height: 22px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px; }
 .emoji-section-heading h2 { margin: 0; color: var(--muted); font: 650 11px/1.4 system-ui, sans-serif; }
 .emoji-section-heading span { overflow: hidden; color: var(--faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.emoji-section-tools { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.emoji-slot-controls { flex: 0 0 auto; display: inline-grid; grid-template-columns: 22px auto 22px; align-items: center; gap: 3px; }
+.emoji-slot-controls button { width: 22px; height: 22px; border: 0; border-radius: 5px; padding: 0; color: var(--muted); background: var(--shade); cursor: pointer; font: 650 15px/1 system-ui, sans-serif; }
+.emoji-slot-controls button:hover, .emoji-slot-controls button:focus-visible { color: var(--ink); background: var(--accent-faint); outline: 0; }
+.emoji-slot-controls button:disabled { opacity: .4; cursor: default; }
+.emoji-slot-controls output { min-width: 37px; color: var(--muted); font-size: 9px; text-align: center; white-space: nowrap; }
 .emoji-choice-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; }
 .emoji-choice { position: relative; min-width: 0; height: 38px; border: 0; border-radius: 7px; padding: 0; color: var(--ink); background: transparent; cursor: grab; font-size: 23px; line-height: 1; touch-action: none; }
 .emoji-choice:hover, .emoji-choice:focus-visible { background: var(--shade); outline: 0; }
