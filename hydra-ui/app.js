@@ -1013,7 +1013,7 @@ function renderPersona() {
   button.querySelector("strong").textContent = persona?.displayName || "No persona";
   const detail = button.querySelector("small");
   detail.hidden = !persona;
-  detail.textContent = persona ? `${persona.redditLinked ? "Reddit linked" : "Hydra only"} · ${persona.publicKey.slice(0, 10)}…` : "";
+  detail.textContent = persona ? `${persona.flair ? `${persona.flair} · ` : ""}${persona.redditLinked ? "Reddit linked" : "Hydra only"} · ${persona.publicKey.slice(0, 10)}…` : "";
   const unreadCount = session.state?.messageRequestCount ?? 0;
   const messagesButton = document.querySelector("#messages-button");
   const badge = document.querySelector("#message-badge");
@@ -1255,10 +1255,68 @@ function postActionMenu(post, lens, community) {
     element("div", { class: "community-menu-popover", role: "menu" }, [
       item("Why is this here?", () => toast(whyShown(post, lens, community))),
       item("Post details…", () => showPostDetails(post)),
+      item("Choose flair…", () => showPostFlair(post, community)),
       item("Vote details…", () => showVoteViews(post)),
     ]),
   );
   return menu;
+}
+
+function knownPersona(publicKey) {
+  return (session.state.personas ?? []).find((persona) => persona.publicKey === publicKey);
+}
+
+function authorInline(publicKey) {
+  const persona = knownPersona(publicKey);
+  return element("span", { class: "author-inline" }, [
+    element("button", {
+      type: "button",
+      class: "text-action author-link",
+      text: persona?.displayName || `${publicKey.slice(0, 16)}…`,
+      onclick: () => showPersonaProfile(publicKey),
+    }),
+    persona?.flair ? element("span", { class: "user-flair", text: persona.flair }) : null,
+  ]);
+}
+
+function effectivePostFlair(post, community = null) {
+  return (community && post.postFlairs?.[community]) || post.defaultPostFlair || null;
+}
+
+function postFlairChip(post, community = null) {
+  const resolution = effectivePostFlair(post, community);
+  if (!resolution?.counts?.length) return null;
+  const label = resolution.flair || `${resolution.counts.length} flairs`;
+  const detail = resolution.counts.map((item) => `${item.flair}: ${item.count}`).join(" · ");
+  return element("button", {
+    type: "button",
+    class: `post-flair${resolution.tied && !resolution.flair ? " is-tied" : ""}`,
+    text: label,
+    title: detail,
+    "aria-label": `${label}. ${detail}. Choose post flair`,
+    onclick: () => showPostFlair(post, community),
+  });
+}
+
+function showPostFlair(post, community = null) {
+  const persona = activePersona(session.state);
+  const resolution = effectivePostFlair(post, community);
+  const counts = resolution?.counts ?? [];
+  modal("Choose post flair", "Each persona has one current choice. The most-selected label is shown; a community choice overrides your global choice only in that hydrant.", element("div", {}, [
+    counts.length ? element("div", { class: "flair-counts" }, counts.map((item) => element("button", {
+      type: "button",
+      class: "post-flair flair-suggestion",
+      text: `${item.flair} · ${item.count}`,
+      onclick: () => { const input = modalRoot.querySelector('[name="flair"]'); input.value = item.flair; input.focus(); },
+    }))) : element("p", { class: "evidence-note", text: "No one has chosen a flair for this post yet." }),
+    field("Your flair", "text", "flair", resolution?.ownChoice ?? "", "Leave blank to withdraw your choice. One short label, up to 32 characters."),
+    community ? field("Scope", "select", "scope", "community", "Use the global choice everywhere, or override it only here.", { values: [["community", `/h/${community} only`], ["all", "Everywhere by default"]] }) : null,
+  ]), { submitLabel: "Save flair choice", onSubmit: (data) => mutate("post.flair.set", {
+    persona_id: persona.id,
+    target: post.anchor,
+    community: community && data.get("scope") === "community" ? community : null,
+    flair: String(data.get("flair") ?? "").trim() || null,
+  }, "Post flair choice published.") });
 }
 
 function showPostDetails(post) {
@@ -1692,6 +1750,7 @@ function postCard(post, lens, community) {
   const main = element("div", { class: "post-main" }, [
     element("div", { class: "post-listing-head" }, [
       element("div", { class: "post-title-line" }, [
+        postFlairChip(post, community),
         element("button", { type: "button", class: "post-title", text: post.title || "Untitled discussion", onclick: () => openDiscussion(post.anchor) }),
         ageElement(post.createdAt ?? post.editedAt, "post-age"),
         post.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
@@ -1701,6 +1760,7 @@ function postCard(post, lens, community) {
         postActionMenu(post, lens, community),
       ]),
     ]),
+    element("div", { class: "post-byline" }, [element("span", { text: "by" }), authorInline(post.author)]),
     textPreview,
     postImagePreview(post),
     emojiReactionStrip(post),
@@ -1771,11 +1831,11 @@ function renderDiscussion(anchor) {
     element("button", { type: "button", class: "back-button", text: "← Back to feed", onclick: () => { session.selected = null; render(); } }),
     element("div", { class: "meta-line" }, [
       element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
-      element("button", { type: "button", class: "text-action", text: post.author, onclick: () => showPersonaProfile(post.author) }),
+      authorInline(post.author),
       ageElement(post.createdAt ?? post.editedAt),
       element("span", { class: "state-chip", text: durabilityLabel(post.durability) }),
     ]),
-    element("h1", { text: post.title || "Untitled discussion" }),
+    element("div", { class: "discussion-title-line" }, [postFlairChip(post, session.community), element("h1", { text: post.title || "Untitled discussion" })]),
     element("div", { class: "discussion-body", text: post.body }),
     emojiReactionStrip(post),
     ...(post.media ?? []).map((media) => element("section", { class: "context-card" }, [
@@ -1788,6 +1848,7 @@ function renderDiscussion(anchor) {
       element("span", { class: "vote-score", text: String(post.currentScore ?? 0), title: "Current Hydra score: one stance per persona" }),
       voteActionButton("▼ Downvote", post.anchor, "-"),
       actionButton("Vote details", () => showVoteViews(post)),
+      actionButton("Flair", () => showPostFlair(post, session.community)),
       emojiReactButton(post, "quiet-button"),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post), "quiet-button"),
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", post.anchor, (event) => queueRemoval(event, post, session.community), "quiet-button") : null,
@@ -1816,7 +1877,7 @@ function commentView(comment) {
   return element("article", { class: `comment${pendingHide ? " is-pending-hide" : ""}`, style: `margin-left:${Math.min(comment.depth, 6) * 22}px` }, [
     element("div", { class: "meta-line" }, [
       element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
-      element("button", { type: "button", class: "text-action", text: comment.author, onclick: () => showPersonaProfile(comment.author) }),
+      authorInline(comment.author),
       ageElement(comment.createdAt ?? comment.editedAt),
       comment.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
     ]),
@@ -2938,6 +2999,7 @@ function renderSettings() {
     settingsTabs(),
     settingsPane("general", [
       field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
+      field("User flair", "text", "user_flair", persona.flair ?? "", "A short self-chosen public label that travels with this Nostr profile."),
       field("Mode", "select", "theme", settings.theme ?? "light", "", { values: [["light", "Light"], ["dark", "Dark"], ["system", "Follow system"]], onchange: saveAppearanceChoice }),
       field("Accent color", "select", "accent", settings.accent ?? "stone-blue", "Hydra derives selection, focus, and lightly tinted surfaces from this one color.", { values: [["stone-blue", "Light blue"], ["indigo", "Indigo"], ["violet", "Violet"], ["terracotta", "Terracotta"], ["moss", "Moss"],], onchange: saveAppearanceChoice }),
       toggle("Use community colors", "use_community_colors", settings.use_community_colors !== false, "Changes the main window's surfaces and accents when you enter a hydrant. Light, Dark, or System mode remains your choice."),
@@ -3251,6 +3313,7 @@ function showPostComposer(draft = null, defaultCommunity = null) {
     field("Title", "text", "title", draft?.title ?? "", "", { required: true }),
     field("Communities", "text", "communities", draft?.communities?.join(", ") || defaultCommunity || "", "Separate several ownerless /h/ coordinates with commas.", { required: true, placeholder: "science, biology" }),
     field("Post", "textarea", "body", draft?.body ?? "", "The post is stored in Hydra. A Reddit projection is optional.", { required: true }),
+    field("Initial flair", "text", "flair", "", "Optional. This is your one global flair choice for the post, not a hidden tag."),
     toggle("Crosspost to Reddit", "crosspost", configuredCrosspostDefault("post", defaultCommunity), "Off by default. Attribution is also off unless selected later."),
     actionButton("Save encrypted draft", async () => {
       const data = new FormData(modalRoot.querySelector("form"));
@@ -3260,6 +3323,8 @@ function showPostComposer(draft = null, defaultCommunity = null) {
   modal(draft ? "Continue Hydra draft" : "New Hydra post", `Posting as ${persona.displayName}`, body, { submitLabel: "Publish to Hydra", onSubmit: async (data) => {
     const communities = parseCommunities(data.get("communities"));
     const response = await mutate("post.create", { persona_id: persona.id, title: data.get("title"), body: data.get("body"), communities }, "Post saved locally and queued for its selected relays.");
+    const flair = String(data.get("flair") ?? "").trim();
+    if (flair) await mutate("post.flair.set", { persona_id: persona.id, target: response.result.anchor, community: null, flair }, "Post and initial flair published.");
     if (draft) {
       await runtime("draft.discard", { persona_id: persona.id, id: draft.id });
       session.state = extractState(await runtime("state"));
@@ -3904,6 +3969,7 @@ function showPersonaProfile(publicKey) {
   const currentTopic = session.route === "community" ? session.community : null;
   modal(known?.displayName ?? "Nostr persona", "Public Nostr identity. Private identity and local credential information are not displayed.", element("div", { class: "content-list" }, [
     element("p", { class: "evidence-note", text: publicKey }),
+    known?.flair ? element("p", {}, [element("span", { class: "user-flair", text: known.flair })]) : null,
     known?.redditProof ? element("p", { class: "evidence-note", text: `Optional public Reddit proof: ${known.redditProof}` }) : null,
     element("p", { text: `${posts.length} posts · ${comments.length} comments · ${norms.length} norm statements. Counts are secondary context, not a reputation score.` }),
     ...posts.slice(0, 8).map((item) => element("button", { type: "button", class: "text-action", text: item.title || "Untitled discussion", onclick: () => { closeModal(); session.selected = item.anchor; render(); } })),
@@ -4164,8 +4230,10 @@ async function saveSettings(event) {
   const personaBlobServers = { ...(settings.persona_blob_servers ?? {}), [persona.id]: blobServers };
   const feedSourceWeights = { followed: Number(data.get("feed_followed")), communities: Number(data.get("feed_communities")), replies: Number(data.get("feed_replies")), revisit: Number(data.get("feed_revisit")) };
   await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), accent: data.get("accent"), use_community_colors: Boolean(data.get("use_community_colors")), show_text_previews: Boolean(data.get("show_text_previews")), show_image_previews: Boolean(data.get("show_image_previews")), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
-  if (String(data.get("display_name")).trim() !== persona.displayName) {
-    await mutate("persona.profile.update", { persona_id: persona.id, display_name: String(data.get("display_name")).trim() }, "Public persona profile updated and queued for publication.");
+  const displayName = String(data.get("display_name")).trim();
+  const userFlair = String(data.get("user_flair") ?? "").trim();
+  if (displayName !== persona.displayName || userFlair !== (persona.flair ?? "")) {
+    await mutate("persona.profile.update", { persona_id: persona.id, display_name: displayName, flair: userFlair || null }, "Public persona profile updated and queued for publication.");
   }
 }
 

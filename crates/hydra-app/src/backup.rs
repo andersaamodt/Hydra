@@ -218,6 +218,7 @@ fn event_belongs_to_persona(
             persona.id == persona_id
         }
         DurableEvent::PersonaProfilePublished { persona, .. }
+        | DurableEvent::PostFlairChoiceChanged { persona, .. }
         | DurableEvent::InboxRelaysChanged { persona, .. }
         | DurableEvent::PersonaRelaysChanged { persona, .. }
         | DurableEvent::MediaPublished { persona, .. }
@@ -248,6 +249,7 @@ fn event_belongs_to_persona(
 fn outbound_ids(event: &DurableEvent) -> Vec<String> {
     match event {
         DurableEvent::PersonaProfilePublished { outbound, .. }
+        | DurableEvent::PostFlairChoiceChanged { outbound, .. }
         | DurableEvent::RedditIdentityProofPublished { outbound, .. }
         | DurableEvent::InboxRelaysChanged { outbound, .. }
         | DurableEvent::PersonaRelaysChanged { outbound, .. }

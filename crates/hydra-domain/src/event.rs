@@ -4,8 +4,8 @@ use uuid::Uuid;
 use crate::{
     ArchiveManifest, BlockRecord, CommunitySubscription, ContinuityWorkflow, DeliveryState,
     EncryptedPrivateRecord, FlockingJudgmentRecord, FollowRecord, MediaManifest, ObjectHead,
-    OperationId, OperationState, OutboundEvent, Persona, Projection, PublicFollowSet,
-    PublicProjectionRecord, ReactionRecord,
+    OperationId, OperationState, OutboundEvent, Persona, PersonaProfile, PostFlairChoice,
+    Projection, PublicFollowSet, PublicProjectionRecord, ReactionRecord,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -34,6 +34,13 @@ pub enum DurableEvent {
     PersonaProfilePublished {
         persona: crate::PersonaId,
         display_name: String,
+        #[serde(default)]
+        flair: Option<crate::FlairText>,
+        outbound: OutboundEvent,
+    },
+    PostFlairChoiceChanged {
+        persona: crate::PersonaId,
+        choice: PostFlairChoice,
         outbound: OutboundEvent,
     },
     RedditIdentityProofPublished {
@@ -79,6 +86,10 @@ pub enum DurableEvent {
         community_appearances: Vec<flocking_core::CommunityAppearance>,
         #[serde(default)]
         community_color_choices: Vec<crate::CommunityColorChoice>,
+        #[serde(default)]
+        persona_profiles: Vec<PersonaProfile>,
+        #[serde(default)]
+        post_flair_choices: Vec<PostFlairChoice>,
     },
     MediaPreserved(MediaManifest),
     MediaPreservedFor {
@@ -172,6 +183,7 @@ impl DurableEvent {
             Self::PersonaCreated(persona) | Self::PersonaUpdated(persona) => persona.validate(),
             Self::PersonaProfilePublished {
                 display_name,
+                flair,
                 outbound,
                 ..
             } => {
@@ -181,6 +193,15 @@ impl DurableEvent {
                 {
                     return Err(crate::DomainError::InvalidObjectShape);
                 }
+                if let Some(flair) = flair {
+                    crate::FlairText::parse(flair.as_str())?;
+                }
+                outbound.validate()
+            }
+            Self::PostFlairChoiceChanged {
+                choice, outbound, ..
+            } => {
+                choice.validate()?;
                 outbound.validate()
             }
             Self::RedditIdentityProofPublished { proof, outbound } => {
@@ -228,6 +249,8 @@ impl DurableEvent {
                 flocking_judgments,
                 community_appearances,
                 community_color_choices,
+                persona_profiles,
+                post_flair_choices,
             } => {
                 if event_id.is_empty()
                     || event_id.len() > 128
@@ -240,6 +263,8 @@ impl DurableEvent {
                     || flocking_judgments.len() > 512
                     || community_appearances.len() > 8
                     || community_color_choices.len() > 8
+                    || persona_profiles.len() > 8
+                    || post_flair_choices.len() > 8
                 {
                     return Err(crate::DomainError::InvalidObjectShape);
                 }
@@ -255,6 +280,12 @@ impl DurableEvent {
                         .map_err(|_| crate::DomainError::InvalidFlocking)?;
                 }
                 for choice in community_color_choices {
+                    choice.validate()?;
+                }
+                for profile in persona_profiles {
+                    profile.validate()?;
+                }
+                for choice in post_flair_choices {
                     choice.validate()?;
                 }
                 for projection in public_projections {

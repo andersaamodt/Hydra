@@ -5,13 +5,14 @@ use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc, time::Dura
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hydra_domain::{
-    AnchorId, CommunityKey, ContentBody, MediaManifest, NostrPublicKey, ObjectHead, ObjectKind,
-    OutboundEvent, Projection, PublicProjectionRecord, ReactionRecord, ReactionValue,
+    AnchorId, CommunityKey, ContentBody, FlairText, MediaManifest, NostrPublicKey, ObjectHead,
+    ObjectKind, OutboundEvent, PersonaProfile, PostFlairChoice, PostFlairScope, Projection,
+    PublicProjectionRecord, ReactionRecord, ReactionValue,
 };
 use nostr::signer::SignerBackend;
 use nostr::{
-    Event, EventBuilder, EventId, Filter, FromBech32, JsonUtil, Keys, Kind, NostrSigner, PublicKey,
-    RelayUrl, SignerError, Tag, Timestamp, ToBech32, UnsignedEvent,
+    Alphabet, Event, EventBuilder, EventId, Filter, FromBech32, JsonUtil, Keys, Kind, NostrSigner,
+    PublicKey, RelayUrl, SignerError, SingleLetterTag, Tag, Timestamp, ToBech32, UnsignedEvent,
     nips::{
         nip01::Coordinate,
         nip02::Contact,
@@ -29,7 +30,8 @@ use thiserror::Error;
 use url::Url;
 
 pub use hydra_protocol::{
-    COMMUNITY_COLOR_SCHEME_KIND, OBJECT_HEAD_KIND, PROJECTION_RECORD_KIND, PROTOCOL_VERSION,
+    COMMUNITY_COLOR_SCHEME_KIND, OBJECT_HEAD_KIND, POST_FLAIR_CHOICE_KIND, PROJECTION_RECORD_KIND,
+    PROTOCOL_VERSION,
 };
 
 pub const CANON_NAMESPACE: &str = "dev.wizardry.canon";
@@ -282,6 +284,127 @@ pub fn community_color_choice_event(
         EventBuilder::new(Kind::Custom(COMMUNITY_COLOR_SCHEME_KIND), "")
             .tags(tags)
             .custom_created_at(Timestamp::from_secs(choice.created_at)),
+    )
+}
+
+/// Builds one addressable current post-flair choice for a global or community scope.
+///
+/// # Errors
+///
+/// Returns an error for invalid choice data, a signer mismatch, or signing failure.
+pub fn post_flair_choice_event(
+    signer: &impl EventSigner,
+    choice: &PostFlairChoice,
+) -> Result<Event, ProtocolError> {
+    choice.validate().map_err(nostr_error)?;
+    let signer_key = signer.public_key().to_bech32().map_err(nostr_error)?;
+    if choice.author.as_str() != signer_key {
+        return Err(ProtocolError::Nostr(
+            "post-flair signer does not match its author".to_owned(),
+        ));
+    }
+    let address = post_flair_address(&choice.target, &choice.scope);
+    let mut tags = vec![
+        tag(["d", address.as_str()])?,
+        tag(["e", choice.target.as_str()])?,
+        tag(["k", "11"])?,
+        tag(["version", PROTOCOL_VERSION])?,
+    ];
+    if let PostFlairScope::Community(community) = &choice.scope {
+        tags.push(tag(["t", community.as_str()])?);
+    }
+    if let Some(flair) = &choice.flair {
+        tags.push(tag(["flair", flair.as_str()])?);
+        tags.push(tag(["status", "set"])?);
+    } else {
+        tags.push(tag(["status", "withdraw"])?);
+    }
+    signer.sign(
+        EventBuilder::new(Kind::Custom(POST_FLAIR_CHOICE_KIND), "")
+            .tags(tags)
+            .custom_created_at(Timestamp::from_secs(choice.changed_at)),
+    )
+}
+
+/// Parses a signed addressable current post-flair choice.
+///
+/// # Errors
+///
+/// Returns an error when a flair event has an invalid signature or shape.
+pub fn received_post_flair_choices(event: &Event) -> Result<Vec<PostFlairChoice>, ProtocolError> {
+    if event.kind.as_u16() != POST_FLAIR_CHOICE_KIND {
+        return Ok(Vec::new());
+    }
+    event.verify().map_err(nostr_error)?;
+    let target = AnchorId::parse(unique_tag_value(event, "e")?).map_err(nostr_error)?;
+    if unique_tag_value(event, "k")? != "11"
+        || unique_tag_value(event, "version")? != PROTOCOL_VERSION
+    {
+        return Err(ProtocolError::Nostr(
+            "unsupported post-flair target or version".to_owned(),
+        ));
+    }
+    let topics = event
+        .tags
+        .iter()
+        .filter_map(|item| {
+            let parts = item.as_slice();
+            (parts.first().map(String::as_str) == Some("t"))
+                .then(|| parts.get(1).map(String::as_str))
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let scope = match topics.as_slice() {
+        [] => PostFlairScope::All,
+        [topic] => PostFlairScope::Community(CommunityKey::parse(topic).map_err(nostr_error)?),
+        _ => {
+            return Err(ProtocolError::Nostr(
+                "duplicate post-flair topic".to_owned(),
+            ));
+        }
+    };
+    if unique_tag_value(event, "d")? != post_flair_address(&target, &scope) {
+        return Err(ProtocolError::Nostr(
+            "post-flair address does not match its target and scope".to_owned(),
+        ));
+    }
+    let flair_values = event
+        .tags
+        .iter()
+        .filter_map(|item| {
+            let parts = item.as_slice();
+            (parts.first().map(String::as_str) == Some("flair"))
+                .then(|| parts.get(1).map(String::as_str))
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let flair = match unique_tag_value(event, "status")? {
+        "set" if flair_values.len() == 1 => {
+            Some(FlairText::parse(flair_values[0]).map_err(nostr_error)?)
+        }
+        "withdraw" if flair_values.is_empty() => None,
+        _ => return Err(ProtocolError::Nostr("invalid post-flair status".to_owned())),
+    };
+    let choice = PostFlairChoice {
+        author: event_author(event)?,
+        target,
+        scope,
+        flair,
+        changed_at: event.created_at.as_secs(),
+        source_event_id: event.id.to_hex(),
+    };
+    choice.validate().map_err(nostr_error)?;
+    Ok(vec![choice])
+}
+
+fn post_flair_address(target: &AnchorId, scope: &PostFlairScope) -> String {
+    let scope = match scope {
+        PostFlairScope::All => "all",
+        PostFlairScope::Community(community) => community.as_str(),
+    };
+    format!(
+        "hydra:post-flair:{}",
+        content_hash(&format!("{}|{scope}", target.as_str()))
     )
 }
 
@@ -752,6 +875,77 @@ pub async fn fetch_community_events(
     Ok(events)
 }
 
+/// Fetches current profile metadata for discussion authors seen locally.
+///
+/// # Errors
+///
+/// Returns an error for invalid keys, relays, or relay-pool failure.
+pub async fn fetch_profile_events(
+    relays: &[String],
+    authors: &[NostrPublicKey],
+) -> Result<Vec<Event>, ProtocolError> {
+    if relays.is_empty() || authors.is_empty() {
+        return Ok(Vec::new());
+    }
+    let authors = authors
+        .iter()
+        .map(|author| PublicKey::parse(author.as_str()).map_err(nostr_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    fetch_filtered_events(
+        relays,
+        Filter::new()
+            .authors(authors)
+            .kind(Kind::Metadata)
+            .limit(500),
+    )
+    .await
+}
+
+/// Fetches global and community-scoped flair choices for locally known post anchors.
+///
+/// # Errors
+///
+/// Returns an error for invalid event anchors, relays, or relay-pool failure.
+pub async fn fetch_post_flair_events(
+    relays: &[String],
+    anchors: &[AnchorId],
+) -> Result<Vec<Event>, ProtocolError> {
+    if relays.is_empty() || anchors.is_empty() {
+        return Ok(Vec::new());
+    }
+    let anchors = anchors.iter().map(AnchorId::as_str).collect::<Vec<_>>();
+    fetch_filtered_events(
+        relays,
+        Filter::new()
+            .kind(Kind::Custom(POST_FLAIR_CHOICE_KIND))
+            .custom_tags(SingleLetterTag::lowercase(Alphabet::E), anchors)
+            .limit(500),
+    )
+    .await
+}
+
+async fn fetch_filtered_events(
+    relays: &[String],
+    filter: Filter,
+) -> Result<Vec<Event>, ProtocolError> {
+    let client = Client::builder().build();
+    for relay in relays {
+        client
+            .add_relay(relay)
+            .await
+            .map_err(|error| ProtocolError::Relay(error.to_string()))?;
+    }
+    client.connect().await;
+    let events = client
+        .fetch_events(filter, Duration::from_secs(8))
+        .await
+        .map_err(|error| ProtocolError::Relay(error.to_string()))?
+        .into_iter()
+        .collect();
+    client.disconnect().await;
+    Ok(events)
+}
+
 /// Fetches a bounded general-purpose Nostr discussion feed.
 ///
 /// Unlike community fetching, this deliberately applies no topic filter.
@@ -1198,6 +1392,8 @@ pub fn inbox_relays(
 pub fn profile_metadata(
     signer: &impl EventSigner,
     display_name: &str,
+    flair: Option<&FlairText>,
+    existing_content: Option<&str>,
     changed_at: u64,
 ) -> Result<Event, ProtocolError> {
     let display_name = display_name.trim();
@@ -1206,14 +1402,58 @@ pub fn profile_metadata(
             "profile display name must contain 1-100 characters".to_owned(),
         ));
     }
-    let content = serde_json::json!({
-        "name": display_name,
-        "display_name": display_name,
-    })
-    .to_string();
+    let mut content = existing_content
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    content.insert("name".to_owned(), display_name.into());
+    content.insert("display_name".to_owned(), display_name.into());
+    if let Some(flair) = flair {
+        content.insert("flair".to_owned(), flair.as_str().into());
+    } else {
+        content.remove("flair");
+    }
+    let content = serde_json::Value::Object(content).to_string();
     EventBuilder::new(Kind::Metadata, content)
         .custom_created_at(Timestamp::from(changed_at))
         .sign_with(signer)
+}
+
+/// Parses a standard NIP-01 profile, including Hydra's generic `flair` field.
+/// Invalid optional flair is ignored without discarding otherwise valid metadata.
+///
+/// # Errors
+///
+/// Returns an error for an invalid signature, JSON object, or display name.
+pub fn received_persona_profile(event: &Event) -> Result<Option<PersonaProfile>, ProtocolError> {
+    if event.kind != Kind::Metadata {
+        return Ok(None);
+    }
+    event.verify().map_err(nostr_error)?;
+    let content: serde_json::Value = serde_json::from_str(&event.content)
+        .map_err(|error| ProtocolError::Nostr(error.to_string()))?;
+    let object = content
+        .as_object()
+        .ok_or_else(|| ProtocolError::Nostr("profile metadata is not an object".to_owned()))?;
+    let display_name = object
+        .get("display_name")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| object.get("name").and_then(serde_json::Value::as_str))
+        .ok_or_else(|| ProtocolError::Nostr("profile has no display name".to_owned()))?;
+    hydra_domain::Persona::validate_display_name(display_name).map_err(nostr_error)?;
+    let flair = object
+        .get("flair")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| FlairText::parse(value).ok());
+    let profile = PersonaProfile {
+        public_key: event_author(event)?,
+        display_name: display_name.trim().to_owned(),
+        flair,
+        source_event_id: event.id.to_hex(),
+        updated_at: event.created_at.as_secs(),
+    };
+    profile.validate().map_err(nostr_error)?;
+    Ok(Some(profile))
 }
 
 /// Publishes Hydra's NIP-39-compatible Reddit identity claim. Reddit is an
@@ -1300,6 +1540,7 @@ fn discussion_kinds() -> Vec<Kind> {
         Kind::GenericRepost,
         Kind::Custom(OBJECT_HEAD_KIND),
         Kind::Custom(PROJECTION_RECORD_KIND),
+        Kind::Custom(POST_FLAIR_CHOICE_KIND),
         Kind::Reaction,
         Kind::Label,
     ]
@@ -3469,7 +3710,7 @@ mod tests {
     #[test]
     fn persona_profile_uses_standard_nip_01_metadata() {
         let keys = Keys::generate();
-        let event = profile_metadata(&keys, "Alice", 20).unwrap();
+        let event = profile_metadata(&keys, "Alice", None, None, 20).unwrap();
 
         assert_eq!(event.kind, Kind::Metadata);
         assert_eq!(event.pubkey, keys.public_key());
@@ -3553,6 +3794,62 @@ mod tests {
         assert_eq!(parsed[0].scheme, choice.scheme);
         assert_eq!(parsed[0].created_at, 42);
         assert_eq!(parsed[0].event_id, Some(event.id.to_hex()));
+    }
+
+    #[test]
+    fn profile_flair_round_trips_without_erasing_other_metadata() {
+        let keys = Keys::generate();
+        let flair = FlairText::parse("Field biologist").unwrap();
+        let event = profile_metadata(
+            &keys,
+            "Alice",
+            Some(&flair),
+            Some(r#"{"about":"Keeps notes","picture":"https://example.test/a.png"}"#),
+            42,
+        )
+        .unwrap();
+        let content: serde_json::Value = serde_json::from_str(&event.content).unwrap();
+        let profile = received_persona_profile(&event).unwrap().unwrap();
+
+        assert_eq!(content["about"], "Keeps notes");
+        assert_eq!(content["picture"], "https://example.test/a.png");
+        assert_eq!(content["flair"], "Field biologist");
+        assert_eq!(profile.display_name, "Alice");
+        assert_eq!(profile.flair, Some(flair));
+
+        let cleared = profile_metadata(&keys, "Alice", None, Some(&event.content), 43).unwrap();
+        let cleared: serde_json::Value = serde_json::from_str(&cleared.content).unwrap();
+        assert!(cleared.get("flair").is_none());
+        assert_eq!(cleared["about"], "Keeps notes");
+    }
+
+    #[test]
+    fn post_flair_round_trips_with_scope_and_withdrawal() {
+        let keys = Keys::generate();
+        let author = NostrPublicKey::parse(keys.public_key().to_bech32().unwrap()).unwrap();
+        let target = AnchorId::parse("a".repeat(64)).unwrap();
+        let mut choice = PostFlairChoice {
+            author,
+            target,
+            scope: PostFlairScope::Community(CommunityKey::parse("science").unwrap()),
+            flair: Some(FlairText::parse("Field report").unwrap()),
+            changed_at: 42,
+            source_event_id: "pending".to_owned(),
+        };
+        let event = post_flair_choice_event(&keys, &choice).unwrap();
+        let parsed = received_post_flair_choices(&event).unwrap().remove(0);
+        assert_eq!(event.kind, Kind::Custom(POST_FLAIR_CHOICE_KIND));
+        assert_eq!(parsed.flair, choice.flair);
+        assert_eq!(parsed.scope, choice.scope);
+        assert_eq!(parsed.target, choice.target);
+
+        choice.flair = None;
+        choice.changed_at = 43;
+        let withdrawn = post_flair_choice_event(&keys, &choice).unwrap();
+        assert_eq!(
+            received_post_flair_choices(&withdrawn).unwrap()[0].flair,
+            None
+        );
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@ mod content;
 mod continuity;
 mod error;
 mod event;
+mod flair;
 mod identity;
 mod media;
 mod operation;
@@ -26,6 +27,7 @@ pub use continuity::{
 };
 pub use error::DomainError;
 pub use event::{DurableEvent, EventEnvelope, EventId};
+pub use flair::{FlairText, PersonaProfile, PostFlairChoice, PostFlairScope};
 pub use identity::{
     NostrPublicKey, Persona, PersonaId, PersonaRegistry, RedditAccountId, RedditIdentityProof,
 };

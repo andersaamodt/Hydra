@@ -16,11 +16,11 @@ use hydra_domain::{
     AnchorId, ArchiveManifest, BlockRecord, CommunityAppearanceRecord, CommunityColorChoice,
     CommunityColorChoiceRecord, CommunityColorScheme, CommunityKey, CommunitySubscription,
     ContentBody, DeliveryState, DirectMessageRecord, DomainError, DraftRecord, DurableEvent,
-    EncryptedPrivateRecord, ExternalId, FlockingJudgmentRecord, FlockingProfile, FollowRecord,
-    LocalFilterKind, LocalFilterRecord, MediaManifest, MessageDirection, NostrPublicKey,
-    ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId, PrivateRecord, Projection,
-    PublicFollowSet, PublicProjectionRecord, ReactionRecord, ReactionValue, RevisitIntent,
-    RevisitRecord,
+    EncryptedPrivateRecord, ExternalId, FlairText, FlockingJudgmentRecord, FlockingProfile,
+    FollowRecord, LocalFilterKind, LocalFilterRecord, MediaManifest, MessageDirection,
+    NostrPublicKey, ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId, PersonaProfile,
+    PostFlairChoice, PostFlairScope, PrivateRecord, Projection, PublicFollowSet,
+    PublicProjectionRecord, ReactionRecord, ReactionValue, RevisitIntent, RevisitRecord,
 };
 pub use hydra_lens::{FeedLens, FeedService};
 use hydra_media::{BlossomClient, MediaStore};
@@ -352,7 +352,8 @@ impl ImportService {
             .map_err(|error| hydra_nostr::ProtocolError::Nostr(error.to_string()))?;
         if !matches!(
             event.kind,
-            Kind::ContactList
+            Kind::Metadata
+                | Kind::ContactList
                 | Kind::TextNote
                 | Kind::Thread
                 | Kind::Comment
@@ -367,6 +368,7 @@ impl ImportService {
             && event.kind != Kind::Custom(flocking_core::JUDGMENT_KIND)
             && event.kind != Kind::Custom(flocking_core::COMMUNITY_APPEARANCE_KIND)
             && event.kind != Kind::Custom(hydra_nostr::COMMUNITY_COLOR_SCHEME_KIND)
+            && event.kind != Kind::Custom(hydra_nostr::POST_FLAIR_CHOICE_KIND)
             && !hydra_nostr::is_reading_surface_event(&event)
         {
             return Ok(Vec::new());
@@ -392,6 +394,8 @@ impl ImportService {
                         flocking_judgments: Vec::new(),
                         community_appearances: Vec::new(),
                         community_color_choices: Vec::new(),
+                        persona_profiles: Vec::new(),
+                        post_flair_choices: Vec::new(),
                     },
                     recorded_at,
                 )?;
@@ -408,6 +412,8 @@ impl ImportService {
                 flocking_judgments: materialized.flocking_judgments,
                 community_appearances: materialized.community_appearances,
                 community_color_choices: materialized.community_color_choices,
+                persona_profiles: materialized.persona_profiles,
+                post_flair_choices: materialized.post_flair_choices,
             },
             recorded_at,
         )?;
@@ -422,6 +428,8 @@ struct PublicMaterialization {
     flocking_judgments: Vec<flocking_core::Judgment>,
     community_appearances: Vec<flocking_core::CommunityAppearance>,
     community_color_choices: Vec<CommunityColorChoice>,
+    persona_profiles: Vec<PersonaProfile>,
+    post_flair_choices: Vec<PostFlairChoice>,
 }
 
 fn materialize_public_event(
@@ -435,6 +443,10 @@ fn materialize_public_event(
     let flocking_judgments = hydra_nostr::received_flocking_judgments(event)?;
     let community_appearances = hydra_nostr::received_community_appearances(event)?;
     let community_color_choices = hydra_nostr::received_community_color_choices(event)?;
+    let persona_profiles = hydra_nostr::received_persona_profile(event)?
+        .into_iter()
+        .collect();
+    let post_flair_choices = hydra_nostr::received_post_flair_choices(event)?;
     if let Some(projection) = hydra_nostr::received_projection_record(event)? {
         match projection_anchor_author(store, event, &heads, &projection)? {
             Some(author) if author == projection.author => public_projections.push(projection),
@@ -464,6 +476,8 @@ fn materialize_public_event(
         flocking_judgments,
         community_appearances,
         community_color_choices,
+        persona_profiles,
+        post_flair_choices,
     })
 }
 
@@ -906,16 +920,26 @@ impl<S: SecretStore> PersonaService<S> {
         store: &mut DurableStore,
         persona_id: PersonaId,
         display_name: String,
+        flair: Option<String>,
         relays: &[String],
         changed_at: u64,
     ) -> Result<(), AppError> {
         Persona::validate_display_name(&display_name)?;
-        let (_, keys) = persona_and_keys(&self.secrets, store, persona_id)?;
-        let event = hydra_nostr::profile_metadata(&keys, &display_name, changed_at)?;
+        let (persona, keys) = persona_and_keys(&self.secrets, store, persona_id)?;
+        let flair = flair.map(FlairText::parse).transpose()?;
+        let existing_content = current_profile_content(store, &persona.public_key);
+        let event = hydra_nostr::profile_metadata(
+            &keys,
+            &display_name,
+            flair.as_ref(),
+            existing_content.as_deref(),
+            changed_at,
+        )?;
         store.append(
             DurableEvent::PersonaProfilePublished {
                 persona: persona_id,
                 display_name,
+                flair,
                 outbound: outbound_event(&event, relays),
             },
             changed_at,
@@ -1121,6 +1145,15 @@ pub struct CreatePost {
     pub communities: Vec<CommunityKey>,
     pub relays: Vec<String>,
     pub recorded_at: u64,
+}
+
+pub struct SetPostFlair {
+    pub persona_id: PersonaId,
+    pub target: AnchorId,
+    pub community: Option<CommunityKey>,
+    pub flair: Option<String>,
+    pub relays: Vec<String>,
+    pub changed_at: u64,
 }
 
 pub struct ImportAuthoredPost {
@@ -2783,6 +2816,50 @@ impl<S: SecretStore> DiscussionService<S> {
         Self { secrets }
     }
 
+    /// Sets or withdraws this persona's one current flair choice for a post scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown post/persona, invalid flair, signer mismatch,
+    /// or durable persistence failure.
+    pub fn set_post_flair(
+        &self,
+        store: &mut DurableStore,
+        request: SetPostFlair,
+    ) -> Result<PostFlairChoice, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let head = store.state().heads.current_head(&request.target)?;
+        if head.kind != ObjectKind::Post {
+            return Err(DomainError::InvalidObjectShape.into());
+        }
+        if let Some(community) = &request.community
+            && !head.communities.contains(community)
+        {
+            return Err(DomainError::InvalidObjectShape.into());
+        }
+        let mut choice = PostFlairChoice {
+            author: persona.public_key,
+            target: request.target,
+            scope: request
+                .community
+                .map_or(PostFlairScope::All, PostFlairScope::Community),
+            flair: request.flair.map(FlairText::parse).transpose()?,
+            changed_at: request.changed_at,
+            source_event_id: "pending".to_owned(),
+        };
+        let event = hydra_nostr::post_flair_choice_event(&keys, &choice)?;
+        choice.source_event_id = event.id.to_hex();
+        store.append(
+            DurableEvent::PostFlairChoiceChanged {
+                persona: request.persona_id,
+                choice: choice.clone(),
+                outbound: outbound_event(&event, &request.relays),
+            },
+            request.changed_at,
+        )?;
+        Ok(choice)
+    }
+
     /// Publishes a standard NIP-09 request for the persona's immutable anchor
     /// and editable head. It records a disowning signal, not guaranteed erasure.
     ///
@@ -3483,6 +3560,28 @@ fn outbound_event(event: &nostr::Event, relays: &[String]) -> OutboundEvent {
     }
 }
 
+fn current_profile_content(store: &DurableStore, author: &NostrPublicKey) -> Option<String> {
+    store
+        .state()
+        .received_events
+        .values()
+        .chain(store.state().outbound.values().map(|item| &item.event_json))
+        .filter_map(|json| Event::from_json(json).ok())
+        .filter(|event| {
+            event.kind == Kind::Metadata
+                && event
+                    .pubkey
+                    .to_bech32()
+                    .is_ok_and(|key| key == author.as_str())
+        })
+        .max_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| right.id.cmp(&left.id))
+        })
+        .map(|event| event.content)
+}
+
 fn persist_direct_judgment(
     store: &mut DurableStore,
     keys: &PersonaSigningContext,
@@ -4047,6 +4146,7 @@ mod tests {
                 &mut store,
                 persona.id,
                 "Alice A.".to_owned(),
+                None,
                 &["wss://relay.example".to_owned()],
                 11,
             )

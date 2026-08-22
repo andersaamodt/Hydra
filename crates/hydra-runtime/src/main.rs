@@ -20,15 +20,15 @@ use hydra_app::{
     ProjectionService, PublishFollowSet, ReactToObject, RemoveRevisit, RequestObjectDisowning,
     RescuePerson, SendDirectMessage, SetAppearanceSource, SetCommunityAppearance,
     SetCommunityColorScheme, SetCommunitySubscription, SetContentJudgment, SetFollow,
-    SetLocalFilter, SetPersonJudgment, SetPersonSource, SetPinDismissal, SetReverseBlockSource,
-    SetRevisit, SocialService, SyncService, private_state,
+    SetLocalFilter, SetPersonJudgment, SetPersonSource, SetPinDismissal, SetPostFlair,
+    SetReverseBlockSource, SetRevisit, SocialService, SyncService, private_state,
 };
 use hydra_bridge::{BridgeError as ForeignBridgeError, BridgeRegistry};
 use hydra_domain::{
     AnchorId, CommunityKey, ContinuityState, ContinuityWorkflow, DraftKind, DraftRecord,
     DurableEvent, ExternalId, LocalFilterKind, MessageDirection, NostrPublicKey, OperationId,
-    OperationState, PersonaId, PersonaSwitchState, PreservationLevel, ProjectionId, ReactionValue,
-    RevisitIntent,
+    OperationState, PersonaId, PersonaSwitchState, PostFlairScope, PreservationLevel, ProjectionId,
+    ReactionValue, RevisitIntent,
 };
 use hydra_lens::{FeedLens, FeedService};
 use hydra_media::MediaStore;
@@ -43,6 +43,7 @@ use hydra_store::{DurableStore, HeadStore, ReadinessProbe, Settings, SettingsSto
 use nostr::{Event, JsonUtil};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use unicode_normalization::UnicodeNormalization as _;
 use url::Url;
 
 #[derive(Debug, Error)]
@@ -94,7 +95,7 @@ struct HydraState<'a> {
     schema: &'static str,
     durable_root: String,
     storage: StorageView,
-    personas: Vec<PersonaView<'a>>,
+    personas: Vec<PersonaView>,
     drafts: Vec<DraftView<'a>>,
     objects: Vec<ObjectView<'a>>,
     messages: Vec<MessageView>,
@@ -181,14 +182,15 @@ struct ReadinessView {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PersonaView<'a> {
+struct PersonaView {
     id: String,
-    display_name: &'a str,
-    public_key: &'a str,
+    display_name: String,
+    public_key: String,
+    flair: Option<String>,
     active: bool,
     reddit_linked: bool,
     reddit_username: Option<String>,
-    reddit_proof: Option<&'a str>,
+    reddit_proof: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -242,6 +244,24 @@ struct ObjectView<'a> {
     hide: Option<BlockEffectView>,
     topic_hides: BTreeMap<String, BlockEffectView>,
     topic_removals: BTreeMap<String, BlockEffectView>,
+    default_post_flair: Option<PostFlairView>,
+    post_flairs: BTreeMap<String, PostFlairView>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PostFlairView {
+    flair: Option<String>,
+    counts: Vec<PostFlairCountView>,
+    tied: bool,
+    own_choice: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PostFlairCountView {
+    flair: String,
+    count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -541,6 +561,8 @@ struct SwitchPersonaInput {
 struct UpdatePersonaProfileInput {
     persona_id: String,
     display_name: String,
+    #[serde(default)]
+    flair: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -567,6 +589,14 @@ struct CreatePostInput {
     title: String,
     body: String,
     communities: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PostFlairInput {
+    persona_id: String,
+    target: String,
+    community: Option<String>,
+    flair: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1718,30 +1748,64 @@ fn lens_views(
     (visible_anchors, feed_orders, my_feed_order)
 }
 
-fn persona_views<'a>(store: &'a DurableStore, settings: &Settings) -> Vec<PersonaView<'a>> {
-    store
+fn persona_views(store: &DurableStore, settings: &Settings) -> Vec<PersonaView> {
+    let mut views = store
         .state()
         .personas
         .iter()
-        .map(|persona| PersonaView {
-            id: persona.id.to_string(),
-            display_name: &persona.display_name,
-            public_key: persona.public_key.as_str(),
-            active: settings.active_persona_id.as_deref() == Some(&persona.id.to_string()),
-            reddit_linked: persona.reddit_account.is_some(),
-            reddit_username: persona.reddit_account.as_ref().and_then(|_| {
-                PlatformRedditCredentialStore
-                    .get(persona.id)
-                    .ok()
-                    .map(|credential| credential.identity.username)
-            }),
-            reddit_proof: store
-                .state()
-                .reddit_identity_proofs
-                .get(&persona.id)
-                .map(|proof| proof.artifact_url.as_str()),
+        .map(|persona| {
+            let profile = store.state().persona_profiles.get(&persona.public_key);
+            PersonaView {
+                id: persona.id.to_string(),
+                display_name: profile.map_or_else(
+                    || persona.display_name.clone(),
+                    |profile| profile.display_name.clone(),
+                ),
+                public_key: persona.public_key.as_str().to_owned(),
+                flair: profile
+                    .and_then(|profile| profile.flair.as_ref())
+                    .map(|flair| flair.as_str().to_owned()),
+                active: settings.active_persona_id.as_deref() == Some(&persona.id.to_string()),
+                reddit_linked: persona.reddit_account.is_some(),
+                reddit_username: persona.reddit_account.as_ref().and_then(|_| {
+                    PlatformRedditCredentialStore
+                        .get(persona.id)
+                        .ok()
+                        .map(|credential| credential.identity.username)
+                }),
+                reddit_proof: store
+                    .state()
+                    .reddit_identity_proofs
+                    .get(&persona.id)
+                    .map(|proof| proof.artifact_url.clone()),
+            }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let local_keys = views
+        .iter()
+        .map(|persona| persona.public_key.clone())
+        .collect::<BTreeSet<_>>();
+    views.extend(
+        store
+            .state()
+            .persona_profiles
+            .values()
+            .filter(|profile| !local_keys.contains(profile.public_key.as_str()))
+            .map(|profile| PersonaView {
+                id: String::new(),
+                display_name: profile.display_name.clone(),
+                public_key: profile.public_key.as_str().to_owned(),
+                flair: profile
+                    .flair
+                    .as_ref()
+                    .map(|flair| flair.as_str().to_owned()),
+                active: false,
+                reddit_linked: false,
+                reddit_username: None,
+                reddit_proof: None,
+            }),
+    );
+    views
 }
 
 fn object_views<'a>(
@@ -1781,6 +1845,7 @@ fn object_view<'a>(
         topic_hides,
         topic_removals,
     } = object_exclusion_views(store, block_context, head, &communities);
+    let (default_post_flair, post_flairs) = post_flair_views(store, settings, block_context, head);
     ObjectView {
         anchor: head.anchor.as_str(),
         author: head.author.as_str(),
@@ -1835,6 +1900,8 @@ fn object_view<'a>(
         hide,
         topic_hides,
         topic_removals,
+        default_post_flair,
+        post_flairs,
         durability: durability_state(
             store,
             &head.anchor,
@@ -1865,6 +1932,136 @@ fn object_view<'a>(
             .unwrap_or(head.edited_at),
         edited_at: head.edited_at,
     }
+}
+
+fn post_flair_views(
+    store: &DurableStore,
+    settings: &Settings,
+    block_context: Option<(PersonaId, &PrivateState)>,
+    head: &hydra_domain::ObjectHead,
+) -> (Option<PostFlairView>, BTreeMap<String, PostFlairView>) {
+    if head.kind != hydra_domain::ObjectKind::Post {
+        return (None, BTreeMap::new());
+    }
+    let default = post_flair_view(store, settings, block_context, head, None);
+    let communities = head
+        .communities
+        .iter()
+        .filter_map(|community| {
+            post_flair_view(store, settings, block_context, head, Some(community))
+                .map(|view| (community.as_str().to_owned(), view))
+        })
+        .collect();
+    (default, communities)
+}
+
+fn post_flair_view(
+    store: &DurableStore,
+    settings: &Settings,
+    block_context: Option<(PersonaId, &PrivateState)>,
+    head: &hydra_domain::ObjectHead,
+    community: Option<&CommunityKey>,
+) -> Option<PostFlairView> {
+    let mut by_author = BTreeMap::<NostrPublicKey, &hydra_domain::PostFlairChoice>::new();
+    for choice in store
+        .state()
+        .post_flair_choices
+        .values()
+        .filter(|choice| choice.target == head.anchor)
+    {
+        if block_context.is_some_and(|(persona, private)| {
+            hydra_lens::block_decision(store, private, persona, &choice.author, community).excluded
+        }) {
+            continue;
+        }
+        let applies = match (&choice.scope, community) {
+            (PostFlairScope::All, _) => true,
+            (PostFlairScope::Community(scope), Some(current)) => scope == current,
+            (PostFlairScope::Community(_), None) => false,
+        };
+        if !applies {
+            continue;
+        }
+        let entry = by_author.entry(choice.author.clone()).or_insert(choice);
+        if matches!(choice.scope, PostFlairScope::Community(_)) {
+            *entry = choice;
+        }
+    }
+    let own_key = settings.active_persona_id.as_deref().and_then(|id| {
+        PersonaId::parse(id)
+            .ok()
+            .and_then(|id| store.state().personas.get(id))
+            .map(|persona| &persona.public_key)
+    });
+    let own_choice = own_key
+        .and_then(|key| by_author.get(key))
+        .and_then(|choice| choice.flair.as_ref())
+        .map(|flair| flair.as_str().to_owned());
+    let mut grouped = BTreeMap::<String, (String, usize)>::new();
+    for flair in by_author
+        .values()
+        .filter_map(|choice| choice.flair.as_ref())
+    {
+        let canonical = canonical_flair(flair.as_str());
+        grouped
+            .entry(canonical)
+            .and_modify(|(display, count)| {
+                *count += 1;
+                if flair.as_str() < display.as_str() {
+                    flair.as_str().clone_into(display);
+                }
+            })
+            .or_insert_with(|| (flair.as_str().to_owned(), 1));
+    }
+    if grouped.is_empty() && own_choice.is_none() {
+        return None;
+    }
+    let max_count = grouped.values().map(|(_, count)| *count).max().unwrap_or(0);
+    let leaders = grouped
+        .iter()
+        .filter(|(_, (_, count))| *count == max_count)
+        .map(|(canonical, _)| canonical)
+        .collect::<Vec<_>>();
+    let author_flair = by_author
+        .get(&head.author)
+        .and_then(|choice| choice.flair.as_ref())
+        .map(hydra_domain::FlairText::as_str);
+    let author_choice = author_flair.map(canonical_flair);
+    let winner = if leaders.len() == 1 {
+        leaders.first().copied()
+    } else {
+        author_choice
+            .as_ref()
+            .and_then(|choice| leaders.contains(&choice).then_some(choice))
+    };
+    let mut counts = grouped
+        .values()
+        .map(|(flair, count)| PostFlairCountView {
+            flair: flair.clone(),
+            count: *count,
+        })
+        .collect::<Vec<_>>();
+    counts.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then(left.flair.cmp(&right.flair))
+    });
+    Some(PostFlairView {
+        flair: winner.and_then(|key| {
+            author_flair
+                .filter(|_| author_choice.as_deref() == Some(key.as_str()))
+                .map(str::to_owned)
+                .or_else(|| grouped.get(key).map(|(display, _)| display.clone()))
+        }),
+        counts,
+        tied: leaders.len() > 1,
+        own_choice,
+    })
+}
+
+fn canonical_flair(value: &str) -> String {
+    value.nfkc().flat_map(char::to_lowercase).collect()
 }
 
 fn object_exclusion_views(
@@ -3218,6 +3415,7 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "draft.save" => save_draft_action(root, input),
         "draft.discard" => discard_draft_action(root, input),
         "post.create" => create_post_action(root, input),
+        "post.flair.set" => post_flair_action(root, input),
         "comment.create" => create_comment_action(root, input),
         "comment.create_external" => create_external_comment_action(root, input),
         "norm.create" => create_norm_action(root, input),
@@ -4745,6 +4943,10 @@ fn backup_restore_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError
     print_changed("backup.restore")
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the flat settings boundary keeps every optional persisted field explicit"
+)]
 fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let mut input: SettingsUpdateInput = serde_json::from_str(input)?;
     let store = SettingsStore::new(root);
@@ -5073,6 +5275,7 @@ fn create_persona_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError
         &mut store,
         persona.id,
         persona.display_name.clone(),
+        None,
         settings.write_relays_for(persona.id),
         now,
     )?;
@@ -5113,6 +5316,7 @@ fn import_persona_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError
         &mut store,
         persona.id,
         persona.display_name.clone(),
+        None,
         settings.write_relays_for(persona.id),
         now,
     )?;
@@ -5150,6 +5354,7 @@ async fn connect_remote_persona_action(root: &PathBuf, input: &str) -> Result<()
         &mut store,
         persona.id,
         persona.display_name.clone(),
+        None,
         settings.write_relays_for(persona.id),
         now,
     )?;
@@ -5176,6 +5381,7 @@ fn update_persona_profile_action(root: &PathBuf, input: &str) -> Result<(), Runt
         &mut store,
         persona,
         input.display_name,
+        input.flair,
         settings.write_relays_for(persona),
         unix_now(),
     )?;
@@ -5302,6 +5508,32 @@ fn create_post_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
         "post.create",
         operation_view(OperationId::new(), OperationState::Succeeded, false),
         serde_json::json!({"changed": true, "anchor": head.anchor.as_str()}),
+    )
+}
+
+fn post_flair_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: PostFlairInput = serde_json::from_str(input)?;
+    let persona = PersonaId::parse(&input.persona_id)?;
+    let settings = SettingsStore::new(root).load()?;
+    let mut store = DurableStore::open(root)?;
+    let choice = DiscussionService::new(PlatformSecretStore).set_post_flair(
+        &mut store,
+        SetPostFlair {
+            persona_id: persona,
+            target: AnchorId::parse(input.target)?,
+            community: input.community.map(CommunityKey::parse).transpose()?,
+            flair: input.flair.and_then(|value| {
+                let value = value.trim().to_owned();
+                (!value.is_empty()).then_some(value)
+            }),
+            relays: settings.write_relays_for(persona).to_vec(),
+            changed_at: unix_now(),
+        },
+    )?;
+    print_action_result(
+        "post.flair.set",
+        operation_view(OperationId::new(), OperationState::Succeeded, false),
+        serde_json::json!({"changed": true, "event_id": choice.source_event_id}),
     )
 }
 
@@ -6165,6 +6397,7 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
             for event in events {
                 ImportService::receive_public(&mut store, &event.as_json(), unix_now())?;
             }
+            sync_flair_events(&mut store, &relays).await?;
         }
         if active_available && let Some(persona) = active_persona {
             sync_flocking_person_sources(&mut store, &settings, persona).await?;
@@ -6187,6 +6420,37 @@ async fn run_sync_worker(root: &PathBuf, operation: OperationId) -> Result<(), R
         unix_now(),
     )?;
     result
+}
+
+async fn sync_flair_events(
+    store: &mut DurableStore,
+    relays: &[String],
+) -> Result<(), RuntimeError> {
+    if relays.is_empty() {
+        return Ok(());
+    }
+    let authors = store
+        .state()
+        .heads
+        .current_heads()
+        .map(|head| head.author.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let anchors = store
+        .state()
+        .heads
+        .current_heads()
+        .filter(|head| head.kind == hydra_domain::ObjectKind::Post)
+        .map(|head| head.anchor.clone())
+        .collect::<Vec<_>>();
+    let mut events = hydra_nostr::fetch_profile_events(relays, &authors).await?;
+    events.extend(hydra_nostr::fetch_post_flair_events(relays, &anchors).await?);
+    events.sort_by_key(|event| event.created_at);
+    for event in events {
+        ImportService::receive_public(store, &event.as_json(), unix_now())?;
+    }
+    Ok(())
 }
 
 async fn sync_persona_inboxes(

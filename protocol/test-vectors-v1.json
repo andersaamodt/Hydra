@@ -2,11 +2,13 @@
   "schema": "hydra-protocol-test-vectors/v1",
   "kinds": {
     "objectHead": 30800,
-    "projectionRecord": 30801
+    "projectionRecord": 30801,
+    "postFlairChoice": 30803
   },
   "stableAddressPrefixes": {
     "objectHead": "hydra:head:",
-    "projectionRecord": "hydra:projection:"
+    "projectionRecord": "hydra:projection:",
+    "postFlairChoice": "hydra:post-flair:"
   },
   "requiredLabels": {
     "namespace": "hydra",
@@ -54,11 +56,25 @@
         "state": "live",
         "current_head": null
       }
+    },
+    "postFlairChoice": {
+      "kind": 30803,
+      "content": "",
+      "tags": [
+        ["d", "hydra:post-flair:904db4c08b22a51ff505b0ffb812d197507a40c452796a5a569fc7005bd2444e"],
+        ["e", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        ["k", "11"],
+        ["t", "science"],
+        ["flair", "Field report"],
+        ["version", "hydra-protocol/v1"],
+        ["status", "set"]
+      ]
     }
   },
   "invariants": [
     "replies target immutable kind 11 or 1111 anchors",
     "projection credentials and secrets never enter event content",
-    "new addressable heads retain the same d tag"
+    "new addressable heads retain the same d tag",
+    "one signer contributes at most one current post flair choice per anchor and scope"
   ]
 }

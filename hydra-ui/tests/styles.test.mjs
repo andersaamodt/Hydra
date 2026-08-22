@@ -502,3 +502,14 @@ test("shared judgments are selected from profiles and remain inspectable", () =>
   assert.match(app, /"rescue"/);
   assert.match(styles, /\.pinned-area/);
 });
+
+test("user and post flair remain distinct public controls", () => {
+  assert.match(app, /field\("User flair", "text", "user_flair"/);
+  assert.match(app, /persona\.profile\.update[\s\S]*flair: userFlair \|\| null/);
+  assert.match(app, /function authorInline\(publicKey\)/);
+  assert.match(app, /function effectivePostFlair\(post, community = null\)/);
+  assert.match(app, /post\.flair\.set/);
+  assert.match(app, /community: community && data\.get\("scope"\) === "community" \? community : null/);
+  assert.match(app, /resolution\.counts\.map/);
+  assert.match(styles, /\.user-flair, \.post-flair/);
+});

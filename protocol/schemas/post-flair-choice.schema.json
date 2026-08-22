@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hydra:protocol:v1:post-flair-choice-event",
+  "title": "Hydra addressable post-flair choice event v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["kind", "content", "tags"],
+  "properties": {
+    "kind": { "const": 30803 },
+    "content": { "const": "" },
+    "tags": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": { "type": "string", "maxLength": 256 }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "d" },
+              { "type": "string", "pattern": "^hydra:post-flair:[0-9a-f]{64}$" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "e" },
+              { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "k" },
+              { "const": "11" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "version" },
+              { "const": "hydra-protocol/v1" }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "status" },
+              { "enum": ["set", "withdraw"] }
+            ]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "prefixItems": [
+              { "const": "t" },
+              { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" }
+            ]
+          },
+          "minContains": 0,
+          "maxContains": 1
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "tags": {
+            "contains": {
+              "prefixItems": [{ "const": "status" }, { "const": "set" }]
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "tags": {
+            "contains": {
+              "prefixItems": [
+                { "const": "flair" },
+                { "type": "string", "minLength": 1, "maxLength": 32 }
+              ]
+            },
+            "minContains": 1,
+            "maxContains": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "tags": {
+            "not": {
+              "contains": {
+                "prefixItems": [{ "const": "flair" }]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

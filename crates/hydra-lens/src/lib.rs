@@ -1262,6 +1262,8 @@ mod tests {
                     flocking_judgments: vec![judgment],
                     community_appearances: Vec::new(),
                     community_color_choices: Vec::new(),
+                    persona_profiles: Vec::new(),
+                    post_flair_choices: Vec::new(),
                 },
                 2,
             )
@@ -1363,6 +1365,8 @@ mod tests {
                         flocking_judgments: Vec::new(),
                         community_appearances: Vec::new(),
                         community_color_choices: Vec::new(),
+                        persona_profiles: Vec::new(),
+                        post_flair_choices: Vec::new(),
                     },
                     recorded_at,
                 )
@@ -1405,6 +1409,8 @@ mod tests {
                     )],
                     community_appearances: Vec::new(),
                     community_color_choices: Vec::new(),
+                    persona_profiles: Vec::new(),
+                    post_flair_choices: Vec::new(),
                 },
                 10,
             )
@@ -1443,6 +1449,8 @@ mod tests {
                     )],
                     community_appearances: Vec::new(),
                     community_color_choices: Vec::new(),
+                    persona_profiles: Vec::new(),
+                    post_flair_choices: Vec::new(),
                 },
                 13,
             )

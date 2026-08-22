@@ -223,9 +223,8 @@ Discussion     2 people
 ### Nostr representation
 
 Hydra needs one current, replaceable choice rather than a history of permanent
-tags. It should define one addressable label-choice event. `kind:30802` is the
-proposed allocation, subject to the protocol review performed when the feature
-is implemented.
+tags. It defines one experimental addressable label-choice event at
+`kind:30803`.
 
 The choice value is an explicit `flair` tag. A custom tag is preferable to
 claiming strict NIP-32 compatibility: NIP-32 defines immutable `kind:1985`
@@ -238,24 +237,24 @@ An active community-scoped choice has this shape:
 
 ```json
 {
-  "kind": 30802,
+  "kind": 30803,
   "tags": [
-    ["d", "hydra:post-label:<anchor-id>:science"],
+    ["d", "hydra:post-flair:<sha256(anchor-id|science)>"],
     ["e", "<anchor-id>"],
     ["k", "11"],
     ["t", "science"],
     ["flair", "Field report"],
-    ["version", "hydra-protocol/v2"],
-    ["status", "active"]
+    ["version", "hydra-protocol/v1"],
+    ["status", "set"]
   ],
   "content": ""
 }
 ```
 
-A default choice uses `all` instead of a community in its `d` tag and omits
-`t`. A withdrawal republishes the same address with `status=withdrawn` and no
-`flair` tag. The normal addressable-event winner rules select one current event
-per publisher, post, and scope.
+A default choice hashes `anchor-id|all` for its `d` tag and omits `t`. A
+withdrawal republishes the same address with `status=withdraw` and no `flair`
+tag. The normal addressable-event winner rules select one current event per
+publisher, post, and scope.
 
 The event targets the immutable post anchor, not the editable object head, so
 label choices survive post edits. A community-scoped choice is only effective
@@ -268,13 +267,13 @@ similar storage, current-event, completeness, and provenance patterns.
 The materialized domain data is independent of `ObjectHead`:
 
 ```text
-PostLabelChoice {
+PostFlairChoice {
     author: NostrPublicKey,
     target: AnchorId,
     scope: All | Community(CommunityKey),
-    value: Option<FlairText>,
+    flair: Option<FlairText>,
     changed_at: u64,
-    event_id: String,
+    source_event_id: String,
 }
 ```
 
@@ -376,7 +375,7 @@ mutate the Hydra original.
 
 1. Add global user flair to profile publication, bounded remote profile
    ingestion, runtime views, and bylines.
-2. Add `FlairText`, `PostLabelChoice`, addressable event parsing/publication,
+2. Add `FlairText`, `PostFlairChoice`, addressable event parsing/publication,
    current-choice storage, and withdrawals.
 3. Add per-community resolution with unique-person counts, tie handling, local
    filters, and completeness/provenance details.

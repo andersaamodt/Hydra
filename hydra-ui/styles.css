@@ -258,6 +258,17 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .provenance.projected { color: var(--projected-ink); }
 .post-listing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .post-title-line { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; }
+.post-byline { display: flex; align-items: center; gap: 4px; margin-top: 1px; color: var(--faint); font-size: 12px; }
+.author-inline { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.author-link { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-flair, .post-flair { display: inline-flex; align-items: center; min-height: 19px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: 3px; padding: 1px 5px; color: var(--chip-ink); background: color-mix(in srgb, var(--accent) 7%, var(--paper)); font-size: 12px; line-height: 1.25; unicode-bidi: plaintext; }
+.post-flair { flex: 0 0 auto; cursor: pointer; font-weight: 650; }
+.post-flair:hover, .post-flair:focus-visible { border-color: var(--accent); color: var(--accent-strong); }
+.post-flair.is-tied { border-style: dashed; color: var(--muted); }
+.flair-counts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.flair-suggestion { min-height: 25px; }
+.discussion-title-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.discussion .discussion-title-line h1 { margin: 0; }
 .post-title { margin: 0; border: 0; padding: 0; color: var(--ink); background: none; font: 500 15px/1.3 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; unicode-bidi: plaintext; cursor: pointer; }
 .post-title:hover { color: var(--accent-strong); text-decoration: underline; }
 .content-age { cursor: default; }

@@ -22,9 +22,10 @@ use fs2::FileExt;
 use hydra_domain::{
     AnchorId, ArchiveId, ArchiveManifest, BlockRecord, CommunityKey, CommunitySubscription,
     ContinuityWorkflow, DeliveryState, DomainError, DurableEvent, EncryptedPrivateRecord,
-    EventEnvelope, EventId, FollowRecord, MediaManifest, NostrPublicKey, ObjectHead, OperationId,
-    OperationState, OutboundEvent, PersonaId, PersonaRegistry, Projection, ProjectionId,
-    PublicFollowSet, PublicProjectionRecord, ReactionRecord, ReactionValue, RedditIdentityProof,
+    EventEnvelope, EventId, FlairText, FollowRecord, MediaManifest, NostrPublicKey, ObjectHead,
+    OperationId, OperationState, OutboundEvent, PersonaId, PersonaProfile, PersonaRegistry,
+    PostFlairChoice, PostFlairScope, Projection, ProjectionId, PublicFollowSet,
+    PublicProjectionRecord, ReactionRecord, ReactionValue, RedditIdentityProof,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -998,6 +999,8 @@ fn sync_directory(path: &Path) -> Result<(), StoreError> {
 pub struct ReplayState {
     pub heads: MemoryHeadStore,
     pub personas: PersonaRegistry,
+    pub persona_profiles: BTreeMap<NostrPublicKey, PersonaProfile>,
+    pub post_flair_choices: BTreeMap<(NostrPublicKey, AnchorId, PostFlairScope), PostFlairChoice>,
     pub inbox_relays: BTreeMap<PersonaId, Vec<String>>,
     pub persona_relays: BTreeMap<PersonaId, (Vec<String>, Vec<String>)>,
     pub reddit_identity_proofs: BTreeMap<PersonaId, RedditIdentityProof>,
@@ -1081,8 +1084,20 @@ impl ReplayState {
             DurableEvent::PersonaProfilePublished {
                 persona,
                 display_name,
+                flair,
                 outbound,
-            } => self.apply_persona_profile(*persona, display_name, outbound),
+            } => self.apply_persona_profile(
+                *persona,
+                display_name,
+                flair.as_ref(),
+                outbound,
+                recorded_at,
+            ),
+            DurableEvent::PostFlairChoiceChanged {
+                persona,
+                choice,
+                outbound,
+            } => self.apply_post_flair_choice(*persona, choice, outbound),
             DurableEvent::RedditIdentityProofPublished { proof, outbound } => {
                 self.apply_reddit_identity_proof(proof, outbound)
             }
@@ -1137,6 +1152,8 @@ impl ReplayState {
                 flocking_judgments,
                 community_appearances,
                 community_color_choices,
+                persona_profiles,
+                post_flair_choices,
             } => self.apply_remote_event(
                 event_id,
                 event_json,
@@ -1146,6 +1163,8 @@ impl ReplayState {
                 flocking_judgments,
                 community_appearances,
                 community_color_choices,
+                persona_profiles,
+                post_flair_choices,
                 recorded_at,
             ),
             DurableEvent::MediaPreserved(manifest)
@@ -1273,7 +1292,9 @@ impl ReplayState {
         &mut self,
         persona: PersonaId,
         display_name: &str,
+        flair: Option<&FlairText>,
         outbound: &OutboundEvent,
+        recorded_at: u64,
     ) -> Result<(), DomainError> {
         if display_name.trim().is_empty() {
             return Err(DomainError::Empty);
@@ -1284,7 +1305,49 @@ impl ReplayState {
             .cloned()
             .ok_or(DomainError::MissingPersona)?;
         display_name.clone_into(&mut current.display_name);
+        let profile = PersonaProfile {
+            public_key: current.public_key.clone(),
+            display_name: display_name.to_owned(),
+            flair: flair.cloned(),
+            source_event_id: outbound.event_id.clone(),
+            updated_at: recorded_at,
+        };
+        profile.validate()?;
         self.personas.replace(current)?;
+        self.persona_profiles
+            .insert(profile.public_key.clone(), profile);
+        self.outbound
+            .insert(outbound.event_id.clone(), outbound.clone());
+        Ok(())
+    }
+
+    fn apply_post_flair_choice(
+        &mut self,
+        persona: PersonaId,
+        choice: &PostFlairChoice,
+        outbound: &OutboundEvent,
+    ) -> Result<(), DomainError> {
+        let persona = self
+            .personas
+            .get(persona)
+            .ok_or(DomainError::MissingPersona)?;
+        if persona.public_key != choice.author {
+            return Err(DomainError::IdentityConflict);
+        }
+        choice.validate()?;
+        let head = self
+            .heads
+            .current_head(&choice.target)
+            .map_err(|_| DomainError::MissingObject)?;
+        if head.kind != hydra_domain::ObjectKind::Post
+            || matches!(
+                &choice.scope,
+                PostFlairScope::Community(community) if !head.communities.contains(community)
+            )
+        {
+            return Err(DomainError::InvalidObjectShape);
+        }
+        apply_current_post_flair(&mut self.post_flair_choices, choice);
         self.outbound
             .insert(outbound.event_id.clone(), outbound.clone());
         Ok(())
@@ -1401,6 +1464,8 @@ impl ReplayState {
         flocking_judgments: &[flocking_core::Judgment],
         community_appearances: &[flocking_core::CommunityAppearance],
         community_color_choices: &[hydra_domain::CommunityColorChoice],
+        persona_profiles: &[PersonaProfile],
+        post_flair_choices: &[PostFlairChoice],
         recorded_at: u64,
     ) -> Result<(), DomainError> {
         if event_id.is_empty() || event_json.is_empty() {
@@ -1450,6 +1515,26 @@ impl ReplayState {
             .extend(community_appearances.iter().cloned());
         self.community_color_choices
             .extend(community_color_choices.iter().cloned());
+        for profile in persona_profiles {
+            profile.validate()?;
+            self.persona_profiles
+                .entry(profile.public_key.clone())
+                .and_modify(|current| {
+                    if replaces(
+                        profile.updated_at,
+                        &profile.source_event_id,
+                        current.updated_at,
+                        &current.source_event_id,
+                    ) {
+                        *current = profile.clone();
+                    }
+                })
+                .or_insert_with(|| profile.clone());
+        }
+        for choice in post_flair_choices {
+            choice.validate()?;
+            apply_current_post_flair(&mut self.post_flair_choices, choice);
+        }
         self.received_events
             .insert(event_id.to_owned(), event_json.to_owned());
         self.received_event_first_seen
@@ -1615,6 +1700,33 @@ impl ReplayState {
             self.outbound.insert(event.event_id.clone(), event.clone());
         }
     }
+}
+
+fn replaces(new_at: u64, new_id: &str, current_at: u64, current_id: &str) -> bool {
+    new_at > current_at || (new_at == current_at && new_id < current_id)
+}
+
+fn apply_current_post_flair(
+    choices: &mut BTreeMap<(NostrPublicKey, AnchorId, PostFlairScope), PostFlairChoice>,
+    choice: &PostFlairChoice,
+) {
+    choices
+        .entry((
+            choice.author.clone(),
+            choice.target.clone(),
+            choice.scope.clone(),
+        ))
+        .and_modify(|current| {
+            if replaces(
+                choice.changed_at,
+                &choice.source_event_id,
+                current.changed_at,
+                &current.source_event_id,
+            ) {
+                *current = choice.clone();
+            }
+        })
+        .or_insert_with(|| choice.clone());
 }
 
 /// The validating production write path to Hydra's durable event arche.
@@ -1824,6 +1936,8 @@ mod tests {
                     flocking_judgments: Vec::new(),
                     community_appearances: Vec::new(),
                     community_color_choices: Vec::new(),
+                    persona_profiles: Vec::new(),
+                    post_flair_choices: Vec::new(),
                 },
                 42,
             )
