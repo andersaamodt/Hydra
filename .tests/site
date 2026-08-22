@@ -40,7 +40,8 @@ do
     case "$reference" in
       http://*|https://*|\#*) continue ;;
     esac
-    local_path=$(CDPATH='' cd -- "$(dirname -- "$page")" && pwd)/$reference
+    file_reference=$(printf '%s' "$reference" | sed 's/[?#].*$//')
+    local_path=$(CDPATH='' cd -- "$(dirname -- "$page")" && pwd)/$file_reference
     [ -e "$local_path" ] || {
       printf '%s\n' "site: broken local reference $reference in ${page#"$repo_root/"}" >&2
       exit 1
