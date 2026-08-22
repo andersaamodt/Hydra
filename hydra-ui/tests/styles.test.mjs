@@ -82,6 +82,7 @@ test("macOS integrates the native title bar with Hydra's toolbar", () => {
   assert.match(styles, /\.platform-macos \.app-shell\s*\{[^}]*grid-template-rows:\s*56px 1fr/);
   assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 610px\) minmax\(0, 1fr\) auto;[^}]*padding:\s*7px 18px 7px 78px/);
   assert.match(styles, /\.topbar-drag-region\s*\{[^}]*align-self:\s*stretch;[^}]*min-width:\s*0/);
+  assert.match(styles, /\.search-box\s*\{[^}]*width:\s*min\(100%, 440px\);[^}]*height:\s*38px;[^}]*justify-self:\s*center;[^}]*padding:\s*0 10px/);
   assert.match(styles, /\.platform-macos #settings-button\s*\{\s*display:\s*none;/);
 });
 
