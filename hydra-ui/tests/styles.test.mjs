@@ -431,6 +431,8 @@ test("community routes use one compact heading with art and actions", () => {
   assert.match(app, /showCommunityAppearanceEditor/);
   assert.match(app, /community_appearance\.set/);
   assert.match(app, /appearance_source\.set/);
+  assert.match(app, /async function preloadCommunityImages\(\)[\s\S]*communityAppearances[\s\S]*Promise\.all/);
+  assert.match(app, /await preloadCommunityImages\(\);\s*render\(\);\s*finishBoot\(\)/);
   assert.match(app, /Follow their community appearance/);
   assert.match(app, /function showPersonaProfile/);
   assert.doesNotMatch(app, /function showAppearanceSources/);

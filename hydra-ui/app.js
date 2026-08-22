@@ -662,6 +662,7 @@ async function refresh() {
     session.state = extractState(result);
     session.companions = { checked: true, bookClubInstalled: Boolean(companions.bookClubInstalled) };
     session.foreignBridges = bridges?.result?.bridges ?? bridges?.data?.bridges ?? session.foreignBridges;
+    await preloadCommunityImages();
     render();
     finishBoot();
   } catch (error) {
@@ -931,6 +932,12 @@ function topicIdenticon(topic) {
 function effectiveCommunityAppearance(community) {
   const persona = activePersona(session.state);
   return (session.state?.communityAppearances ?? []).find((item) => item.personaId === persona?.id && item.topic === community);
+}
+
+async function preloadCommunityImages() {
+  const persona = activePersona(session.state);
+  const appearances = (session.state?.communityAppearances ?? []).filter((item) => item.personaId === persona?.id);
+  await Promise.all(appearances.map((appearance) => verifyCommunityImage(appearance.topic, appearance)));
 }
 
 function effectiveCommunityColorScheme(community) {
