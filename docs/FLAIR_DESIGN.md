@@ -17,33 +17,36 @@ community only provides context for resolving a post's labels.
 
 Hydra should not support third-party or moderator-assigned user flair now. That
 would be a public branding/credential system, with materially different abuse
-and trust semantics. NIP-58 badges or a future attestation feature are the
-proper place for awarded claims.
+and trust semantics. Awarded claims belong to a separate future credential or
+attestation feature.
 
 ## What Hydra has today
 
 Hydra currently models neither feature.
 
-The existing `ObjectHead.communities` values are routing/membership tags: they
-say that a post appears in `/h/science`, for example. Provenance and durability
-chips describe Hydra state, and persona display names are global identity
-metadata. None of those are flair.
+The existing `ObjectHead.communities` values say that a post appears in
+`/h/science`, for example. Provenance and durability chips describe Hydra
+state, and persona display names are global identity metadata. None of those
+are flair.
 
-## Are post flair and tags the same thing?
+## Hydrants, topics, tags, and flair
 
-At the protocol and domain layers, yes: post flair should be a presentation of
-signed post labels rather than a second classification system.
+Hydrants are communities or topics. They are not a user-facing tagging feature
+and do not have flair of their own.
 
-Hydra still needs two kinds of tag-like data:
+Under the hood, Nostr represents the topic names attached to a post with `t`
+tags. That is a storage/protocol detail and Hydra should not call them tags in
+the interface or ordinary product documentation.
 
-- **Hydrants** (`/h/science`) determine where a post appears.
-- **Post labels** (`Question`, `Field report`) describe what kind of post it is
-  within that context.
+Post flair is separate in the product model. Each person gets one current flair
+choice for a post, rather than an open-ended bag of tags. Across people, those
+choices form a small set of candidate labels such as `Question` or
+`Field report`.
 
 The interface renders the leading post label as a compact flair chip. The label
 detail surface shows the other proposed labels and their support. This keeps
 `flair` as a useful visual treatment without inventing a separate semantic
-object.
+object or encouraging people to attach many tags to every post.
 
 User-facing copy may say `flair`; internal types and protocol documentation
 should say `post label` or `label choice`.
@@ -74,19 +77,22 @@ academic`.
   Publishers cannot choose foreground or background colors.
 - Malformed flair is ignored without hiding an otherwise valid profile.
 
-### Nostr representation
+### Profile representation
 
-The persona's replaceable NIP-01 metadata event (`kind:0`) carries a NIP-32
-self-label:
+User flair is simply part of the persona's replaceable Nostr profile record
+(`kind:0`), alongside its name and other public profile fields:
 
 ```json
-["L", "org.hydra.flair.user"]
-["l", "Hydra tinkerer", "org.hydra.flair.user"]
+{
+  "name": "alice",
+  "display_name": "Alice",
+  "hydra_flair": "Hydra tinkerer"
+}
 ```
 
-There is at most one `l` value in this namespace. Updating the display name or
-user flair republishes the complete current profile metadata. Clearing user
-flair removes these tags from the next profile event.
+Updating the display name or user flair republishes the complete current
+profile. Clearing user flair omits `hydra_flair` from the next profile record.
+Clients that do not know the Hydra-specific field can safely ignore it.
 
 Hydra currently has local personas but no durable remote profile projection.
 Implementation needs a bounded `PersonaProfile` keyed by public key, containing
@@ -178,10 +184,10 @@ Discussion     2 people
 
 ### Nostr representation
 
-NIP-32 `kind:1985` label events are immutable, so they do not cleanly represent
-one current, replaceable choice. Hydra should define one addressable label-choice
-event. `kind:30802` is the proposed allocation, subject to the protocol review
-performed when the feature is implemented.
+Hydra needs one current, replaceable choice rather than a history of permanent
+tags. It should define one addressable label-choice event. `kind:30802` is the
+proposed allocation, subject to the protocol review performed when the feature
+is implemented.
 
 An active community-scoped choice has this shape:
 
@@ -193,8 +199,7 @@ An active community-scoped choice has this shape:
     ["e", "<anchor-id>"],
     ["k", "11"],
     ["t", "science"],
-    ["L", "org.hydra.label.post"],
-    ["l", "Field report", "org.hydra.label.post"],
+    ["label", "Field report"],
     ["version", "hydra-protocol/v2"],
     ["status", "active"]
   ],
@@ -204,8 +209,8 @@ An active community-scoped choice has this shape:
 
 A default choice uses `all` instead of a community in its `d` tag and omits
 `t`. A withdrawal republishes the same address with `status=withdrawn` and no
-`l` tag. The normal addressable-event winner rules select one current event per
-publisher, post, and scope.
+`label` tag. The normal addressable-event winner rules select one current event
+per publisher, post, and scope.
 
 The event targets the immutable post anchor, not the editable object head, so
 label choices survive post edits. A community-scoped choice is only effective
@@ -355,5 +360,4 @@ abuse-handling semantics rather than a field on `ObjectHead`.
 
 ## References
 
-- [NIP-32: Labeling](https://github.com/nostr-protocol/nips/blob/master/32.md)
-- [NIP-58: Badges](https://github.com/nostr-protocol/nips/blob/master/58.md)
+- [NIP-01: Nostr events and user profiles](https://github.com/nostr-protocol/nips/blob/master/01.md)
