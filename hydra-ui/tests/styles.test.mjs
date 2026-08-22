@@ -280,7 +280,14 @@ test("post listings use a minimal old-Reddit hierarchy", () => {
   assert.doesNotMatch(styles, /\.post-card:hover/);
   assert.match(styles, /\.post-title\s*\{[^}]*system-ui/);
   assert.doesNotMatch(styles, /\.post-title\s*\{[^}]*Georgia/);
-  assert.match(app, /class: "post-age"/);
+  assert.match(app, /ageElement\(post\.createdAt \?\? post\.editedAt, "post-age"\)/);
+  assert.match(app, /title: exactDateTime\(value\)/);
+  assert.match(styles, /\.content-age\s*\{\s*cursor:\s*default;/);
+  assert.match(styles, /\.post-age\s*\{[^}]*font-size:\s*12px/);
+  assert.match(styles, /\.post-title\s*\{[^}]*font:\s*500 15px/);
+  assert.match(styles, /\.post-body\s*\{[^}]*font-size:\s*13px/);
+  assert.match(styles, /\.community-chip, \.state-chip\s*\{[^}]*font-size:\s*12px/);
+  assert.doesNotMatch(styles, /font-size:\s*(?:9|10|11)px/);
   assert.match(app, /class: "post-hydrants"/);
   assert.match(app, /item\("Post details"/);
   assert.match(app, /onclick: \(\) => setRoute\("community", name\)/);

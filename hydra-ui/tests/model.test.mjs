@@ -4,6 +4,7 @@ import {
   activePersona,
   commentsFor,
   discussionItemMatches,
+  exactDateTime,
   filterOpenNostrItems,
   isRedditDiscussionProjection,
   JUDGMENT_GRACE_MS,
@@ -217,4 +218,6 @@ test("My Feed combines weighted people, places, replies, and memory sources", ()
 test("relative time is compact and stable", () => {
   assert.equal(relativeTime(900, 1000), "1m");
   assert.equal(relativeTime(1000, 1000), "now");
+  assert.match(exactDateTime(1_700_000_000, "en-US"), /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/);
+  assert.equal(exactDateTime(Number.NaN, "en-US"), "Unknown date");
 });

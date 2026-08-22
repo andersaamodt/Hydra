@@ -232,6 +232,7 @@ struct ObjectView<'a> {
     durability: &'static str,
     reddit_projected: bool,
     disowned: bool,
+    created_at: u64,
     edited_at: u64,
     block: Option<BlockEffectView>,
     topic_blocks: BTreeMap<String, BlockEffectView>,
@@ -1821,6 +1822,14 @@ fn object_view<'a>(
             .disowning_requests
             .keys()
             .any(|(_, anchor)| anchor == &head.anchor),
+        created_at: store
+            .state()
+            .heads
+            .history(&head.anchor)
+            .into_iter()
+            .map(|version| version.edited_at)
+            .min()
+            .unwrap_or(head.edited_at),
         edited_at: head.edited_at,
     }
 }

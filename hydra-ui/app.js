@@ -4,6 +4,7 @@ import {
   activePersona,
   commentsFor,
   durabilityLabel,
+  exactDateTime,
   filterOpenNostrItems,
   openNostrKindLabel,
   parseRedditObjectUrl,
@@ -533,6 +534,17 @@ function element(tag, options = {}, children = []) {
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
   return node;
+}
+
+function ageElement(timestamp, className = "") {
+  const value = Number(timestamp);
+  const date = new Date(value * 1000);
+  return element("time", {
+    class: `content-age${className ? ` ${className}` : ""}`,
+    datetime: Number.isFinite(value) && !Number.isNaN(date.getTime()) ? date.toISOString() : null,
+    title: exactDateTime(value),
+    text: relativeTime(value),
+  });
 }
 
 function actionButton(label, onClick, className = "quiet-button") {
@@ -1406,7 +1418,7 @@ function postCard(post, lens, community) {
     element("div", { class: "post-listing-head" }, [
       element("div", { class: "post-title-line" }, [
         element("button", { type: "button", class: "post-title", text: post.title || "Untitled discussion", onclick: () => openDiscussion(post.anchor) }),
-        element("time", { class: "post-age", datetime: new Date(post.editedAt * 1000).toISOString(), text: relativeTime(post.editedAt) }),
+        ageElement(post.createdAt ?? post.editedAt, "post-age"),
         post.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
       ]),
       communities.length ? element("div", { class: "post-hydrants", "aria-label": "Hydrants" }, communities) : null,
@@ -1483,7 +1495,7 @@ function renderDiscussion(anchor) {
     element("div", { class: "meta-line" }, [
       element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
       element("button", { type: "button", class: "text-action", text: post.author, onclick: () => showPersonaProfile(post.author) }),
-      element("span", { text: relativeTime(post.editedAt) }),
+      ageElement(post.createdAt ?? post.editedAt),
       element("span", { class: "state-chip", text: durabilityLabel(post.durability) }),
     ]),
     element("h1", { text: post.title || "Untitled discussion" }),
@@ -1528,7 +1540,7 @@ function commentView(comment) {
     element("div", { class: "meta-line" }, [
       element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
       element("button", { type: "button", class: "text-action", text: comment.author, onclick: () => showPersonaProfile(comment.author) }),
-      element("span", { text: relativeTime(comment.editedAt) }),
+      ageElement(comment.createdAt ?? comment.editedAt),
       comment.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
     ]),
     element("div", { class: "comment-body", text: comment.body }),
@@ -2029,7 +2041,7 @@ function redditCard(item, community, depth = 0) {
         element("span", { class: "provenance reddit", text: `Reddit · /r/${item.subreddit || community}` }),
         element("span", { text: item.author || "[deleted]" }),
         element("span", { class: "state-chip", text: state }),
-        element("span", { text: relativeTime(item.created_at) }),
+        ageElement(item.created_at),
       ]),
       isPost ? element("button", { type: "button", class: "post-title", text: visibleInlineText(item.title || "Untitled Reddit post"), onclick: () => loadRedditThread(item) }) : null,
       element("p", { class: "post-body", text: item.body || (unavailable ? "Reddit no longer supplies this text." : "") }),
@@ -2155,7 +2167,7 @@ function renderMessages() {
   const body = element("div", { class: "content-list" }, [
     messages.length ? actionButton("New message", showMessageComposer, "primary-button") : null,
     ...(messages.length ? messages.map((message) => element("article", { class: "context-card" }, [
-      element("div", { class: "meta-line" }, [element("strong", { text: message.peer }), element("span", { text: relativeTime(message.createdAt) }), message.request ? element("span", { class: "state-chip", text: "Message request" }) : null]),
+      element("div", { class: "meta-line" }, [element("strong", { text: message.peer }), ageElement(message.createdAt), message.request ? element("span", { class: "state-chip", text: "Message request" }) : null]),
       element("p", { text: message.body }),
       element("div", { class: "post-actions" }, [
         actionButton("Reply as this persona", () => showMessageComposerTo(message.peer), "primary-button"),
@@ -2263,7 +2275,7 @@ function openNostrCard(item) {
       element("div", { class: "meta-line" }, [
         element("span", { class: "provenance native", text: "Nostr" }),
         element("span", { text: `${String(item.author).slice(0, 14)}…` }),
-        element("span", { text: relativeTime(item.createdAt) }),
+        ageElement(item.createdAt),
         element("span", { class: "state-chip", text: topics.length ? topics.map((topic) => `#${topic}`).join(" · ") : "Uncategorized" }),
       ]),
       element("p", { class: "post-body", text: item.body || "This event has no text body." }),
@@ -2283,7 +2295,7 @@ function canonNostrCard(item) {
       element("div", { class: "meta-line" }, [
         element("span", { class: "provenance native", text: "Canon" }),
         element("span", { class: "state-chip", text: String(record.role).replaceAll("-", " ") }),
-        element("span", { text: relativeTime(item.createdAt) }),
+        ageElement(item.createdAt),
       ]),
       element("h2", { text: record.title }),
       element("p", { class: "evidence-note", text: creatorLine }),
@@ -2433,7 +2445,7 @@ function redditBridgeSections() {
         element("div", { class: "meta-line" }, [
           element("span", { class: "provenance reddit", text: item.kind === "comment" ? "Reddit comment" : "Reddit post" }),
           element("span", { text: item.communities?.length ? item.communities.map((community) => `/r/${community}`).join(" · ") : "Reddit" }),
-          element("span", { text: relativeTime(item.editedAt) }),
+          ageElement(item.createdAt ?? item.editedAt),
         ]),
         item.title ? element("strong", { text: visibleInlineText(item.title) }) : null,
         element("p", { class: "post-body", text: visibleInlineText(item.body) }),

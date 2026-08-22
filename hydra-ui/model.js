@@ -141,6 +141,13 @@ export function relativeTime(timestamp, now = Math.floor(Date.now() / 1000)) {
   return `${Math.floor(seconds / 31_536_000)}y`;
 }
 
+export function exactDateTime(timestamp, locale) {
+  if (!Number.isFinite(timestamp)) return "Unknown date";
+  const date = new Date(timestamp * 1000);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return new Intl.DateTimeFormat(locale, { dateStyle: "full", timeStyle: "long" }).format(date);
+}
+
 const OPEN_NOSTR_AGE_SECONDS = {
   hour: 3_600,
   day: 86_400,
