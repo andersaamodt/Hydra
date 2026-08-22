@@ -263,7 +263,7 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .post-actions { margin-top: 5px; }
 .text-action { border: 0; padding: 3px 5px; color: var(--muted); background: none; cursor: pointer; font-size: 11px; }
 .text-action:hover { color: var(--ink); }
-.emoji-react-button { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 4px; color: var(--muted); }
+.emoji-react-button { width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 6px; padding: 4px; color: var(--muted); }
 .emoji-react-button:hover, .emoji-react-button:focus-visible { color: var(--ink); background: var(--shade); }
 .emoji-react-icon { width: 18px; height: 18px; display: block; }
 .vote-action-button { display: inline-flex; align-items: center; gap: 4px; }
@@ -339,8 +339,8 @@ body.settings-window { min-width: 0; min-height: 0; }
 .toast { max-width: 390px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 11px; color: var(--ink); background: var(--modal); box-shadow: var(--shadow); font-size: 12px; }
 .toast.error { border-color: rgba(255,118,111,.35); color: #ffd4d0; background: #361b1a; }
 .judgment-callout, .emoji-reaction-callout { position: fixed; z-index: 70; width: min(330px, calc(100vw - 24px)); padding: 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--modal); box-shadow: var(--shadow); }
-.judgment-callout::before, .emoji-reaction-callout::before { content: ""; position: absolute; top: -8px; left: calc(var(--callout-pointer-x) - 7px); width: 14px; height: 14px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); background: var(--modal); transform: rotate(45deg); }
-.judgment-callout.is-above::before, .emoji-reaction-callout.is-above::before { top: auto; bottom: -8px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.judgment-callout::before { content: ""; position: absolute; top: -8px; left: calc(var(--callout-pointer-x) - 7px); width: 14px; height: 14px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); background: var(--modal); transform: rotate(45deg); }
+.judgment-callout.is-above::before { top: auto; bottom: -8px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .judgment-callout-status { margin: 4px 0 10px; color: var(--muted); font-size: 11px; }
 .judgment-callout-scope { display: flex; align-items: center; gap: 5px; margin: 8px 0; color: var(--muted); font-size: 11px; }
 .judgment-callout-scope > span { margin-right: 3px; }
@@ -353,16 +353,36 @@ body.settings-window { min-width: 0; min-height: 0; }
 .judgment-callout-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
 .judgment-callout-actions .judgment-undo { align-self: center; display: grid; place-items: center; margin-right: auto; }
 .undo-icon { width: 18px; height: 18px; display: block; }
-.emoji-reaction-callout { z-index: 72; width: min(300px, calc(100vw - 24px)); }
-.emoji-callout-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.emoji-callout-close { display: grid; place-items: center; margin: -6px -6px 0 0; font-size: 20px; line-height: 1; }
-.emoji-callout-note { margin: 3px 0 12px; color: var(--muted); font-size: 11px; }
-.emoji-choice-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
-.emoji-choice { min-height: 46px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--panel-2); cursor: pointer; font-size: 23px; }
-.emoji-choice:hover, .emoji-choice:focus-visible { border-color: var(--accent); background: var(--accent-faint); outline: 0; }
-.emoji-custom-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 10px; }
-.emoji-custom-row input { min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 8px 9px; color: var(--ink); background: var(--panel-2); outline: 0; }
-.emoji-custom-row input:focus { border-color: var(--accent); }
+.emoji-reaction-callout { z-index: 72; width: max-content; max-width: calc(100vw - 24px); display: flex; align-items: center; gap: 2px; padding: 5px 7px; border-radius: 22px; }
+.emoji-quick-grid { display: flex; align-items: center; gap: 1px; }
+.emoji-quick-choice, .emoji-picker-expand { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 18px; padding: 0; color: var(--ink); background: transparent; cursor: pointer; font-size: 23px; line-height: 1; }
+.emoji-quick-choice:hover, .emoji-quick-choice:focus-visible, .emoji-picker-expand:hover, .emoji-picker-expand:focus-visible { background: var(--shade); outline: 0; }
+.emoji-picker-expand { color: var(--muted); background: var(--shade); font: 700 20px/1 system-ui, sans-serif; }
+.emoji-reaction-callout.is-expanded { width: min(380px, calc(100vw - 24px)); height: min(520px, calc(100vh - 24px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; align-items: stretch; gap: 7px; padding: 9px 8px 6px; border-radius: 12px; }
+.emoji-picker-search-row { display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; gap: 5px; }
+.emoji-picker-search { min-width: 0; height: 34px; border: 1px solid transparent; border-radius: 7px; padding: 7px 10px; color: var(--ink); background: var(--shade); outline: 0; font-size: 12px; }
+.emoji-picker-search:focus { border-color: var(--accent); background: var(--panel-2); }
+.emoji-picker-close { width: 30px; height: 30px; border: 0; border-radius: 6px; padding: 0; color: var(--muted); background: transparent; cursor: pointer; font: 20px/1 system-ui, sans-serif; }
+.emoji-picker-close:hover, .emoji-picker-close:focus-visible { color: var(--ink); background: var(--shade); outline: 0; }
+.emoji-picker-scroll { min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 0 3px 10px; scrollbar-width: thin; }
+.emoji-picker-scroll.is-removing-favorite { cursor: grabbing; }
+.emoji-picker-section { scroll-margin-top: 4px; padding: 7px 0 9px; }
+.emoji-section-heading { min-height: 22px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px; }
+.emoji-section-heading h2 { margin: 0; color: var(--muted); font: 650 11px/1.4 system-ui, sans-serif; }
+.emoji-section-heading span { overflow: hidden; color: var(--faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.emoji-choice-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; }
+.emoji-choice { position: relative; min-width: 0; height: 38px; border: 0; border-radius: 7px; padding: 0; color: var(--ink); background: transparent; cursor: grab; font-size: 23px; line-height: 1; touch-action: none; }
+.emoji-choice:hover, .emoji-choice:focus-visible { background: var(--shade); outline: 0; }
+.emoji-choice:active { cursor: grabbing; }
+.emoji-choice.is-favorite::after { content: ""; position: absolute; right: 4px; bottom: 4px; width: 4px; height: 4px; border-radius: 2px; background: var(--accent); }
+.emoji-favorite-grid .emoji-choice.is-favorite::after { display: none; }
+.emoji-choice.is-dragging { opacity: .35; }
+.emoji-favorite-grid { min-height: 42px; border: 1px dashed transparent; border-radius: 8px; padding: 1px; }
+.emoji-favorite-grid.is-drop-target { border-color: var(--accent); background: var(--accent-faint); }
+.emoji-empty-state { margin: 3px 4px 5px; border: 1px dashed var(--line); border-radius: 7px; padding: 10px; color: var(--faint); font-size: 10px; text-align: center; }
+.emoji-category-navigation { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; border-top: 1px solid var(--line); padding-top: 5px; }
+.emoji-category-navigation button { height: 30px; border: 0; border-radius: 6px; padding: 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 16px; }
+.emoji-category-navigation button:hover, .emoji-category-navigation button:focus-visible { color: var(--ink); background: var(--shade); outline: 0; }
 .loading { padding: 20vh 20px; color: var(--muted); text-align: center; }
 .raw-event { border: 1px solid var(--line); border-radius: 10px; background: var(--shade); }
 .raw-event summary { padding: 10px 12px; cursor: pointer; color: var(--muted); }

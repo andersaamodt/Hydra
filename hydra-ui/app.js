@@ -85,9 +85,345 @@ const SIDEBAR_WIDTH_MIN = 180;
 const SIDEBAR_WIDTH_MAX = 420;
 const SIDEBAR_WIDTH_DEFAULT = 230;
 const SIDEBAR_WIDTH_STORAGE_KEY = "hydra.sidebarWidth";
+const FAVORITE_REACTION_EMOJIS_STORAGE_KEY = "hydra.favoriteReactionEmojis";
+const RECENT_REACTION_EMOJIS_STORAGE_KEY = "hydra.recentReactionEmojis";
+const DEFAULT_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😂", "😮", "😢"];
+const EMOJI_CATEGORIES = [
+  {
+    id: "smileys",
+    label: "Smileys & People",
+    icon: "😀",
+    entries: emojiCatalog(`
+😀 grinning happy smile
+😃 happy smile joy
+😄 happy smile laugh
+😁 beaming grin
+😆 laughing squint
+😅 sweat smile relief
+🤣 rolling laughing
+😂 tears joy laughing
+🙂 slight smile
+🙃 upside down silly
+😉 wink
+😊 blush happy
+😇 angel halo
+🥰 hearts love
+😍 heart eyes love
+😘 kiss love
+😋 tasty tongue
+😜 wink tongue silly
+🤪 zany silly
+🤔 thinking
+🫡 salute respect
+🤨 skeptical eyebrow
+😐 neutral
+😮 surprised wow
+😢 crying sad
+😭 sob crying
+😡 angry mad
+🤯 mind blown
+🥳 party celebrate
+😎 cool sunglasses
+🤓 nerd glasses
+🫠 melting
+🫶 heart hands love
+👏 clap applause
+🙌 raised hands hooray
+👍 thumbs up agree
+👎 thumbs down disagree
+🙏 please thanks pray
+💪 strong flex
+👀 eyes looking
+`),
+  },
+  {
+    id: "animals",
+    label: "Animals & Nature",
+    icon: "🐻",
+    entries: emojiCatalog(`
+🐶 dog pet
+🐱 cat pet
+🐭 mouse
+🐹 hamster
+🐰 rabbit bunny
+🦊 fox
+🐻 bear
+🐼 panda
+🐨 koala
+🐯 tiger
+🦁 lion
+🐮 cow
+🐷 pig
+🐸 frog
+🐵 monkey
+🐔 chicken
+🐧 penguin
+🐦 bird
+🦄 unicorn
+🐝 bee
+🦋 butterfly
+🐌 snail
+🐞 ladybug
+🌸 blossom flower
+🌻 sunflower
+🌲 evergreen tree
+🌵 cactus
+🍀 clover lucky
+🔥 fire hot
+🌈 rainbow
+⭐ star
+✨ sparkles
+`),
+  },
+  {
+    id: "food",
+    label: "Food & Drink",
+    icon: "🍕",
+    entries: emojiCatalog(`
+🍎 apple fruit
+🍐 pear fruit
+🍊 orange fruit
+🍋 lemon fruit
+🍌 banana fruit
+🍉 watermelon fruit
+🍇 grapes fruit
+🍓 strawberry fruit
+🫐 blueberry fruit
+🍒 cherries fruit
+🥑 avocado
+🥕 carrot
+🌽 corn
+🍞 bread
+🧀 cheese
+🍔 burger
+🍟 fries
+🍕 pizza
+🌮 taco
+🍣 sushi
+🍿 popcorn
+🍩 donut
+🍪 cookie
+🎂 cake birthday
+🍫 chocolate
+☕ coffee tea
+🍵 tea
+🍺 beer
+🍷 wine
+🥂 cheers toast
+`),
+  },
+  {
+    id: "activities",
+    label: "Activities",
+    icon: "⚽",
+    entries: emojiCatalog(`
+⚽ soccer football
+🏀 basketball
+🏈 football
+⚾ baseball
+🎾 tennis
+🏐 volleyball
+🎱 pool billiards
+🏓 ping pong
+🏸 badminton
+🥊 boxing
+🎯 target bullseye
+🎮 game controller
+🎲 dice game
+🧩 puzzle
+🎨 art palette
+🎭 theater masks
+🎸 guitar music
+🎹 piano music
+🎤 microphone sing
+🎧 headphones music
+🏆 trophy winner
+🥇 gold medal winner
+🎉 party popper celebrate
+🎊 confetti celebrate
+`),
+  },
+  {
+    id: "travel",
+    label: "Travel & Places",
+    icon: "🚗",
+    entries: emojiCatalog(`
+🚗 car
+🚕 taxi
+🚌 bus
+🚎 trolleybus
+🏎️ race car
+🚓 police car
+🚑 ambulance
+🚒 fire engine
+🚲 bicycle bike
+🛴 scooter
+🚆 train
+🚇 metro subway
+✈️ airplane flight
+🚀 rocket space
+🛸 flying saucer
+🚁 helicopter
+⛵ sailboat
+🚢 ship
+🏠 home house
+🏢 office building
+🏫 school
+🏥 hospital
+🏖️ beach
+🏔️ mountain
+🌋 volcano
+🌍 earth world
+🌙 moon night
+☀️ sun sunny
+`),
+  },
+  {
+    id: "objects",
+    label: "Objects",
+    icon: "💡",
+    entries: emojiCatalog(`
+⌚ watch time
+📱 phone mobile
+💻 laptop computer
+⌨️ keyboard
+🖥️ desktop computer
+🖨️ printer
+📷 camera photo
+🎥 movie camera video
+📺 television tv
+📻 radio
+💡 light bulb idea
+🔦 flashlight
+📚 books reading
+📖 open book
+📝 memo write
+✏️ pencil
+📌 pin
+📎 paperclip
+🔒 lock secure
+🔑 key
+🔧 wrench tool
+🔨 hammer tool
+⚙️ gear settings
+🧲 magnet
+🔬 microscope science
+🔭 telescope
+💊 medicine pill
+🩹 bandage
+🎁 gift present
+🛒 shopping cart
+`),
+  },
+  {
+    id: "symbols",
+    label: "Symbols",
+    icon: "❤️",
+    entries: emojiCatalog(`
+❤️ red heart love
+🧡 orange heart
+💛 yellow heart
+💚 green heart
+💙 blue heart
+💜 purple heart
+🖤 black heart
+🤍 white heart
+🤎 brown heart
+💔 broken heart
+💕 two hearts
+💯 hundred perfect
+💥 collision boom
+💫 dizzy
+💦 sweat droplets
+💨 dash fast
+✅ check mark yes
+❌ cross no
+❓ question
+❗ exclamation
+⚠️ warning
+🚫 prohibited
+🔴 red circle
+🟠 orange circle
+🟡 yellow circle
+🟢 green circle
+🔵 blue circle
+🟣 purple circle
+⚫ black circle
+⚪ white circle
+`),
+  },
+  {
+    id: "flags",
+    label: "Flags",
+    icon: "🏁",
+    entries: emojiCatalog(`
+🏁 checkered flag finish
+🚩 red flag
+🏳️ white flag
+🏴 black flag
+🏳️‍🌈 rainbow pride flag
+🏳️‍⚧️ transgender pride flag
+🇺🇸 united states usa flag
+🇨🇦 canada flag
+🇲🇽 mexico flag
+🇧🇷 brazil flag
+🇬🇧 united kingdom uk flag
+🇫🇷 france flag
+🇩🇪 germany flag
+🇮🇹 italy flag
+🇪🇸 spain flag
+🇯🇵 japan flag
+🇰🇷 korea flag
+🇮🇳 india flag
+🇦🇺 australia flag
+🇳🇿 new zealand flag
+`),
+  },
+];
 
 function maximumSidebarWidth() {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, window.innerWidth - 480));
+}
+
+function emojiCatalog(source) {
+  return source.trim().split("\n").map((line) => {
+    const [emoji, ...keywords] = line.trim().split(/\s+/);
+    return { emoji, keywords: keywords.join(" ") };
+  });
+}
+
+function normalizedEmojiList(value, maximum = 32) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((emoji) => String(emoji ?? "").trim()).filter((emoji) => emoji && emoji.length <= 32 && !["+", "-", "0"].includes(emoji)))].slice(0, maximum);
+}
+
+function storedEmojiList(key, fallback = []) {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored === null ? [...fallback] : normalizedEmojiList(JSON.parse(stored));
+  } catch {
+    return [...fallback];
+  }
+}
+
+function storeEmojiList(key, value) {
+  const normalized = normalizedEmojiList(value);
+  try { localStorage.setItem(key, JSON.stringify(normalized)); } catch { /* Reactions still work without preference persistence. */ }
+  return normalized;
+}
+
+function favoriteReactionEmojis() {
+  return storedEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
+}
+
+function recentReactionEmojis() {
+  return storedEmojiList(RECENT_REACTION_EMOJIS_STORAGE_KEY);
+}
+
+function rememberRecentReactionEmoji(emoji) {
+  const value = String(emoji ?? "").trim();
+  if (!value || ["+", "-", "0"].includes(value)) return;
+  storeEmojiList(RECENT_REACTION_EMOJIS_STORAGE_KEY, [value, ...recentReactionEmojis()]);
 }
 
 function storedSidebarWidth() {
@@ -2793,51 +3129,104 @@ function closeEmojiReactionCallout(restoreFocus = false) {
   if (restoreFocus) picker.trigger?.focus?.();
 }
 
-function showEmojiReaction(event, object) {
-  closeEmojiReactionCallout();
-  const presets = ["❤️", "😂", "🔥", "👏", "🤔", "💡", "🎉", "👀"];
-  const picker = {
-    target: object.anchor,
-    origin: judgmentOrigin(event),
-    trigger: event?.currentTarget ?? null,
-    callout: null,
-    outsideListener: null,
-  };
-  const choose = async (emoji) => {
-    const value = String(emoji ?? "").trim();
-    if (!value || value.length > 32) {
-      toast("Enter one short emoji reaction.", true);
-      return;
-    }
-    closeEmojiReactionCallout();
-    await react(object.anchor, value);
-  };
-  const custom = element("input", {
-    type: "text",
-    maxlength: "32",
-    placeholder: "Another emoji",
-    "aria-label": "Another emoji",
-    autocomplete: "off",
-    onkeydown: (inputEvent) => {
-      if (inputEvent.key !== "Enter") return;
-      inputEvent.preventDefault();
-      void choose(inputEvent.currentTarget.value);
-    },
-  });
-  const choices = presets.map((emoji) => element("button", {
+function setFavoriteReactionEmojis(picker, emojis) {
+  picker.favorites = storeEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, emojis);
+}
+
+function changeFavoriteReactionEmoji(picker, emoji, shouldFavorite, insertionIndex = null) {
+  const withoutEmoji = picker.favorites.filter((item) => item !== emoji);
+  if (shouldFavorite) {
+    const index = insertionIndex === null ? withoutEmoji.length : Math.min(withoutEmoji.length, Math.max(0, insertionIndex));
+    withoutEmoji.splice(index, 0, emoji);
+  }
+  setFavoriteReactionEmojis(picker, withoutEmoji);
+  picker.dragging = null;
+  refreshExpandedEmojiPicker(picker, emoji);
+}
+
+function clearEmojiDragPresentation(picker) {
+  picker.callout?.querySelectorAll(".is-drop-target, .is-dragging").forEach((target) => target.classList.remove("is-drop-target", "is-dragging"));
+  picker.scroll?.classList.remove("is-removing-favorite");
+}
+
+function finishEmojiPointerDrag(pointerEvent, picker, button, cancelled = false) {
+  const drag = picker.pointerDrag;
+  if (!drag || drag.pointerId !== pointerEvent.pointerId) return;
+  const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY);
+  if (button.hasPointerCapture(pointerEvent.pointerId)) button.releasePointerCapture(pointerEvent.pointerId);
+  clearEmojiDragPresentation(picker);
+  picker.pointerDrag = null;
+  picker.dragging = null;
+  if (cancelled || !drag.active) return;
+  pointerEvent.preventDefault();
+  picker.suppressEmojiClick = true;
+  const favoriteGrid = target?.closest?.(".emoji-favorite-grid");
+  if (favoriteGrid) {
+    const targetEmoji = target.closest?.(".emoji-choice")?.dataset.emoji;
+    const index = targetEmoji ? picker.favorites.indexOf(targetEmoji) : null;
+    changeFavoriteReactionEmoji(picker, drag.emoji, true, index < 0 ? null : index);
+  } else if (drag.fromFavorites) {
+    changeFavoriteReactionEmoji(picker, drag.emoji, false);
+  }
+  window.setTimeout(() => { picker.suppressEmojiClick = false; }, 0);
+}
+
+function emojiPickerChoice(emoji, picker, choose, options = {}) {
+  const favorite = picker.favorites.includes(emoji);
+  const button = element("button", {
     type: "button",
-    class: "emoji-choice",
+    class: `${options.compact ? "emoji-quick-choice" : "emoji-choice"}${favorite && !options.compact ? " is-favorite" : ""}`,
     text: emoji,
-    title: `React ${emoji}`,
-    "aria-label": `React ${emoji}`,
-    onclick: () => void choose(emoji),
-  }));
-  const grid = element("div", {
-    class: "emoji-choice-grid",
-    role: "group",
-    "aria-label": "Emoji reactions",
+    title: options.compact ? `React ${emoji}` : `React ${emoji}. Drag ${favorite ? "out of" : "into"} Favorites, or press F to ${favorite ? "remove" : "add"}.`,
+    "aria-label": options.compact ? `React ${emoji}` : `React ${emoji}${favorite ? ", favorite" : ""}`,
+    "aria-pressed": options.compact ? null : favorite,
+    dataset: { emoji },
+    onclick: () => {
+      if (picker.suppressEmojiClick) return;
+      void choose(emoji);
+    },
     onkeydown: (keyEvent) => {
-      const keys = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4 };
+      if (options.compact || keyEvent.key.toLowerCase() !== "f") return;
+      keyEvent.preventDefault();
+      changeFavoriteReactionEmoji(picker, emoji, !favorite);
+    },
+    onpointerdown: (pointerEvent) => {
+      if (options.compact || pointerEvent.button !== 0) return;
+      picker.pointerDrag = { emoji, fromFavorites: favorite, pointerId: pointerEvent.pointerId, x: pointerEvent.clientX, y: pointerEvent.clientY, active: false };
+      button.setPointerCapture(pointerEvent.pointerId);
+    },
+    onpointermove: (pointerEvent) => {
+      const drag = picker.pointerDrag;
+      if (!drag || drag.pointerId !== pointerEvent.pointerId) return;
+      if (!drag.active && Math.hypot(pointerEvent.clientX - drag.x, pointerEvent.clientY - drag.y) < 6) return;
+      drag.active = true;
+      picker.dragging = drag;
+      pointerEvent.preventDefault();
+      clearEmojiDragPresentation(picker);
+      button.classList.add("is-dragging");
+      const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY);
+      const favoriteGrid = target?.closest?.(".emoji-favorite-grid");
+      if (favoriteGrid) favoriteGrid.classList.add("is-drop-target");
+      else if (drag.fromFavorites) picker.scroll?.classList.add("is-removing-favorite");
+    },
+    onpointerup: (pointerEvent) => finishEmojiPointerDrag(pointerEvent, picker, button),
+    onpointercancel: (pointerEvent) => finishEmojiPointerDrag(pointerEvent, picker, button, true),
+  });
+  return button;
+}
+
+function emojiChoiceGrid(emojis, picker, choose, options = {}) {
+  const choices = emojis.map((emoji, index) => emojiPickerChoice(emoji, picker, choose, {
+    compact: options.compact,
+    favoriteIndex: options.favorites ? index : undefined,
+  }));
+  return element("div", {
+    class: `${options.compact ? "emoji-quick-grid" : "emoji-choice-grid"}${options.favorites ? " emoji-favorite-grid" : ""}`,
+    role: "group",
+    "aria-label": options.label ?? "Emoji reactions",
+    onkeydown: (keyEvent) => {
+      const columns = options.compact ? Math.max(1, choices.length) : 8;
+      const keys = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns };
       if (!(keyEvent.key in keys)) return;
       const current = choices.indexOf(document.activeElement);
       if (current < 0) return;
@@ -2845,28 +3234,166 @@ function showEmojiReaction(event, object) {
       choices[Math.min(choices.length - 1, Math.max(0, current + keys[keyEvent.key]))]?.focus();
     },
   }, choices);
+}
+
+function emojiPickerSection(title, emojis, picker, choose, options = {}) {
+  return element("section", { class: `emoji-picker-section${options.favorites ? " emoji-favorites" : ""}`, id: options.id ?? null }, [
+    element("div", { class: "emoji-section-heading" }, [
+      element("h2", { text: title }),
+      options.hint ? element("span", { text: options.hint }) : null,
+    ]),
+    emojis.length
+      ? emojiChoiceGrid(emojis, picker, choose, { favorites: options.favorites, label: title })
+      : element("p", { class: "emoji-empty-state", text: options.empty ?? "No emoji here yet." }),
+  ]);
+}
+
+function emojiSearchResults(query, picker) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return [];
+  const entries = [
+    ...picker.favorites.map((emoji) => ({ emoji, keywords: "favorite" })),
+    ...picker.recent.map((emoji) => ({ emoji, keywords: "recent" })),
+    ...EMOJI_CATEGORIES.flatMap((category) => category.entries),
+  ];
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (seen.has(entry.emoji)) return false;
+    seen.add(entry.emoji);
+    return entry.emoji.includes(query.trim()) || entry.keywords.includes(normalizedQuery);
+  }).map((entry) => entry.emoji).slice(0, 80);
+}
+
+function expandedEmojiPickerSections(picker, choose) {
+  const favorites = emojiPickerSection("Favorites", picker.favorites, picker, choose, {
+    favorites: true,
+    hint: "Drag to arrange · drag out to remove · F toggles",
+    empty: "Drag emoji here to make a quick reaction.",
+  });
+  if (picker.query.trim()) {
+    const results = emojiSearchResults(picker.query, picker);
+    return [favorites, emojiPickerSection("Search results", results, picker, choose, { empty: "No matching emoji." })];
+  }
+  return [
+    favorites,
+    emojiPickerSection("Recently Used", picker.recent, picker, choose, { empty: "Your reactions will collect here automatically." }),
+    ...EMOJI_CATEGORIES.map((category) => emojiPickerSection(category.label, category.entries.map((entry) => entry.emoji), picker, choose, { id: `emoji-category-${category.id}` })),
+  ];
+}
+
+function refreshExpandedEmojiPicker(picker, focusEmoji = null) {
+  if (!picker.expanded || !picker.scroll) return;
+  picker.scroll.replaceChildren(...expandedEmojiPickerSections(picker, picker.choose));
+  window.requestAnimationFrame(() => {
+    positionAnchoredCallout(picker.callout, picker.origin);
+    if (focusEmoji) picker.scroll.querySelector(`[data-emoji="${CSS.escape(focusEmoji)}"]`)?.focus();
+  });
+}
+
+function renderCompactEmojiPicker(picker) {
+  picker.expanded = false;
+  picker.callout.classList.remove("is-expanded");
+  const favorites = picker.favorites.slice(0, 6);
+  const choices = emojiChoiceGrid(favorites, picker, picker.choose, { compact: true, label: "Favorite reactions" });
+  const expand = element("button", {
+    type: "button",
+    class: "emoji-picker-expand",
+    text: "…",
+    title: "Open full emoji picker",
+    "aria-label": "Open full emoji picker",
+    "aria-expanded": false,
+    onclick: () => renderExpandedEmojiPicker(picker),
+  });
+  picker.callout.replaceChildren(choices, expand);
+  window.requestAnimationFrame(() => {
+    positionAnchoredCallout(picker.callout, picker.origin);
+    choices.querySelector("button")?.focus();
+  });
+}
+
+function renderExpandedEmojiPicker(picker) {
+  picker.expanded = true;
+  picker.callout.classList.add("is-expanded");
+  const search = element("input", {
+    type: "search",
+    class: "emoji-picker-search",
+    placeholder: "Search emoji",
+    "aria-label": "Search emoji",
+    autocomplete: "off",
+    value: picker.query,
+    oninput: (inputEvent) => {
+      picker.query = inputEvent.currentTarget.value;
+      refreshExpandedEmojiPicker(picker);
+    },
+  });
+  const close = element("button", {
+    type: "button",
+    class: "emoji-picker-close",
+    text: "×",
+    title: "Close emoji picker",
+    "aria-label": "Close emoji picker",
+    onclick: () => closeEmojiReactionCallout(true),
+  });
+  const scroll = element("div", { class: "emoji-picker-scroll" });
+  picker.scroll = scroll;
+  const categoryNavigation = element("nav", { class: "emoji-category-navigation", "aria-label": "Emoji categories" }, EMOJI_CATEGORIES.map((category) => element("button", {
+    type: "button",
+    text: category.icon,
+    title: category.label,
+    "aria-label": category.label,
+    onclick: () => picker.scroll.querySelector(`#emoji-category-${category.id}`)?.scrollIntoView({ block: "start" }),
+  })));
+  picker.callout.replaceChildren(
+    element("div", { class: "emoji-picker-search-row" }, [search, close]),
+    scroll,
+    categoryNavigation,
+  );
+  refreshExpandedEmojiPicker(picker);
+  window.requestAnimationFrame(() => search.focus());
+}
+
+function showEmojiReaction(event, object) {
+  closeEmojiReactionCallout();
+  const picker = {
+    target: object.anchor,
+    origin: judgmentOrigin(event),
+    trigger: event?.currentTarget ?? null,
+    callout: null,
+    outsideListener: null,
+    expanded: false,
+    query: "",
+    favorites: favoriteReactionEmojis(),
+    recent: recentReactionEmojis(),
+    dragging: null,
+    pointerDrag: null,
+    suppressEmojiClick: false,
+    scroll: null,
+    choose: null,
+  };
+  picker.choose = async (emoji) => {
+    const value = String(emoji ?? "").trim();
+    if (!value || value.length > 32) {
+      toast("Choose one short emoji reaction.", true);
+      return;
+    }
+    closeEmojiReactionCallout();
+    await react(object.anchor, value);
+  };
   const callout = element("aside", {
     class: "emoji-reaction-callout",
     role: "dialog",
     "aria-label": "React with an emoji",
-  }, [
-    element("div", { class: "emoji-callout-header" }, [
-      element("strong", { text: "React" }),
-      element("button", { type: "button", class: "icon-button emoji-callout-close", text: "×", title: "Close", "aria-label": "Close emoji picker", onclick: () => closeEmojiReactionCallout(true) }),
-    ]),
-    element("p", { class: "emoji-callout-note", text: "Emoji reactions don’t change the vote score." }),
-    grid,
-    element("div", { class: "emoji-custom-row" }, [
-      custom,
-      element("button", { type: "button", class: "quiet-button", text: "Add", onclick: () => void choose(custom.value) }),
-    ]),
-  ]);
+    onkeydown: (keyEvent) => {
+      if (keyEvent.key !== "Escape") return;
+      keyEvent.preventDefault();
+      closeEmojiReactionCallout(true);
+    },
+  });
   document.body.append(callout);
   picker.callout = callout;
   session.emojiPicker = picker;
-  positionAnchoredCallout(callout, picker.origin);
+  renderCompactEmojiPicker(picker);
   window.setTimeout(() => {
-    choices[0]?.focus();
     const closeOnOutsidePress = (outsideEvent) => {
       if (session.emojiPicker !== picker) {
         document.removeEventListener("pointerdown", closeOnOutsidePress, true);
@@ -2961,7 +3488,11 @@ async function toggleVote(target, value) {
 
 async function react(target, value) {
   const persona = activePersona(session.state);
-  try { return await mutate("reaction.set", { persona_id: persona.id, target, value }, value === "0" ? "Vote removed." : "Vote recorded."); } catch { return null; /* toast already shown */ }
+  try {
+    const result = await mutate("reaction.set", { persona_id: persona.id, target, value }, value === "0" ? "Vote removed." : "Vote recorded.");
+    rememberRecentReactionEmoji(value);
+    return result;
+  } catch { return null; /* toast already shown */ }
 }
 
 function showMessageComposer(recipient = "") {

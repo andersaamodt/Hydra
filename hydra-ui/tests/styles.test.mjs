@@ -295,7 +295,7 @@ test("text and local image listing previews are independently configurable", () 
   assert.match(styles, /\.post-image-preview img\s*\{[^}]*object-fit:\s*contain/);
 });
 
-test("React uses an accessible anchored emoji callout", () => {
+test("React uses one Signal-style favorites-first emoji picker", () => {
   assert.match(app, /function emojiReactButton\(object, className = "text-action"\)/);
   assert.match(app, /class: `\$\{className\} emoji-react-button`/);
   assert.match(app, /"aria-label": "React with an emoji"/);
@@ -303,12 +303,24 @@ test("React uses an accessible anchored emoji callout", () => {
   assert.doesNotMatch(app, /actionButton\("React"|text: "React", onclick: \(event\) => showEmojiReaction/);
   assert.match(app, /function showEmojiReaction\(event, object\)/);
   assert.match(app, /class: "emoji-reaction-callout"/);
-  assert.match(app, /positionAnchoredCallout\(callout, picker\.origin\)/);
-  assert.match(app, /ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4/);
+  assert.match(app, /DEFAULT_FAVORITE_REACTION_EMOJIS = \["❤️", "👍", "👎", "😂", "😮", "😢"\]/);
+  assert.match(app, /renderCompactEmojiPicker\(picker\)/);
+  assert.match(app, /class: "emoji-picker-expand"/);
+  assert.match(app, /function renderExpandedEmojiPicker\(picker\)/);
+  assert.match(app, /emojiPickerSection\("Favorites"[\s\S]*emojiPickerSection\("Recently Used"/);
+  assert.match(app, /placeholder: "Search emoji"/);
+  assert.doesNotMatch(app, /emoji-callout-note|emoji-custom-row|settings gear/i);
+  assert.match(app, /FAVORITE_REACTION_EMOJIS_STORAGE_KEY/);
+  assert.match(app, /RECENT_REACTION_EMOJIS_STORAGE_KEY/);
+  assert.match(app, /rememberRecentReactionEmoji\(value\)/);
+  assert.match(app, /onpointerdown:[\s\S]*setPointerCapture[\s\S]*onpointerup:/);
+  assert.match(app, /document\.elementFromPoint[\s\S]*changeFavoriteReactionEmoji\(picker, drag\.emoji, false\)/);
   assert.match(app, /closeEmojiReactionCallout\(true\)/);
-  assert.match(styles, /\.emoji-choice-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4/);
+  assert.match(styles, /\.emoji-choice-grid\s*\{[^}]*grid-template-columns:\s*repeat\(8/);
+  assert.match(styles, /\.emoji-reaction-callout\s*\{[^}]*border-radius:\s*22px/);
+  assert.match(styles, /\.emoji-react-button\s*\{[^}]*border-radius:\s*6px/);
   assert.match(styles, /\.emoji-react-icon\s*\{[^}]*width:\s*18px/);
-  assert.match(styles, /\.emoji-reaction-callout::before/);
+  assert.doesNotMatch(styles, /\.emoji-reaction-callout::before/);
 });
 
 test("background Reddit refresh cannot overwrite a newer interaction", () => {
