@@ -155,7 +155,7 @@ kbd { flex: 0 0 auto; min-width: 28px; height: 20px; box-sizing: border-box; dis
 .platform-macos .sidebar-resizer { top: 56px; }
 html.sidebar-is-resizing,
 html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !important; }
-.nav-heading { margin: 8px 10px; color: var(--faint); font-size: 12px; font-weight: 750; letter-spacing: .03em; }
+.nav-heading { margin: 8px 10px; color: var(--muted); font-size: 12px; font-weight: 400; letter-spacing: 0; }
 .nav-item { width: 100%; min-height: 40px; display: grid; grid-template-columns: 21px minmax(0, 1fr) auto; align-items: center; gap: 4px; margin: 2px 0; overflow: hidden; padding: 0 4px; border: 0; border-radius: 7px; color: var(--nav-ink); background: transparent; text-align: left; cursor: pointer; }
 .nav-item:hover { color: var(--ink); background: rgba(255,255,255,.045); }
 .nav-item.is-active { color: var(--nav-active); background: var(--accent-soft); }
@@ -167,6 +167,8 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .sidebar-heading-actions { display: flex; align-items: center; gap: 1px; }
 .icon-button { width: 30px; height: 30px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; }
 .icon-button:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+#add-community { opacity: 0; pointer-events: none; transition: opacity 120ms ease; }
+.section-heading-row:hover #add-community, .section-heading-row:focus-within #add-community { opacity: 1; pointer-events: auto; }
 .community-sort-trigger { display: grid; place-items: center; list-style: none; }
 .community-sort-trigger::-webkit-details-marker { display: none; }
 .community-sort-trigger svg { width: 17px; height: 17px; display: block; }

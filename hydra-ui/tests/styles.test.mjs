@@ -77,6 +77,9 @@ test("sidebar communities support durable manual and metadata sorting", () => {
   assert.match(styles, /\.icon-button\s*\{[^}]*border:\s*0;[^}]*border-radius:\s*7px/);
   assert.match(styles, /\.community-sort-trigger\s*\{[^}]*list-style:\s*none/);
   assert.match(styles, /\.community-sort-menu\[open\] > \.community-sort-trigger\s*\{[^}]*background:\s*var\(--shade\)/);
+  assert.match(styles, /\.nav-heading\s*\{[^}]*font-weight:\s*400;[^}]*letter-spacing:\s*0/);
+  assert.match(styles, /#add-community\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none/);
+  assert.match(styles, /\.section-heading-row:hover #add-community, \.section-heading-row:focus-within #add-community\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto/);
   assert.match(app, /\["ordered", "Ordered"\][\s\S]*\["alphabetical", "Alphabetically"\][\s\S]*\["last_activity", "Last Activity"\][\s\S]*\["date_joined", "Date Joined"\]/);
   assert.match(app, /community_list_orders/);
   assert.match(app, /community_list_sorts/);
