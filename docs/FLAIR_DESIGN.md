@@ -86,19 +86,51 @@ User flair is simply part of the persona's replaceable Nostr profile record
 {
   "name": "alice",
   "display_name": "Alice",
-  "hydra_flair": "Hydra tinkerer"
+  "flair": "Hydra tinkerer"
 }
 ```
 
 Updating the display name or user flair republishes the complete current
-profile. Clearing user flair omits `hydra_flair` from the next profile record.
-Clients that do not know the Hydra-specific field can safely ignore it.
+profile. Clearing user flair omits `flair` from the next profile record. Clients
+that do not know the field can safely ignore it.
+
+`flair`, not `hydra_flair`, is the right field name. The meaning is generic and
+useful to any social client: one short, self-authored descriptor displayed next
+to a person's name. Prefixing it with an application name would falsely define
+it as Hydra-private data and discourage interoperability.
+
+The field is an experimental profile extension, not an existing Nostr standard.
+Hydra should document its exact meaning and seek addition to NIP-24 if other
+clients adopt it. It must also preserve every unknown field from the persona's
+current profile whenever it republishes `kind:0`; editing flair must never erase
+profile data written by another client.
 
 Hydra currently has local personas but no durable remote profile projection.
 Implementation needs a bounded `PersonaProfile` keyed by public key, containing
 display metadata, optional user flair, and the winning profile event timestamp
 and id. Signing custody remains in the local `Persona` type and must not leak
 into the public projection.
+
+### Why the profile field is preferable to the nearby NIPs
+
+- **NIP-32 labels** classify events, people, relays, URLs, or topics using a
+  repeatable vocabulary. Its own guidance says unique values are values rather
+  than labels. Free-form personal flair is a value in a profile, and a
+  third-party label targeting a person has the assignment semantics Hydra
+  explicitly does not want.
+- **NIP-38 status** is designed for live, optionally expiring statements such
+  as `Working` or currently playing music. It may be displayed beside a name,
+  but using status storage for stable identity decoration gives the value the
+  wrong lifecycle and meaning.
+- **NIP-58 badges** are defined and awarded by an issuer, then accepted for
+  profile display by the recipient. That is the third-party credential model,
+  not self-chosen flair.
+- **NIP-78 app data** is explicitly for application-specific data that does not
+  need interoperability. Global flair is intended to interoperate, so hiding it
+  in Hydra application data would be the wrong tradeoff.
+
+The profile field therefore has the correct subject, author, lifecycle, fetch
+path, and deletion behavior with the least semantic distortion.
 
 ## Communal post labels
 
@@ -361,3 +393,8 @@ abuse-handling semantics rather than a field on `ObjectHead`.
 ## References
 
 - [NIP-01: Nostr events and user profiles](https://github.com/nostr-protocol/nips/blob/master/01.md)
+- [NIP-24: extra profile metadata fields](https://github.com/nostr-protocol/nips/blob/master/24.md)
+- [NIP-32: labeling](https://github.com/nostr-protocol/nips/blob/master/32.md)
+- [NIP-38: user statuses](https://github.com/nostr-protocol/nips/blob/master/38.md)
+- [NIP-58: badges](https://github.com/nostr-protocol/nips/blob/master/58.md)
+- [NIP-78: arbitrary custom app data](https://github.com/nostr-protocol/nips/blob/master/78.md)
