@@ -1038,7 +1038,8 @@ function communityEntries() {
   for (const object of (session.state?.objects ?? [])) {
     const activity = Number(object.editedAt || object.createdAt) || 0;
     for (const community of (object.communities ?? [])) {
-      const current = entry(community);
+      const current = entries.get(community);
+      if (!current) continue;
       current.lastActivity = Math.max(current.lastActivity, activity);
     }
   }
@@ -1223,7 +1224,7 @@ function communityActionMenu(community) {
   menu.append(
     element("summary", { class: "community-menu-trigger", "aria-label": `Community actions for ${community}`, title: "Community actions", text: "⋮" }),
     element("div", { class: "community-menu-popover", role: "menu" }, [
-      item(subscription ? "Unsubscribe" : "Subscribe privately", () => setCommunitySubscription(community, !subscription, false)),
+      item(subscription ? "Unsubscribe…" : "Subscribe privately", () => subscription ? showUnsubscribeConfirmation(community) : setCommunitySubscription(community, true, false)),
       item(subscription?.public ? "Make subscription private" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
       item("Community image", () => showCommunityAppearanceEditor(community)),
       item("Community colors", () => showCommunityColorEditor(community)),
@@ -3279,6 +3280,19 @@ async function setCommunitySubscription(community, subscribed, publicValue) {
   try {
     await mutate("community.subscribe", { persona_id: persona.id, community, public: publicValue, subscribed }, subscribed ? (publicValue ? "Public subscription published." : "Community added privately to this persona’s feed.") : "Community removed from this persona’s feed.");
   } catch { /* mutation already surfaced the error */ }
+}
+
+function showUnsubscribeConfirmation(community) {
+  modal(
+    `Unsubscribe from /h/${community}?`,
+    "This removes the community from your sidebar and its subscription source from My Feed.",
+    element("p", { text: "Posts and comments already preserved by Hydra remain safely stored and searchable. You can still open the community directly later." }),
+    {
+      submitLabel: "Unsubscribe",
+      danger: true,
+      onSubmit: () => setCommunitySubscription(community, false, false),
+    },
+  );
 }
 
 function showNormComposer(community) {

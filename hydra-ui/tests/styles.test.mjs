@@ -82,6 +82,7 @@ test("sidebar communities support durable manual and metadata sorting", () => {
   assert.match(app, /community_list_sorts/);
   assert.match(app, /subscription\.joinedAt/);
   assert.match(app, /object\.editedAt \|\| object\.createdAt/);
+  assert.match(app, /const current = entries\.get\(community\);\s*if \(!current\) continue;/);
   assert.match(app, /onpointerdown:/);
   assert.match(app, /onpointermove: updateCommunityPointerDrag/);
   assert.match(app, /onpointerup:/);
@@ -439,6 +440,9 @@ test("community routes use one compact heading with art and actions", () => {
   assert.match(app, /text: "\/h\/"/);
   assert.match(app, /text: "\/r\/"/);
   assert.match(app, /class: "community-menu-trigger"[^\n]*text: "⋮"/);
+  assert.match(app, /subscription \? "Unsubscribe…" : "Subscribe privately"/);
+  assert.match(app, /function showUnsubscribeConfirmation\(community\)/);
+  assert.match(app, /Posts and comments already preserved by Hydra remain safely stored and searchable/);
   assert.match(app, /function renderCommunityNormBanner\(community\)/);
   assert.match(app, /if \(!norms\.length\) return null;/);
   assert.doesNotMatch(app, /class: "community-tools"/);
