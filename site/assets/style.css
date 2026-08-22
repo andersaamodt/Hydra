@@ -1,9 +1,9 @@
 @font-face {
-  font-family: "Figtree";
+  font-family: "Bricolage Grotesque";
   font-style: normal;
-  font-weight: 650 800;
+  font-weight: 600 780;
   font-display: swap;
-  src: url("fonts/figtree-latin.woff2") format("woff2");
+  src: url("fonts/bricolage-grotesque-latin.woff2") format("woff2");
 }
 
 :root {
@@ -15,8 +15,8 @@
   --muted: #566676;
   --plum: #20384d;
   --plum-light: #2f526d;
-  --action: #2c607f;
-  --action-hover: #244f69;
+  --indigo: #464268;
+  --indigo-hover: #393653;
   --soft-blue: #dceaf3;
   --soft-gray: #e7edf1;
   --brimstone: #d4ad24;
@@ -194,12 +194,12 @@ h3 {
 }
 
 .button.primary {
-  background: var(--action);
+  background: var(--indigo);
   color: #fff;
 }
 
 .button.primary:hover {
-  background: var(--action-hover);
+  background: var(--indigo-hover);
 }
 
 .button.secondary {
@@ -229,10 +229,10 @@ h3 {
 .hero h1 {
   max-width: 11.5ch;
   margin-bottom: 1.25rem;
-  font-family: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-weight: 720;
+  font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 680;
   line-height: 1;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.025em;
 }
 
 .brimstone-dot {
@@ -489,40 +489,12 @@ h3 {
   transform: rotate(-48deg);
 }
 
-.icon-resistant b {
-  position: absolute;
-  left: 1rem;
-  bottom: 0.72rem;
-  width: 1.8rem;
-  height: 1.4rem;
-  border: 2px solid currentColor;
-  border-radius: 0.3rem;
-}
-
-.icon-resistant::before {
-  content: "";
-  position: absolute;
-  left: 1.65rem;
-  top: 0.48rem;
-  width: 1.1rem;
-  height: 1.25rem;
-  border: 2px solid currentColor;
-  border-bottom: 0;
-  border-left-color: transparent;
-  border-radius: 0.75rem 0.75rem 0 0;
-  transform: rotate(-12deg);
-  transform-origin: bottom right;
-}
-
-.icon-resistant::after {
-  content: "";
-  position: absolute;
-  left: calc(50% - 0.1rem);
-  bottom: 1.02rem;
-  width: 0.2rem;
-  height: 0.55rem;
-  border-radius: 50% 50% 0.1rem 0.1rem;
-  background: currentColor;
+.icon-resistant {
+  font-family: "Apple Symbols", "Segoe UI Symbol", "Noto Sans Symbols 2", sans-serif;
+  font-size: 1.9rem;
+  font-variant-emoji: text;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .icon-ownerless {
@@ -636,25 +608,32 @@ h3 {
 }
 
 .topic-pair {
+  position: relative;
+  overflow: hidden;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 1rem;
-}
-
-.topic-pair > div {
-  min-height: 12rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 1.75rem;
+  gap: clamp(0.5rem, 2vw, 1.25rem);
+  padding: clamp(1.25rem, 3vw, 2rem);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--paper);
 }
 
-.topic-pair .hydra-topic {
-  background: var(--soft-blue);
+.topic-pair::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.3rem;
+  background: var(--brimstone);
+}
+
+.topic-node {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .topic-prefix,
@@ -663,15 +642,47 @@ h3 {
   font-size: 0.75rem;
 }
 
-.topic-pair strong {
-  margin: 0.25rem 0 1.5rem;
+.topic-code {
+  margin: 0.3rem 0 0.55rem;
   color: var(--plum);
-  font: 650 clamp(1.2rem, 3vw, 1.75rem)/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font: 520 clamp(1rem, 2.6vw, 1.55rem)/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  white-space: nowrap;
 }
 
-.pair-arrow {
+.topic-code b {
   color: var(--brimstone-deep);
-  font-size: 1.5rem;
+  font-weight: 850;
+}
+
+.topic-transfer {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  text-align: center;
+}
+
+.topic-transfer span {
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topic-transfer i {
+  color: var(--brimstone-deep);
+  font-size: clamp(1.45rem, 4vw, 2.25rem);
+  font-style: normal;
+  line-height: 1;
+}
+
+.topic-pair-caption {
+  grid-column: 1 / -1;
+  margin: 1rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.86rem;
+  text-align: center;
 }
 
 .calmer {
@@ -1271,12 +1282,8 @@ h3 {
   }
 
   .topic-pair {
-    grid-template-columns: 1fr;
-  }
-
-  .pair-arrow {
-    transform: rotate(90deg);
-    text-align: center;
+    gap: 0.4rem;
+    padding: 1.1rem 0.9rem;
   }
 
   .familiar {

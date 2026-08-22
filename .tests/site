@@ -12,7 +12,7 @@ for file in \
   "$site_root/assets/site.js" \
   "$site_root/assets/hydra-icon.png" \
   "$site_root/assets/favicon.png" \
-  "$site_root/assets/fonts/figtree-latin.woff2" \
+  "$site_root/assets/fonts/bricolage-grotesque-latin.woff2" \
   "$site_root/assets/fonts/OFL.txt" \
   "$site_root/.nojekyll"
 do
