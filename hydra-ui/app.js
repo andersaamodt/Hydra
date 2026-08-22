@@ -2993,7 +2993,8 @@ function renderSettings() {
   const reverseSources = (session.state.reverseSources ?? []).filter((item) => item.personaId === persona.id);
   const filters = (session.state.filters ?? []).filter((item) => item.personaId === persona.id);
   const drafts = (session.state.drafts ?? []).filter((item) => item.personaId === persona.id);
-  const storage = session.state.storage ?? { root: session.state.durableRoot, media: `${session.state.durableRoot}/media`, mediaExists: false };
+  const durableRoot = session.state.durableRoot;
+  const storage = { root: durableRoot, library: `${durableRoot}/library`, libraryExists: false, media: `${durableRoot}/media`, mediaExists: false, ...(session.state.storage ?? {}) };
   const feedWeights = { followed: 100, communities: 100, replies: 100, revisit: 100, ...(settings.feed_source_weights ?? {}) };
   const body = element("form", { class: "form-page settings-page", onsubmit: saveSettings }, [
     settingsTabs(),
@@ -3061,15 +3062,17 @@ function renderSettings() {
     settingsPane("data", [
       element("section", { class: "context-card" }, [
       element("h2", { text: "Local data storage" }),
-      element("p", { text: "All local data is under this folder. Synced posts, comments, subscriptions, and history are stored in an encrypted event log—not as loose Markdown files." }),
+      element("p", { text: "Hydra-native and Nostr posts and comments you view, make, or interact with are canonically retained as unencrypted, searchable Markdown files with YAML frontmatter. Edits create revisions, deletion requests create tombstones, and automatic daily text backups preserve overwritten files." }),
+      element("p", { text: "The encrypted event ledger remains an operational index for signatures and private persona state; the readable library can restore retained public content if that index is missing it. Reddit API-fetched bodies are not copied into the library." }),
       element("p", { class: "source-link", text: storage.root }),
       element("div", { class: "post-actions" }, [
         actionButton("Open Hydra data folder", () => openStorageFolder("data"), "primary-button"),
+        storage.libraryExists ? actionButton("Open content library", () => openStorageFolder("library")) : null,
         storage.mediaExists ? actionButton("Open preserved media folder", () => openStorageFolder("media")) : null,
       ]),
       storage.mediaExists
         ? element("p", { text: "Preserved attachments are separate content-addressed files in the media folder." })
-        : element("p", { text: "No preserved media folder exists yet. It is created when the first attachment is preserved. Posts are not stored in separate persona folders." }),
+        : element("p", { text: `The content library is created at ${storage.library} when the first public item is retained. Preserved media remains content-addressed in the media folder.` }),
     ]),
     drafts.length ? element("section", { class: "context-card" }, [
       element("h2", { text: `Private drafts (${drafts.length})` }),

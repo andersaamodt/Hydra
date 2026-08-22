@@ -32,8 +32,10 @@ use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod library;
 mod settings;
 
+pub use library::{ContentLibrary, LibraryInteraction, LibrarySnapshot, LibraryTombstone};
 pub use settings::{
     CommunityAppearanceSetting, PersonaRelaySettings, ReadinessProbe, Settings, SettingsStore,
 };
@@ -1734,6 +1736,7 @@ fn apply_current_post_flair(
 pub struct DurableStore {
     log: EventLog,
     state: ReplayState,
+    library: ContentLibrary,
 }
 
 impl DurableStore {
@@ -1743,9 +1746,27 @@ impl DurableStore {
     ///
     /// Returns an error for I/O, checksum, parsing, or semantic replay failure.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
+        let root = root.as_ref();
         let log = EventLog::open(root)?;
-        let state = log.replay()?;
-        Ok(Self { log, state })
+        let mut state = log.replay()?;
+        let library = ContentLibrary::new(root);
+        for (head, recorded_at) in library.load_hydra_heads()? {
+            let restore = state
+                .heads
+                .current_head(&head.anchor)
+                .map_or(true, |current| current.edited_at < head.edited_at);
+            if restore {
+                state
+                    .head_first_seen
+                    .insert((head.anchor.clone(), head.edited_at), recorded_at);
+                state.heads.append_head(head)?;
+            }
+        }
+        Ok(Self {
+            log,
+            state,
+            library,
+        })
     }
 
     /// Validates and commits one event without allowing invalid durable state.
@@ -1762,6 +1783,7 @@ impl DurableStore {
             candidate.apply(&stored.envelope.event, stored.envelope.recorded_at)?;
         }
         candidate.apply(&event, recorded_at)?;
+        mirror_content_event(&self.library, &event, recorded_at)?;
         let id = self.log.append_unlocked(
             event,
             recorded_at,
@@ -1777,6 +1799,29 @@ impl DurableStore {
         &self.state
     }
 
+    #[must_use]
+    pub const fn content_library(&self) -> &ContentLibrary {
+        &self.library
+    }
+
+    /// Records a successful user interaction in the canonical unencrypted
+    /// content file and daily browsing history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the object was not retained or the atomic update fails.
+    pub fn record_content_interaction(
+        &self,
+        target: &AnchorId,
+        actor: &str,
+        action: &str,
+        detail: Option<String>,
+        recorded_at: u64,
+    ) -> Result<(), StoreError> {
+        self.library
+            .record_interaction(target.as_str(), actor, action, detail, recorded_at)
+    }
+
     /// Returns the verified append-only evidence ledger in recorded order.
     ///
     /// # Errors
@@ -1786,6 +1831,66 @@ impl DurableStore {
     pub fn raw_events(&self) -> Result<Vec<EventEnvelope>, StoreError> {
         self.log.read_all()
     }
+}
+
+fn mirror_content_event(
+    library: &ContentLibrary,
+    event: &DurableEvent,
+    recorded_at: u64,
+) -> Result<(), StoreError> {
+    match event {
+        DurableEvent::NativeObjectChanged { head, outbound } => {
+            library.record_snapshot(
+                &LibrarySnapshot::from_head(
+                    head,
+                    "hydra",
+                    outbound.last().map(|event| event.event_id.clone()),
+                ),
+                recorded_at,
+                Some("authored"),
+            )?;
+        }
+        DurableEvent::RemoteEventReceived {
+            event_id, heads, ..
+        } => {
+            for head in heads {
+                library.record_snapshot(
+                    &LibrarySnapshot::from_head(head, "hydra", Some(event_id.clone())),
+                    recorded_at,
+                    None,
+                )?;
+            }
+        }
+        DurableEvent::ObjectDisowningRequested {
+            persona,
+            anchor,
+            reason,
+            ..
+        } => {
+            library.record_tombstone(anchor.as_str(), &persona.to_string(), reason, recorded_at)?;
+        }
+        DurableEvent::ReactionRecorded { reaction, .. } => {
+            library.record_interaction(
+                reaction.target.as_str(),
+                reaction.actor.as_str(),
+                "reaction",
+                Some(match &reaction.value {
+                    ReactionValue::Upvote => "upvote".to_owned(),
+                    ReactionValue::Downvote => "downvote".to_owned(),
+                    ReactionValue::Neutral => "remove vote".to_owned(),
+                    ReactionValue::Emoji(value) => value.clone(),
+                }),
+                recorded_at,
+            )?;
+        }
+        DurableEvent::MediaPreserved(manifest)
+        | DurableEvent::MediaPreservedFor { manifest, .. }
+        | DurableEvent::MediaPublished { manifest, .. } => {
+            library.record_media(manifest, recorded_at)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn checksum_for(

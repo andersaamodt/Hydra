@@ -232,11 +232,13 @@ test("appearance and chamber tabs honor desktop input contracts", () => {
 
 test("Settings explains and opens Hydra's actual local storage", () => {
   assert.match(app, /Local data storage/);
-  assert.match(app, /encrypted event log—not as loose Markdown files/);
+  assert.match(app, /canonically retained as unencrypted, searchable Markdown files with YAML frontmatter/);
+  assert.match(app, /Reddit API-fetched bodies are not copied into the library/);
   assert.match(app, /Open Hydra data folder/);
+  assert.match(app, /storage\.libraryExists \? actionButton\("Open content library"/);
   assert.match(app, /storage\.mediaExists \? actionButton\("Open preserved media folder"/);
   assert.match(app, /runtime\("storage\.open", \{ folder \}\)/);
-  assert.match(app, /Posts are not stored in separate persona folders/);
+  assert.match(app, /The content library is created at/);
 });
 
 test("macOS Settings opens in one dedicated window with horizontal keyboard tabs", () => {

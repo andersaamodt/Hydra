@@ -362,6 +362,7 @@ impl ImportService {
                 | Kind::Repost
                 | Kind::GenericRepost
                 | Kind::Reaction
+                | Kind::EventDeletion
                 | Kind::Label
         ) && event.kind != Kind::Custom(hydra_nostr::OBJECT_HEAD_KIND)
             && event.kind != Kind::Custom(hydra_nostr::PROJECTION_RECORD_KIND)
@@ -381,6 +382,7 @@ impl ImportService {
         if store.state().received_events.contains_key(&event_id) {
             return Ok(Vec::new());
         }
+        retain_remote_deletion(store, &event)?;
         let materialized = match materialize_public_event(store, &event) {
             Ok(materialized) => materialized,
             Err(error) => {
@@ -419,6 +421,39 @@ impl ImportService {
         )?;
         Ok(materialized.heads)
     }
+}
+
+fn retain_remote_deletion(store: &DurableStore, event: &Event) -> Result<(), AppError> {
+    if event.kind != Kind::EventDeletion {
+        return Ok(());
+    }
+    for (tag_name, target) in event.tags.iter().filter_map(|tag| {
+        let parts = tag.as_slice();
+        matches!(parts.first().map(String::as_str), Some("e" | "a"))
+            .then(|| parts.first().cloned().zip(parts.get(1).cloned()))
+            .flatten()
+    }) {
+        let target = if tag_name == "a" {
+            format!("nostr-address:{target}")
+        } else {
+            target
+        };
+        store.content_library().record_tombstone(
+            &target,
+            &event.pubkey.to_hex(),
+            &event.content,
+            event.created_at.as_secs(),
+        )?;
+        if tag_name == "e" {
+            store.content_library().record_tombstone(
+                &format!("nostr:{target}"),
+                &event.pubkey.to_hex(),
+                &event.content,
+                event.created_at.as_secs(),
+            )?;
+        }
+    }
+    Ok(())
 }
 
 struct PublicMaterialization {
@@ -2032,6 +2067,8 @@ impl<S: SecretStore> SocialService<S> {
         )?;
         let event_id = flocking_core::EventId::parse(request.target.as_str())
             .map_err(|error| AppError::Flocking(error.to_string()))?;
+        let interaction_action = format!("{:?}", request.action).to_ascii_lowercase();
+        let interaction_detail = Some(format!("{:?}", request.faculty).to_ascii_lowercase());
         let local = flocking_core::Judgment {
             author,
             faculty: request.faculty,
@@ -2051,7 +2088,7 @@ impl<S: SecretStore> SocialService<S> {
         local
             .validate()
             .map_err(|error| AppError::Flocking(error.to_string()))?;
-        persist_direct_judgment(
+        let record = persist_direct_judgment(
             store,
             &keys,
             FlockingJudgmentRecord {
@@ -2061,7 +2098,15 @@ impl<S: SecretStore> SocialService<S> {
             },
             &request.relays,
             request.changed_at,
-        )
+        )?;
+        store.record_content_interaction(
+            &request.target,
+            &request.persona_id.to_string(),
+            &interaction_action,
+            interaction_detail,
+            request.changed_at,
+        )?;
+        Ok(record)
     }
 
     /// Enables or removes one ordinary judgment source in selected scopes.
@@ -3470,6 +3515,7 @@ impl<S: SecretStore> DiscussionService<S> {
         if !store.state().heads.contains(&request.target) {
             return Err(DomainError::MissingObject.into());
         }
+        let interaction_detail = Some(format!("{:?}", request.intent).to_ascii_lowercase());
         let revisit = RevisitRecord {
             persona: request.persona_id,
             target: request.target,
@@ -3486,6 +3532,13 @@ impl<S: SecretStore> DiscussionService<S> {
                 recorded_at: request.recorded_at,
                 ..PrivateCommit::default()
             },
+        )?;
+        store.record_content_interaction(
+            &revisit.target,
+            &revisit.persona.to_string(),
+            "saved",
+            interaction_detail,
+            request.recorded_at,
         )?;
         Ok(revisit)
     }
@@ -3522,6 +3575,13 @@ impl<S: SecretStore> DiscussionService<S> {
                 recorded_at,
                 ..PrivateCommit::default()
             },
+        )?;
+        store.record_content_interaction(
+            &revisit.target,
+            &revisit.persona.to_string(),
+            "unsaved",
+            None,
+            recorded_at,
         )?;
         Ok(revisit)
     }

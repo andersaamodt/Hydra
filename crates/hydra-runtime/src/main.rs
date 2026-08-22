@@ -26,9 +26,9 @@ use hydra_app::{
 use hydra_bridge::{BridgeError as ForeignBridgeError, BridgeRegistry};
 use hydra_domain::{
     AnchorId, CommunityKey, ContinuityState, ContinuityWorkflow, DraftKind, DraftRecord,
-    DurableEvent, ExternalId, LocalFilterKind, MessageDirection, NostrPublicKey, OperationId,
-    OperationState, PersonaId, PersonaSwitchState, PostFlairScope, PreservationLevel, ProjectionId,
-    ReactionValue, RevisitIntent,
+    DurableEvent, ExternalId, LocalFilterKind, MessageDirection, NostrPublicKey, ObjectKind,
+    OperationId, OperationState, PersonaId, PersonaSwitchState, PostFlairScope, PreservationLevel,
+    ProjectionId, ReactionValue, RevisitIntent,
 };
 use hydra_lens::{FeedLens, FeedService};
 use hydra_media::MediaStore;
@@ -39,7 +39,10 @@ use hydra_reddit::{
     RedditCredentialStore, RedditDataApi, RedditError, RedditFullname, RedditLinkService,
     ResolveDuplicatesAction, WithdrawalAction, WithdrawalMarker,
 };
-use hydra_store::{DurableStore, HeadStore, ReadinessProbe, Settings, SettingsStore, StoreError};
+use hydra_store::{
+    ContentLibrary, DurableStore, HeadStore, LibrarySnapshot, ReadinessProbe, Settings,
+    SettingsStore, StoreError,
+};
 use nostr::{Event, JsonUtil};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -154,6 +157,8 @@ struct HydraState<'a> {
 #[serde(rename_all = "camelCase")]
 struct StorageView {
     root: String,
+    library: String,
+    library_exists: bool,
     media: String,
     media_exists: bool,
 }
@@ -1447,11 +1452,16 @@ fn launch_external(target: &str) -> Result<(), RuntimeError> {
 }
 
 fn storage_view(root: &Path) -> StorageView {
+    let library = root.join("library");
     let media = root.join("media");
+    let library_exists =
+        fs::symlink_metadata(&library).is_ok_and(|metadata| metadata.file_type().is_dir());
     let media_exists =
         fs::symlink_metadata(&media).is_ok_and(|metadata| metadata.file_type().is_dir());
     StorageView {
         root: root.display().to_string(),
+        library: library.display().to_string(),
+        library_exists,
         media: media.display().to_string(),
         media_exists,
     }
@@ -1460,10 +1470,11 @@ fn storage_view(root: &Path) -> StorageView {
 fn storage_folder(root: &Path, folder: &str) -> Result<PathBuf, RuntimeError> {
     let target = match folder {
         "data" => root.to_path_buf(),
+        "library" => root.join("library"),
         "media" => root.join("media"),
         _ => {
             return Err(RuntimeError::InvalidInput(
-                "storage folder must be data or media".to_owned(),
+                "storage folder must be data, library, or media".to_owned(),
             ));
         }
     };
@@ -1522,6 +1533,14 @@ fn print_state(root: &PathBuf) -> Result<(), RuntimeError> {
 )]
 fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     let store = DurableStore::open(root)?;
+    let viewed_at = unix_now();
+    for head in store.state().heads.current_heads() {
+        store.content_library().record_snapshot(
+            &LibrarySnapshot::from_head(head, "hydra", Some(head.anchor.as_str().to_owned())),
+            viewed_at,
+            Some("viewed"),
+        )?;
+    }
     let settings = SettingsStore::new(root).load()?;
     let private_states = load_active_private_state(&store, &settings)?;
     let personas = persona_views(&store, &settings);
@@ -4335,6 +4354,15 @@ async fn open_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErr
     }
     let events = hydra_nostr::fetch_open_events(&relays, input.since, limit).await?;
     let events = bounded_open_page(events, limit);
+    let library = ContentLibrary::new(root);
+    let viewed_at = unix_now();
+    for (event, body) in &events {
+        library.record_snapshot(
+            &nostr_library_snapshot(event, body, &relays),
+            viewed_at,
+            Some("viewed"),
+        )?;
+    }
     let items = events
         .into_iter()
         .map(|(event, body)| open_nostr_item(&event, &body, &relays))
@@ -4364,6 +4392,11 @@ async fn resolve_nostr_action(root: &PathBuf, input: &str) -> Result<(), Runtime
     let body = open_event_body(&event).ok_or_else(|| {
         RuntimeError::InvalidInput("portable event has no visible supported content".to_owned())
     })?;
+    ContentLibrary::new(root).record_snapshot(
+        &nostr_library_snapshot(&event, &body, &relays),
+        unix_now(),
+        Some("viewed"),
+    )?;
     let item = open_nostr_item(&event, &body, &relays);
     print_action_result(
         "nostr.resolve",
@@ -4410,6 +4443,101 @@ fn open_nostr_item(event: &Event, body: &str, relays: &[String]) -> serde_json::
         "bookClubUrl": book_club_url,
         "canon": canon_view
     })
+}
+
+fn nostr_library_snapshot(
+    event: &Event,
+    displayed_body: &str,
+    relays: &[String],
+) -> LibrarySnapshot {
+    let topics = event
+        .tags
+        .iter()
+        .filter(|tag| tag.as_slice().first().map(String::as_str) == Some("t"))
+        .filter_map(|tag| tag.content())
+        .map(str::to_owned)
+        .take(32)
+        .collect::<Vec<_>>();
+    let title = event.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        matches!(parts.first().map(String::as_str), Some("title" | "subject"))
+            .then(|| parts.get(1).cloned())
+            .flatten()
+    });
+    let references = event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.first().map(String::as_str) == Some("e"))
+                .then(|| {
+                    parts.get(1).cloned().map(|id| {
+                        let marker = parts.get(3).map(String::as_str).unwrap_or_default();
+                        (id, marker.to_owned())
+                    })
+                })
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let root = references
+        .iter()
+        .find(|(_, marker)| marker == "root")
+        .or_else(|| references.first())
+        .map(|(id, _)| format!("nostr:{id}"));
+    let parent = references
+        .iter()
+        .find(|(_, marker)| marker == "reply")
+        .or_else(|| references.last())
+        .map(|(id, _)| format!("nostr:{id}"));
+    let event_id = event.id.to_hex();
+    LibrarySnapshot {
+        anchor: nostr_library_anchor(event),
+        author: event.pubkey.to_hex(),
+        kind: if references.is_empty() {
+            ObjectKind::Post
+        } else {
+            ObjectKind::Comment
+        },
+        title,
+        body: if event.content.trim().is_empty() {
+            displayed_body.to_owned()
+        } else {
+            event.content.clone()
+        },
+        communities: topics,
+        root,
+        parent,
+        external_root: None,
+        external_parent: None,
+        external_source: None,
+        protocol: "nostr".to_owned(),
+        protocol_identifier: Some(event_id),
+        source_url: hydra_nostr::portable_event_uri(event, relays).ok(),
+        created_at: event.created_at.as_secs(),
+        edited_at: event.created_at.as_secs(),
+    }
+}
+
+fn nostr_library_anchor(event: &Event) -> String {
+    let kind = u16::from(event.kind);
+    if (30_000..40_000).contains(&kind) {
+        let identifier = event.tags.iter().find_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.first().map(String::as_str) == Some("d"))
+                .then(|| parts.get(1).cloned())
+                .flatten()
+        });
+        if let Some(identifier) = identifier {
+            return format!(
+                "nostr-address:{kind}:{}:{identifier}",
+                event.pubkey.to_hex()
+            );
+        }
+    }
+    if matches!(kind, 0 | 3) || (10_000..20_000).contains(&kind) {
+        return format!("nostr-replaceable:{kind}:{}", event.pubkey.to_hex());
+    }
+    format!("nostr:{}", event.id.to_hex())
 }
 
 fn bounded_open_page(mut events: Vec<Event>, limit: usize) -> Vec<(Event, String)> {
@@ -4464,6 +4592,25 @@ fn open_event_body(event: &Event) -> Option<String> {
 
 fn keep_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let input: KeepNostrInput = serde_json::from_str(input)?;
+    let event = Event::from_json(&input.event_json)
+        .map_err(|error| RuntimeError::InvalidInput(error.to_string()))?;
+    let body = open_event_body(&event).ok_or_else(|| {
+        RuntimeError::InvalidInput("Nostr event has no visible supported content".to_owned())
+    })?;
+    let settings = SettingsStore::new(root).load()?;
+    let library = ContentLibrary::new(root);
+    library.record_snapshot(
+        &nostr_library_snapshot(&event, &body, &settings.relays),
+        unix_now(),
+        None,
+    )?;
+    library.record_interaction(
+        &nostr_library_anchor(&event),
+        "local user",
+        "saved",
+        None,
+        unix_now(),
+    )?;
     let mut store = DurableStore::open(root)?;
     ImportService::receive_public(&mut store, &input.event_json, unix_now())?;
     print_action_result(
@@ -4476,12 +4623,22 @@ fn keep_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
 fn curate_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
     let input: NostrCurateInput = serde_json::from_str(input)?;
     let persona = PersonaId::parse(&input.persona_id)?;
+    let source = Event::from_json(&input.event_json)
+        .map_err(|error| RuntimeError::InvalidInput(error.to_string()))?;
     let communities = input
         .communities
         .into_iter()
         .map(CommunityKey::parse)
         .collect::<Result<Vec<_>, _>>()?;
     let settings = SettingsStore::new(root).load()?;
+    let body = open_event_body(&source).ok_or_else(|| {
+        RuntimeError::InvalidInput("Nostr event has no visible supported content".to_owned())
+    })?;
+    ContentLibrary::new(root).record_snapshot(
+        &nostr_library_snapshot(&source, &body, &settings.relays),
+        unix_now(),
+        None,
+    )?;
     let mut store = DurableStore::open(root)?;
     ImportService::receive_public(&mut store, &input.event_json, unix_now())?;
     let outbound = DiscussionService::new(PlatformSecretStore).curate(
@@ -4493,6 +4650,13 @@ fn curate_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> 
             relays: settings.write_relays_for(persona).to_vec(),
             recorded_at: unix_now(),
         },
+    )?;
+    ContentLibrary::new(root).record_interaction(
+        &nostr_library_anchor(&source),
+        &persona.to_string(),
+        "curated",
+        None,
+        unix_now(),
     )?;
     print_action_result(
         "nostr.curate",
@@ -4542,6 +4706,19 @@ fn categorize_nostr_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErr
                 .collect(),
         );
     settings_store.save(&settings)?;
+    store.record_content_interaction(
+        &AnchorId::parse(event.id.to_hex())?,
+        &persona.to_string(),
+        "categorized",
+        Some(
+            communities
+                .iter()
+                .map(|community| format!("/h/{}/", community.as_str()))
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        unix_now(),
+    )?;
     print_action_result(
         "nostr.categorize_local",
         operation_view(OperationId::new(), OperationState::Succeeded, false),
@@ -6912,19 +7089,28 @@ mod tests {
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
 
     #[test]
-    fn local_storage_view_only_offers_a_real_media_directory() {
+    fn local_storage_view_only_offers_real_library_and_media_directories() {
         let temporary = tempfile::tempdir().unwrap();
         let root = temporary.path();
 
         let initial = storage_view(root);
         assert_eq!(initial.root, root.display().to_string());
+        assert_eq!(initial.library, root.join("library").display().to_string());
         assert_eq!(initial.media, root.join("media").display().to_string());
+        assert!(!initial.library_exists);
         assert!(!initial.media_exists);
+        assert!(storage_folder(root, "library").is_err());
         assert!(storage_folder(root, "media").is_err());
 
+        fs::create_dir(root.join("library")).unwrap();
         fs::create_dir(root.join("media")).unwrap();
+        assert!(storage_view(root).library_exists);
         assert!(storage_view(root).media_exists);
         assert_eq!(storage_folder(root, "data").unwrap(), root);
+        assert_eq!(
+            storage_folder(root, "library").unwrap(),
+            root.join("library")
+        );
         assert_eq!(storage_folder(root, "media").unwrap(), root.join("media"));
         assert!(storage_folder(root, "other").is_err());
     }
@@ -7067,6 +7253,29 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].0.content, "newest");
         assert_eq!(events[1].0.content, "middle");
+    }
+
+    #[test]
+    fn open_nostr_library_keeps_full_text_and_stable_replaceable_coordinates() {
+        let keys = Keys::generate();
+        let body = "public text ".repeat(500);
+        let event = EventBuilder::new(Kind::LongFormTextNote, body.clone())
+            .tag(Tag::parse(["d", "durable-essay"]).unwrap())
+            .custom_created_at(Timestamp::from(30))
+            .sign_with_keys(&keys)
+            .unwrap();
+        let snapshot = nostr_library_snapshot(&event, "truncated display", &[]);
+
+        assert_eq!(snapshot.body, body);
+        assert_eq!(snapshot.protocol, "nostr");
+        assert_eq!(snapshot.protocol_identifier, Some(event.id.to_hex()));
+        assert_eq!(
+            snapshot.anchor,
+            format!(
+                "nostr-address:30023:{}:durable-essay",
+                event.pubkey.to_hex()
+            )
+        );
     }
 
     #[test]
