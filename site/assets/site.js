@@ -99,8 +99,8 @@
     if (!platform) {
       mark.className = 'platform-mark large';
       mark.textContent = '?';
-      title.textContent = 'Choose your system';
-      copy.textContent = 'Pick a build below.';
+      title.textContent = 'Choose a system';
+      copy.textContent = 'Pick a download below.';
       enableLink(link, RELEASES_URL, 'See all releases');
       return;
     }
@@ -112,8 +112,8 @@
       copy.textContent = release.tag_name + ' · ' + formatKind(asset.name);
       enableLink(link, asset.browser_download_url, 'Download Hydra');
     } else {
-      title.textContent = platforms[platform].name + ' build coming soon';
-      copy.textContent = 'This release does not include a ' + platforms[platform].name + ' package yet.';
+      title.textContent = 'No ' + platforms[platform].name + ' build yet';
+      copy.textContent = "There isn't a " + platforms[platform].name + ' download in this release.';
       enableLink(link, RELEASES_URL, 'See all releases');
     }
   }
@@ -130,8 +130,8 @@
       mark.className = 'platform-mark large';
       mark.textContent = '?';
     }
-    title.textContent = 'Public downloads coming soon';
-    copy.textContent = 'Hydra can be built from source today.';
+    title.textContent = 'Downloads are not ready yet';
+    copy.textContent = 'Hydra can be built from source in the meantime.';
     enableLink(link, SOURCE_URL, 'Build from source');
     Object.keys(platforms).forEach(function (key) {
       var row = document.querySelector('[data-platform-row="' + key + '"]');
@@ -152,7 +152,7 @@
       mark.textContent = '?';
     }
     title.textContent = 'Latest release';
-    copy.textContent = 'The download check is unavailable right now.';
+    copy.textContent = 'Hydra could not check for downloads right now.';
     enableLink(link, RELEASES_URL, 'See all releases');
   }
 
