@@ -203,6 +203,40 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .tab-button { padding: 8px 13px; border: 1px solid transparent; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer; }
 .tab-button.is-active { border-color: var(--line); color: var(--ink); background: var(--panel-2); }
 .tab-button.reddit.is-active { color: var(--reddit-ink); background: rgba(255,90,70,.08); }
+.community-context-toolbar { position: sticky; top: 82px; z-index: 2; min-height: 40px; display: flex; align-items: center; justify-content: flex-end; gap: 3px; padding: 4px 24px; border-bottom: 1px solid var(--line); background: var(--bar); }
+.community-context-button { width: 31px; height: 31px; display: grid; place-items: center; border: 0; border-radius: 7px; padding: 5px; color: var(--muted); background: transparent; cursor: pointer; }
+.community-context-button:hover, .community-context-button:focus-visible { color: var(--ink); background: var(--shade); }
+.community-context-button.is-active { color: var(--accent-strong); background: var(--accent-soft); }
+.community-toolbar-icon { width: 19px; height: 19px; display: block; }
+.community-toolbar-divider { width: 1px; height: 19px; margin: 0 5px; background: var(--line); }
+.community-filter-drawer { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows 220ms ease, visibility 0s linear 220ms; }
+.community-filter-drawer.is-open { grid-template-rows: 1fr; visibility: visible; transition: grid-template-rows 220ms ease; }
+.community-filter-drawer-inner { min-height: 0; overflow: hidden; }
+.community-filter-drawer .lens-bar { min-width: 0; }
+.community-feed-layout { --community-sidebar-width: clamp(260px, 28vw, 340px); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 0; overflow: clip; transition: grid-template-columns 240ms ease; }
+.community-feed-layout.is-sidebar-open { grid-template-columns: minmax(0, 1fr) var(--community-sidebar-width); }
+.community-feed-stream { min-width: 0; }
+.community-right-sidebar { width: var(--community-sidebar-width); min-width: 0; max-height: calc(100vh - 122px); align-self: start; position: sticky; top: 122px; overflow: hidden auto; border-left: 1px solid var(--line); background: var(--panel); opacity: 0; transform: translateX(100%); transition: transform 240ms ease, opacity 180ms ease; }
+.community-right-sidebar.is-open { opacity: 1; transform: translateX(0); }
+.community-sidebar-panel { min-height: calc(100vh - 122px); }
+.community-sidebar-header { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.community-sidebar-header h2 { margin: 0; font: 650 16px/1.25 system-ui, sans-serif; }
+.community-sidebar-close { width: 29px; height: 29px; border: 0; border-radius: 7px; padding: 0; color: var(--muted); background: transparent; cursor: pointer; font: 22px/1 system-ui, sans-serif; }
+.community-sidebar-close:hover, .community-sidebar-close:focus-visible { color: var(--ink); background: var(--shade); }
+.community-sidebar-body { padding: 6px 14px 28px; }
+.community-sidebar-list { display: grid; }
+.community-sidebar-item { min-width: 0; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.community-sidebar-item > p:first-child { margin: 0 0 8px; color: var(--body-ink); font-size: 13px; line-height: 1.48; }
+.community-sidebar-item.pinned-item { display: block; border-radius: 0; background: transparent; }
+.community-sidebar-item .post-title { white-space: normal; }
+.community-sidebar-empty { padding: 24px 4px; color: var(--muted); }
+.community-sidebar-empty strong { color: var(--ink); }
+.community-sidebar-empty p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
+.sidebar-item-meta { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+.subscriber-item { display: grid; gap: 5px; }
+.subscriber-since { overflow: hidden; color: var(--faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.community-sidebar-dismissals { padding: 12px 0; color: var(--muted); font-size: 13px; }
+.community-sidebar-dismissals summary { cursor: pointer; }
 .lens-bar { display: flex; align-items: center; gap: 6px; padding: 5px 28px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--bar); }
 .audience-filters, .catch-up-filters { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--line); }
 .audience-filter { flex: 0 0 auto; border: 0; border-radius: 16px; padding: 7px 11px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
@@ -225,6 +259,13 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .empty-state h2 { margin: 0 0 6px; font: 600 22px Georgia, serif; }
 .empty-state p { margin: 0; color: var(--muted); line-height: 1.5; }
 .post-card { display: grid; grid-template-columns: 40px minmax(0,1fr); border: 0; background: transparent; overflow: visible; }
+.post-card.is-catch-up-fading { pointer-events: none; animation: catch-up-fade 2500ms ease forwards; }
+.catch-up-placeholder { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent); color: var(--faint); font-size: 12px; }
+.catch-up-placeholder > span { max-width: min(70%, 520px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes catch-up-fade {
+  0%, 56% { opacity: 1; transform: translateY(0); filter: none; }
+  100% { opacity: .06; transform: translateY(-3px); filter: grayscale(.6); }
+}
 .post-card.open-nostr-card { grid-template-columns: minmax(0,1fr); }
 .blocked-placeholder { margin: 0; padding: 16px; border-bottom: 1px solid var(--line); color: var(--muted); background: rgba(127,127,127,.055); }
 .blocked-placeholder p { margin: 6px 0 10px; overflow-wrap: anywhere; }
@@ -280,8 +321,10 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .post-image-preview.is-loading { min-width: 120px; min-height: 46px; display: grid; place-items: center; background: var(--shade); font-size: 12px; }
 .post-image-preview img { max-width: 100%; max-height: 300px; display: block; object-fit: contain; }
 .community-chip, .state-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 3px; border: 0; color: var(--chip-ink); background: transparent; font-size: 12px; }
-.community-norm-banner { margin: 12px 24px 0; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
-.community-norm-banner .norm-field summary { color: var(--ink); font-weight: 700; }
+.community-norm-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 24px 0; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
+.community-norm-banner > div { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.community-norm-banner strong { flex: 0 0 auto; font-size: 13px; }
+.community-norm-banner span { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .view-intro { margin: 0; padding: 12px 28px; border-bottom: 1px solid var(--line); color: var(--muted); background: var(--bar); font-size: 13px; }
 .pinned-area { display: grid; gap: 8px; margin: 12px 24px 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
 .pinned-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 10px; border-radius: 8px; background: var(--paper); }
@@ -459,6 +502,11 @@ body.settings-window { min-width: 0; min-height: 0; }
   .is-pending-hide > *, .is-pending-hide .post-actions > * { transition: opacity 2.4s ease, filter 2.4s ease; }
   .judgment-callout { animation: judgment-callout-arrive .8s .18s ease-out both; }
   .emoji-reaction-callout { animation: judgment-callout-arrive .16s ease-out both; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-filter-drawer, .community-feed-layout, .community-right-sidebar { transition: none; }
+  .post-card.is-catch-up-fading { animation: none; opacity: .06; }
 }
 
 @keyframes judgment-callout-arrive {

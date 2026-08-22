@@ -292,6 +292,33 @@ test("posting is community-scoped and synchronization is ambient", () => {
   assert.match(app, /scheduleAutomaticSync\(\)/);
 });
 
+test("Hydra communities use one animated right sidebar with instant panel swaps", () => {
+  assert.match(app, /const COMMUNITY_SIDEBARS = \[[\s\S]*\["norms", "Norms"\][\s\S]*\["pinned", "Pinned"\][\s\S]*\["subscribers", "Subscribers"\]/);
+  assert.match(app, /function communityContextToolbar\(community\)/);
+  assert.match(app, /class: "community-context-toolbar"/);
+  assert.match(app, /function toggleCommunitySidebar\(panel, community\)[\s\S]*sidebar\.replaceChildren\(communitySidebarPanel\(panel, community\)\)[\s\S]*classList\.toggle\("is-sidebar-open", !closing\)/);
+  assert.match(app, /focusWasInside[\s\S]*data-community-panel=.*\.focus\(\)/);
+  assert.match(app, /function communityNormsPanel\(community\)/);
+  assert.match(app, /function communityPinsPanel\(community\)/);
+  assert.match(app, /function communitySubscribersPanel\(community\)[\s\S]*item\.community === community && item\.public/);
+  assert.match(app, /id: "community-right-sidebar"/);
+  assert.match(styles, /\.community-feed-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 0;[^}]*transition:\s*grid-template-columns 240ms ease/);
+  assert.match(styles, /\.community-right-sidebar\s*\{[^}]*transform:\s*translateX\(100%\);[^}]*transition:\s*transform 240ms ease/);
+  assert.match(styles, /\.community-right-sidebar\.is-open\s*\{[^}]*transform:\s*translateX\(0\)/);
+  assert.match(app, /function communityFilterDrawer\(community\)/);
+  assert.match(styles, /\.community-filter-drawer\s*\{[^}]*grid-template-rows:\s*0fr;[^}]*transition:\s*grid-template-rows 220ms ease/);
+});
+
+test("catch-up interactions fade into reversible navigation-only gaps", () => {
+  assert.match(app, /function catchUpTransitionCandidate\(payload\)/);
+  assert.match(app, /function beginCatchUpTransition\(candidate\)[\s\S]*phase: "fading"[\s\S]*}, 2500\)/);
+  assert.match(app, /transition\?\.phase === "placeholder"[\s\S]*catchUpPlaceholder\(post, transition\)/);
+  assert.match(app, /text: "Show again"[\s\S]*transition\.phase = "restored"/);
+  assert.match(app, /function setRoute\(route, community = null\)[\s\S]*clearCatchUpTransitions\(\)/);
+  assert.match(styles, /\.post-card\.is-catch-up-fading\s*\{[^}]*animation:\s*catch-up-fade 2500ms ease forwards/);
+  assert.match(styles, /\.catch-up-placeholder\s*\{[^}]*justify-content:\s*center/);
+});
+
 test("Saved is explicit private saved-for-later memory, not browsing history", () => {
   assert.match(index, /id="saved-button"[^>]*data-nav="revisited"[^>]*aria-label="Saved"/);
   assert.match(index, /class="toolbar-icon-glyph saved-icon"/);
@@ -497,12 +524,12 @@ test("shared judgments are selected from profiles and remain inspectable", () =>
   assert.match(app, /follow_source\.set/);
   assert.match(app, /pin_source\.set/);
   assert.match(app, /reverse_source\.set/);
-  assert.match(app, /function renderCommunityPins/);
+  assert.match(app, /function communityPinsPanel/);
   assert.match(app, /pin_dismissal\.set/);
   assert.match(app, /People worth a second look/);
   assert.match(app, /Nothing here follows or unblocks anyone automatically/);
   assert.match(app, /"rescue"/);
-  assert.match(styles, /\.pinned-area/);
+  assert.match(styles, /\.community-sidebar-item\.pinned-item/);
 });
 
 test("user and post flair remain distinct public controls", () => {

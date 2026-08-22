@@ -41,6 +41,10 @@ const session = {
   lens: "new",
   audience: "all",
   uninteractedOnly: false,
+  communityFilterOpen: true,
+  communitySidebar: null,
+  catchUpTransitions: new Map(),
+  catchUpTimers: new Map(),
   selected: null,
   treeFilters: {},
   reddit: { community: null, items: [], rules: [], rulesAvailable: false, after: null, threadRoot: null, threadItems: [], focusedFullname: null, refreshTimer: null, refreshStep: 0, requestEpoch: 0 },
@@ -697,8 +701,47 @@ function scheduleAutomaticSync(delay = 750) {
   automaticSyncDebounce = window.setTimeout(() => void automaticSync(true), delay);
 }
 
+function catchUpTransitionCandidate(payload) {
+  if (session.route !== "community" || !session.uninteractedOnly || !payload?.target) return null;
+  const post = (session.state?.objects ?? []).find((item) => item.kind === "post" && item.anchor === payload.target);
+  const persona = activePersona(session.state);
+  if (!post || !persona || hasInteractedWithPost(session.state, post, persona)) return null;
+  const card = [...document.querySelectorAll(".post-card[data-post-anchor]")].find((item) => item.dataset.postAnchor === post.anchor);
+  return {
+    anchor: post.anchor,
+    community: session.community,
+    height: Math.ceil(card?.getBoundingClientRect().height ?? 0),
+  };
+}
+
+function beginCatchUpTransition(candidate) {
+  if (!candidate || session.route !== "community" || session.community !== candidate.community || !session.uninteractedOnly) return false;
+  const post = (session.state?.objects ?? []).find((item) => item.kind === "post" && item.anchor === candidate.anchor);
+  const persona = activePersona(session.state);
+  if (!post || !persona || !hasInteractedWithPost(session.state, post, persona)) return false;
+  window.clearTimeout(session.catchUpTimers.get(candidate.anchor));
+  session.catchUpTransitions.set(candidate.anchor, { ...candidate, phase: "fading" });
+  render();
+  const timer = window.setTimeout(() => {
+    session.catchUpTimers.delete(candidate.anchor);
+    const transition = session.catchUpTransitions.get(candidate.anchor);
+    if (!transition || transition.phase !== "fading") return;
+    transition.phase = "placeholder";
+    if (session.route === "community" && session.community === candidate.community && session.uninteractedOnly) renderFeed();
+  }, 2500);
+  session.catchUpTimers.set(candidate.anchor, timer);
+  return true;
+}
+
+function clearCatchUpTransitions() {
+  for (const timer of session.catchUpTimers.values()) window.clearTimeout(timer);
+  session.catchUpTimers.clear();
+  session.catchUpTransitions.clear();
+}
+
 async function mutate(action, payload, success) {
   if (session.busy) return null;
+  const catchUpCandidate = catchUpTransitionCandidate(payload);
   setBusy(true);
   try {
     const result = await runtime(action, payload);
@@ -707,7 +750,7 @@ async function mutate(action, payload, success) {
     const snapshot = extractState(result);
     if (snapshot?.personas) session.state = snapshot;
     else session.state = extractState(await runtime("state"));
-    render();
+    if (!beginCatchUpTransition(catchUpCandidate)) render();
     scheduleAutomaticSync();
     return result;
   } catch (error) {
@@ -794,6 +837,8 @@ function toast(message, error = false) {
 
 function setRoute(route, community = null) {
   if (route !== "community" || community !== session.community) stopRedditThreadRefresh();
+  clearCatchUpTransitions();
+  session.communitySidebar = null;
   session.route = route;
   session.community = community;
   session.selected = null;
@@ -1364,6 +1409,7 @@ function communityViewHeader(community, title, extras = []) {
 function chamberTabs() {
   const selectChamber = (chamber) => {
     if (chamber === "hydra") stopRedditThreadRefresh();
+    if (chamber === "reddit") session.communitySidebar = null;
     session.chamber = chamber;
     renderFeed();
     window.setTimeout(() => document.querySelector(`.view-tabs [aria-selected="true"]`)?.focus(), 0);
@@ -1385,6 +1431,199 @@ function chamberTabs() {
       onclick: () => selectChamber("reddit"), onkeydown: move,
     }),
   ]);
+}
+
+const COMMUNITY_SIDEBARS = [
+  ["norms", "Norms"],
+  ["pinned", "Pinned"],
+  ["subscribers", "Subscribers"],
+];
+
+function communityToolbarIcon(kind) {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  for (const [name, value] of Object.entries({
+    class: "community-toolbar-icon",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.7",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+    focusable: "false",
+  })) icon.setAttribute(name, value);
+  const paths = {
+    filter: ["M4 6h16", "M7 12h10", "M10 18h4"],
+    norms: ["M6 3.5h12v17H6z", "M9 8h6", "M9 12h6", "M9 16h4"],
+    pinned: ["M9 3h6l-.7 5 3.2 3.2v1.3h-5V21l-1-1-1-7.5h-5v-1.3L8.7 8z"],
+    subscribers: ["M8.5 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M2.5 20v-1.5a6 6 0 0 1 12 0V20", "M16 9a3 3 0 0 0 0-5.8", "M17 13.5a5 5 0 0 1 4.5 5V20"],
+  };
+  for (const data of paths[kind] ?? []) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", data);
+    icon.append(path);
+  }
+  return icon;
+}
+
+function communityContextToolbar(community) {
+  const filter = element("button", {
+    type: "button",
+    class: `community-context-button filter${session.communityFilterOpen ? " is-active" : ""}`,
+    title: session.communityFilterOpen ? "Hide feed filters" : "Show feed filters",
+    "aria-label": session.communityFilterOpen ? "Hide feed filters" : "Show feed filters",
+    "aria-expanded": session.communityFilterOpen,
+    "aria-controls": "community-filter-drawer",
+    onclick: toggleCommunityFilterDrawer,
+  }, [communityToolbarIcon("filter")]);
+  const panels = COMMUNITY_SIDEBARS.map(([id, label]) => element("button", {
+    type: "button",
+    class: `community-context-button${session.communitySidebar === id ? " is-active" : ""}`,
+    title: label,
+    "aria-label": `${label} sidebar`,
+    "aria-pressed": session.communitySidebar === id,
+    "aria-controls": "community-right-sidebar",
+    dataset: { communityPanel: id },
+    onclick: () => toggleCommunitySidebar(id, community),
+  }, [communityToolbarIcon(id)]));
+  return element("nav", { class: "community-context-toolbar", "aria-label": `Tools for /h/${community}` }, [
+    filter,
+    element("span", { class: "community-toolbar-divider", "aria-hidden": "true" }),
+    ...panels,
+  ]);
+}
+
+function toggleCommunityFilterDrawer() {
+  session.communityFilterOpen = !session.communityFilterOpen;
+  const drawer = document.querySelector("#community-filter-drawer");
+  const button = document.querySelector(".community-context-button.filter");
+  drawer?.classList.toggle("is-open", session.communityFilterOpen);
+  drawer?.setAttribute("aria-hidden", String(!session.communityFilterOpen));
+  button?.classList.toggle("is-active", session.communityFilterOpen);
+  button?.setAttribute("aria-expanded", String(session.communityFilterOpen));
+  button?.setAttribute("aria-label", session.communityFilterOpen ? "Hide feed filters" : "Show feed filters");
+  if (button) button.title = session.communityFilterOpen ? "Hide feed filters" : "Show feed filters";
+}
+
+function communityFilterDrawer(community) {
+  return element("div", {
+    id: "community-filter-drawer",
+    class: `community-filter-drawer${session.communityFilterOpen ? " is-open" : ""}`,
+    "aria-hidden": !session.communityFilterOpen,
+  }, [element("div", { class: "community-filter-drawer-inner" }, [lensBar(community)])]);
+}
+
+function toggleCommunitySidebar(panel, community) {
+  const sidebar = document.querySelector("#community-right-sidebar");
+  const layout = document.querySelector(".community-feed-layout");
+  if (!sidebar || !layout) return;
+  const closing = session.communitySidebar === panel;
+  const focusWasInside = sidebar.contains(document.activeElement);
+  session.communitySidebar = closing ? null : panel;
+  if (!closing) sidebar.replaceChildren(communitySidebarPanel(panel, community));
+  layout.classList.toggle("is-sidebar-open", !closing);
+  sidebar.classList.toggle("is-open", !closing);
+  sidebar.toggleAttribute("inert", closing);
+  sidebar.setAttribute("aria-hidden", String(closing));
+  for (const button of document.querySelectorAll("[data-community-panel]")) {
+    const active = !closing && button.dataset.communityPanel === panel;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  if (closing && focusWasInside) document.querySelector(`[data-community-panel="${panel}"]`)?.focus();
+}
+
+function communitySidebarPanel(panel, community) {
+  const label = COMMUNITY_SIDEBARS.find(([id]) => id === panel)?.[1] ?? "Community";
+  const body = panel === "norms"
+    ? communityNormsPanel(community)
+    : panel === "pinned"
+      ? communityPinsPanel(community)
+      : communitySubscribersPanel(community);
+  return element("section", { class: "community-sidebar-panel", "aria-labelledby": "community-sidebar-title" }, [
+    element("header", { class: "community-sidebar-header" }, [
+      element("h2", { id: "community-sidebar-title", text: label }),
+      element("button", {
+        type: "button",
+        class: "community-sidebar-close",
+        text: "×",
+        title: `Close ${label}`,
+        "aria-label": `Close ${label} sidebar`,
+        onclick: () => toggleCommunitySidebar(panel, community),
+      }),
+    ]),
+    element("div", { class: "community-sidebar-body" }, [body]),
+  ]);
+}
+
+function communitySidebarEmpty(title, body) {
+  return element("div", { class: "community-sidebar-empty" }, [
+    element("strong", { text: title }),
+    element("p", { text: body }),
+  ]);
+}
+
+function communityNormsPanel(community) {
+  const norms = (session.state.objects ?? []).filter((item) => item.kind === "norm" && item.communities?.includes(community));
+  if (!norms.length) return communitySidebarEmpty("No norms yet", "Norms are signed community positions, not enforceable rules.");
+  return element("div", { class: "community-sidebar-list" }, norms.map((norm) => element("article", { class: "community-sidebar-item norm-card" }, [
+    element("p", { text: norm.body }),
+    element("div", { class: "sidebar-item-meta" }, [authorInline(norm.author), ageElement(norm.createdAt ?? norm.editedAt)]),
+    element("div", { class: "post-actions" }, [
+      actionButton(`Endorse · ${norm.currentScore ?? 0}`, () => react(norm.anchor, "+"), "text-action"),
+      actionButton("Diverge", () => react(norm.anchor, "-"), "text-action"),
+    ]),
+  ])));
+}
+
+function communityPinsPanel(community) {
+  const pins = (session.state.pins ?? []).filter((item) => item.topic === community);
+  const dismissals = (session.state.pinDismissals ?? []).filter((item) => item.topic === community);
+  if (!pins.length && !dismissals.length) return communitySidebarEmpty("Nothing pinned", "Pinned discussions selected by you or people whose pins you follow will appear here.");
+  const objects = new Map((session.state.objects ?? []).map((item) => [item.anchor, item]));
+  const rows = pins.map((pin) => {
+    const post = objects.get(pin.target);
+    if (!post) return null;
+    const provenance = pin.direct ? "Pinned by you" : `Pinned by ${pin.sourceCount} ${pin.sourceCount === 1 ? "person" : "people"} you follow`;
+    return element("article", { class: "community-sidebar-item pinned-item" }, [
+      element("button", { type: "button", class: "post-title compact", text: post.title || "Untitled discussion", onclick: () => openDiscussion(post.anchor) }),
+      element("p", { class: "evidence-note", text: `${provenance}${pin.uncertain ? " · source data is stale" : ""}` }),
+      element("div", { class: "post-actions" }, [
+        !pin.direct ? actionButton("Why?", () => showSources("Pin sources", pin.sources), "text-action") : null,
+        pin.direct
+          ? actionButton("Unpin", () => mutate("pin.set", { persona_id: pin.personaId, target: pin.target, topic: community, public: true, action: "withdraw", reason: null }, "Pin withdrawn."), "text-action")
+          : actionButton("Dismiss", () => mutate("pin_dismissal.set", { persona_id: pin.personaId, target: pin.target, topic: community, dismissed: true }, "Inherited pin dismissed locally."), "text-action"),
+      ]),
+    ]);
+  }).filter(Boolean);
+  if (dismissals.length) rows.push(element("details", { class: "community-sidebar-dismissals" }, [
+    element("summary", { text: `${dismissals.length} dismissed ${dismissals.length === 1 ? "pin" : "pins"}` }),
+    ...dismissals.map((item) => element("div", { class: "community-sidebar-item" }, [
+      element("span", { text: objects.get(item.target)?.title || `${item.target.slice(0, 18)}…` }),
+      actionButton("Restore", () => mutate("pin_dismissal.set", { persona_id: item.personaId, target: item.target, topic: community, dismissed: false }, "Inherited pin restored."), "text-action"),
+    ])),
+  ]));
+  return element("div", { class: "community-sidebar-list" }, rows);
+}
+
+function communitySubscribersPanel(community) {
+  const personas = new Map((session.state.personas ?? []).map((persona) => [persona.id, persona]));
+  const subscribers = [...new Map((session.state.subscriptions ?? [])
+    .filter((item) => item.community === community && item.public)
+    .map((item) => [item.personaId, item])).values()]
+    .sort((left, right) => {
+      const leftName = personas.get(left.personaId)?.displayName ?? left.personaId;
+      const rightName = personas.get(right.personaId)?.displayName ?? right.personaId;
+      return leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
+    });
+  if (!subscribers.length) return communitySidebarEmpty("No public subscribers", "Private subscriptions stay private and are not included in this list.");
+  return element("div", { class: "community-sidebar-list" }, subscribers.map((subscription) => {
+    const persona = personas.get(subscription.personaId);
+    return element("article", { class: "community-sidebar-item subscriber-item" }, [
+      persona ? authorInline(persona.publicKey) : element("span", { text: `${subscription.personaId.slice(0, 18)}…` }),
+      element("span", { class: "subscriber-since", text: `Public since ${exactDateTime(subscription.joinedAt)}` }),
+    ]);
+  }));
 }
 
 function lensBar(community = null) {
@@ -1451,7 +1690,7 @@ function renderFeed() {
   const postsBeforeInteractionFilter = posts;
   if (community && session.uninteractedOnly) {
     const persona = activePersona(session.state);
-    posts = posts.filter((post) => !hasInteractedWithPost(session.state, post, persona));
+    posts = posts.filter((post) => !hasInteractedWithPost(session.state, post, persona) || session.catchUpTransitions.has(post.anchor));
   }
   const list = element("div", { class: "content-list" });
   if (posts.length === 0) {
@@ -1467,68 +1706,45 @@ function renderFeed() {
           null,
         ));
   } else {
-    list.append(...posts.map((post) => postCard(post, lens, community)));
+    list.append(...posts.map((post) => {
+      const transition = session.catchUpTransitions.get(post.anchor);
+      return transition?.phase === "placeholder"
+        ? catchUpPlaceholder(post, transition)
+        : postCard(post, lens, community, transition?.phase === "fading");
+    }));
   }
   const normBanner = community ? renderCommunityNormBanner(community) : null;
-  const pins = community ? renderCommunityPins(community) : null;
   const revisitIntro = session.route === "revisited" ? element("p", { class: "view-intro", text: "Posts you save appear here for this persona; this is not browsing history." }) : null;
-  view.replaceChildren(...[header, revisitIntro, normBanner, pins, session.route === "revisited" ? null : lensBar(community), list].filter(Boolean));
-}
-
-function renderCommunityPins(community) {
-  const pins = (session.state.pins ?? []).filter((item) => item.topic === community);
-  const dismissals = (session.state.pinDismissals ?? []).filter((item) => item.topic === community);
-  if (!pins.length && !dismissals.length) return null;
-  const objects = new Map((session.state.objects ?? []).map((item) => [item.anchor, item]));
-  const row = (pin) => {
-    const post = objects.get(pin.target);
-    if (!post) return null;
-    const provenance = pin.direct ? "Pinned by you" : `Pinned by ${pin.sourceCount} ${pin.sourceCount === 1 ? "person" : "people"} you follow`;
-    return element("article", { class: "pinned-item" }, [
-      element("div", {}, [
-        element("span", { class: "state-chip", text: "Pinned" }),
-        element("button", { type: "button", class: "post-title compact", text: post.title || "Untitled discussion", onclick: () => { session.selected = post.anchor; render(); } }),
-        element("p", { class: "evidence-note", text: `${provenance}${pin.uncertain ? " · source data is stale" : ""}` }),
-      ]),
-      element("div", { class: "post-actions" }, [
-        !pin.direct ? actionButton("Why?", () => showSources("Pin sources", pin.sources)) : null,
-        pin.direct
-          ? actionButton("Unpin", () => mutate("pin.set", { persona_id: pin.personaId, target: pin.target, topic: community, public: true, action: "withdraw", reason: null }, "Pin withdrawn."))
-          : actionButton("Dismiss", () => mutate("pin_dismissal.set", { persona_id: pin.personaId, target: pin.target, topic: community, dismissed: true }, "Inherited pin dismissed locally.")),
-      ]),
-    ]);
-  };
-  const visible = pins.slice(0, 2).map(row).filter(Boolean);
-  const more = pins.slice(2).map(row).filter(Boolean);
-  return element("section", { class: "pinned-area", "aria-label": `Pinned discussions in ${community}` }, [
-    ...visible,
-    more.length ? element("details", {}, [element("summary", { text: `${more.length} more pinned` }), ...more]) : null,
-    dismissals.length ? element("details", {}, [
-      element("summary", { text: `${dismissals.length} dismissed ${dismissals.length === 1 ? "pin" : "pins"}` }),
-      ...dismissals.map((item) => element("div", { class: "pinned-item" }, [
-        element("span", { text: objects.get(item.target)?.title || `${item.target.slice(0, 18)}…` }),
-        actionButton("Restore", () => mutate("pin_dismissal.set", { persona_id: item.personaId, target: item.target, topic: community, dismissed: false }, "Inherited pin restored.")),
-      ])),
-    ]) : null,
+  if (!community) {
+    view.replaceChildren(...[header, revisitIntro, session.route === "revisited" ? null : lensBar(), list].filter(Boolean));
+    return;
+  }
+  const sidebar = element("aside", {
+    id: "community-right-sidebar",
+    class: `community-right-sidebar${session.communitySidebar ? " is-open" : ""}`,
+    "aria-hidden": !session.communitySidebar,
+    inert: !session.communitySidebar,
+  }, session.communitySidebar ? [communitySidebarPanel(session.communitySidebar, community)] : []);
+  const stream = element("div", { class: "community-feed-stream" }, [
+    communityFilterDrawer(community),
+    normBanner,
+    list,
   ]);
+  const layout = element("div", { class: `community-feed-layout${session.communitySidebar ? " is-sidebar-open" : ""}` }, [stream, sidebar]);
+  view.replaceChildren(header, communityContextToolbar(community), layout);
 }
 
 function renderCommunityNormBanner(community) {
   const norms = (session.state.objects ?? []).filter((item) => item.kind === "norm" && item.communities?.includes(community));
   if (!norms.length) return null;
   return element("section", { class: "community-norm-banner", "aria-label": `Communal norms for ${community}` }, [
-    element("details", { class: "norm-field" }, [
-      element("summary", { text: `${norms.length} communal norm ${norms.length === 1 ? "statement" : "statements"}` }),
-      element("p", { text: "Signed positions, not enforceable rules." }),
-      ...norms.map((norm) => element("article", { class: "norm-card" }, [
-        element("p", { text: norm.body }),
-        element("div", { class: "post-actions" }, [
-          actionButton(`Endorse · ${norm.currentScore ?? 0}`, () => react(norm.anchor, "+")),
-          actionButton("Diverge", () => react(norm.anchor, "-")),
-          actionButton("Reset", () => react(norm.anchor, "0")),
-        ]),
-      ])),
+    element("div", {}, [
+      element("strong", { text: `${norms.length} communal norm ${norms.length === 1 ? "statement" : "statements"}` }),
+      element("span", { text: "Signed positions, not enforceable rules. Review new or changed norms." }),
     ]),
+    actionButton("View norms", () => {
+      if (session.communitySidebar !== "norms") toggleCommunitySidebar("norms", community);
+    }, "text-action"),
   ]);
 }
 
@@ -1728,7 +1944,26 @@ function postImagePreview(post) {
   return preview;
 }
 
-function postCard(post, lens, community) {
+function catchUpPlaceholder(post, transition) {
+  return element("div", {
+    class: "catch-up-placeholder",
+    style: transition.height ? `min-height: ${transition.height}px` : null,
+    dataset: { postAnchor: post.anchor },
+  }, [
+    element("span", { text: `Interacted with “${post.title || "Untitled discussion"}”` }),
+    element("button", {
+      type: "button",
+      class: "text-action",
+      text: "Show again",
+      onclick: () => {
+        transition.phase = "restored";
+        renderFeed();
+      },
+    }),
+  ]);
+}
+
+function postCard(post, lens, community, catchUpFading = false) {
   const effect = judgmentEffect(post, community);
   const pendingHide = effect?.pending && effect.kind === "hide";
   if (effect && !pendingHide && !session.revealedBlocks.has(post.anchor)) {
@@ -1773,7 +2008,10 @@ function postCard(post, lens, community) {
       community ? pinAction(post, community) : null,
     ]),
   ]);
-  return element("article", { class: `post-card${pendingHide ? " is-pending-hide" : ""}` }, [vote, main]);
+  return element("article", {
+    class: `post-card${pendingHide ? " is-pending-hide" : ""}${catchUpFading ? " is-catch-up-fading" : ""}`,
+    dataset: { postAnchor: post.anchor },
+  }, [vote, main]);
 }
 
 function pinAction(post, community) {
