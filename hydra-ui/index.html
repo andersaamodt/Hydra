@@ -22,6 +22,11 @@
     <a class="skip-link" href="#main">Skip to discussion</a>
     <div id="app" class="app-shell" aria-busy="true" hidden>
       <header class="topbar">
+        <nav class="topbar-nav" aria-label="Primary navigation">
+          <button class="topbar-nav-button is-active" type="button" data-nav="feed"><span aria-hidden="true">⌂</span><span class="topbar-nav-label">My Feed</span></button>
+          <button class="topbar-nav-button" type="button" data-nav="front"><span aria-hidden="true">✦</span><span class="topbar-nav-label">Front Page</span></button>
+          <button class="topbar-nav-button" type="button" data-nav="open-nostr"><span aria-hidden="true">◎</span><span class="topbar-nav-label">Open Nostr</span></button>
+        </nav>
         <label class="search-box">
           <span class="sr-only">Search Hydra</span>
           <input id="global-search" type="search" placeholder="Search people, /h/ communities, or Reddit URLs" autocomplete="off" />
@@ -29,6 +34,9 @@
         </label>
         <div class="topbar-drag-region" aria-hidden="true" data-tauri-drag-region></div>
         <div class="top-actions">
+          <button id="saved-button" class="toolbar-icon-button saved-button" type="button" data-nav="revisited" aria-label="Saved" title="Saved posts">
+            <svg class="toolbar-icon-glyph saved-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path d="M5 2.5h8v13l-4-2.7-4 2.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /></svg>
+          </button>
           <button id="messages-button" class="toolbar-icon-button message-button" type="button" data-nav="messages" aria-label="Messages" title="Messages">
             <svg class="toolbar-icon-glyph message-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M2.25 5h19.5v14H2.25zM3 5.8l9 6.7 9-6.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
@@ -48,15 +56,6 @@
       </header>
 
       <aside class="sidebar" aria-label="Hydra navigation">
-        <nav>
-          <button class="nav-item is-active" type="button" data-nav="feed"><span>⌂</span><span class="nav-label">My Feed</span></button>
-          <button class="nav-item" type="button" data-nav="front"><span>✦</span><span class="nav-label">Front Page</span></button>
-          <button class="nav-item" type="button" data-nav="open-nostr"><span>◎</span><span class="nav-label">Open Nostr</span></button>
-          <button class="nav-item" type="button" data-nav="revisited" title="Posts saved privately for this persona">
-            <span><svg class="nav-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path d="M5 2.5h8v13l-4-2.7-4 2.7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" /></svg></span>
-            <span class="nav-label">Saved</span>
-          </button>
-        </nav>
         <section class="community-nav" aria-labelledby="community-heading">
           <div class="section-heading-row">
             <p id="community-heading" class="nav-heading">Communities</p>

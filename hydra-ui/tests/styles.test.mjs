@@ -65,7 +65,6 @@ test("the navigation sidebar can be resized from its right edge", () => {
   assert.match(styles, /\.sidebar\s*\{[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*padding:\s*17px 7px 14px/);
   assert.match(styles, /\.nav-item\s*\{[^}]*grid-template-columns:\s*23px minmax\(0, 1fr\) auto;[^}]*overflow:\s*hidden;[^}]*border-radius:\s*7px/);
   assert.match(styles, /\.nav-label\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/);
-  assert.match(index, /data-nav="feed"[^>]*>[\s\S]*class="nav-label">My Feed<\/span>/);
   assert.match(app, /class: "nav-label", text: `\/h\/\$\{community\}`/);
 });
 
@@ -75,12 +74,12 @@ test("macOS integrates the native title bar with Hydra's toolbar", () => {
   assert.match(tauri, /"trafficLightPosition": \{ "x": 15, "y": 20 \}/);
   assert.match(desktop, /TitleBarStyle::Overlay/);
   assert.match(desktop, /\.hidden_title\(true\)/);
-  assert.match(index, /<header class="topbar">[\s\S]*?<\/label>\s*<div class="topbar-drag-region" aria-hidden="true" data-tauri-drag-region><\/div>\s*<div class="top-actions">/);
+  assert.match(index, /<header class="topbar">[\s\S]*?<nav class="topbar-nav"[\s\S]*?<\/nav>\s*<label class="search-box">[\s\S]*?<\/label>\s*<div class="topbar-drag-region" aria-hidden="true" data-tauri-drag-region><\/div>\s*<div class="top-actions">/);
   assert.doesNotMatch(index, /<header class="topbar" data-tauri-drag-region>/);
   assert.match(app, /classList\.toggle\("platform-macos", isMacOS\)/);
   assert.match(app, /"data-tauri-drag-region": true/);
   assert.match(styles, /\.platform-macos \.app-shell\s*\{[^}]*grid-template-rows:\s*56px 1fr/);
-  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 610px\) minmax\(0, 1fr\) auto;[^}]*padding:\s*7px 18px 7px 78px/);
+  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*grid-template-columns:\s*auto minmax\(280px, 440px\) minmax\(0, 1fr\) auto;[^}]*padding:\s*7px 18px 7px 78px/);
   assert.match(styles, /\.topbar-drag-region\s*\{[^}]*align-self:\s*stretch;[^}]*min-width:\s*0/);
   assert.match(styles, /\.search-box\s*\{[^}]*width:\s*min\(100%, 440px\);[^}]*height:\s*38px;[^}]*justify-self:\s*center;[^}]*padding:\s*0 10px/);
   assert.match(styles, /\.platform-macos #settings-button\s*\{\s*display:\s*none;/);
@@ -213,8 +212,9 @@ test("macOS Settings opens in one dedicated window with horizontal keyboard tabs
 
 test("the quiet toolbar keeps messages gray until unread mail arrives", () => {
   const sidebar = index.match(/<aside class="sidebar"[\s\S]*?<\/aside>/)?.[0] ?? "";
-  assert.doesNotMatch(sidebar, /Messages|Reddit Bridge|Settings/);
-  assert.match(index, /<div class="top-actions">[\s\S]*id="messages-button"[\s\S]*id="settings-button"/);
+  assert.doesNotMatch(sidebar, /My Feed|Front Page|Open Nostr|Saved|Messages|Reddit Bridge|Settings/);
+  assert.match(index, /class="topbar-nav"[\s\S]*data-nav="feed"[\s\S]*data-nav="front"[\s\S]*data-nav="open-nostr"[\s\S]*class="search-box"/);
+  assert.match(index, /<div class="top-actions">[\s\S]*id="saved-button"[\s\S]*id="messages-button"[\s\S]*id="settings-button"/);
   assert.doesNotMatch(index, /class="brand"|id="sync-button"|id="compose-button"/);
   assert.match(index, /class="toolbar-icon-glyph message-icon"[\s\S]*viewBox="0 0 24 24"/);
   assert.match(index, /class="toolbar-icon-glyph settings-icon"[\s\S]*viewBox="0 0 14 14"/);
@@ -243,8 +243,8 @@ test("posting is community-scoped and synchronization is ambient", () => {
 });
 
 test("Saved is explicit private saved-for-later memory, not browsing history", () => {
-  assert.match(index, /data-nav="revisited" title="Posts saved privately for this persona"/);
-  assert.match(index, /class="nav-icon"[\s\S]*Saved/);
+  assert.match(index, /id="saved-button"[^>]*data-nav="revisited"[^>]*aria-label="Saved"/);
+  assert.match(index, /class="toolbar-icon-glyph saved-icon"/);
   assert.doesNotMatch(index, /↺|>Revisited|>Revisit</);
   assert.match(app, /session\.route === "revisited" \? "Saved"/);
   assert.match(app, /this is not browsing history/);

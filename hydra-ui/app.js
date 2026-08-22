@@ -795,7 +795,7 @@ function setRoute(route, community = null) {
   session.route = route;
   session.community = community;
   session.selected = null;
-  document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("is-active", item.dataset.nav === route));
+  document.querySelectorAll(".nav-item, .topbar-nav-button, .saved-button").forEach((item) => item.classList.toggle("is-active", item.dataset.nav === route));
   document.querySelector("#messages-button")?.classList.toggle("is-active", route === "messages");
   render();
   if (route === "open-nostr" && !session.openNostr.loaded && !session.openNostr.loading) void loadOpenNostr();
