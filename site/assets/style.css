@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 650 800;
+  font-display: swap;
+  src: url("fonts/figtree-latin.woff2") format("woff2");
+}
+
 :root {
   color-scheme: light;
   --canvas: #edf3f7;
@@ -221,10 +229,10 @@ h3 {
 .hero h1 {
   max-width: 11.5ch;
   margin-bottom: 1.25rem;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  font-weight: 800;
-  line-height: 0.98;
-  letter-spacing: -0.055em;
+  font-family: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 720;
+  line-height: 1;
+  letter-spacing: -0.035em;
 }
 
 .brimstone-dot {
