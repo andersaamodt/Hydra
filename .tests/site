@@ -24,18 +24,18 @@ node --check "$site_root/assets/site.js"
 
 for page in "$site_root/index.html" "$site_root/how/index.html" "$site_root/download/index.html"
 do
-  rg -q '<meta name="viewport"' "$page"
-  rg -q '<meta name="description"' "$page"
-  rg -q '<meta http-equiv="Content-Security-Policy"' "$page"
-  rg -q '<a class="skip-link" href="#main">' "$page"
-  rg -q '<main id="main">' "$page"
-  rg -q 'assets/style.css' "$page"
-  rg -q 'assets/site.js' "$page"
-  if rg -q 'https?://[^" ]+\.(css|js)' "$page"; then
+  grep -q '<meta name="viewport"' "$page"
+  grep -q '<meta name="description"' "$page"
+  grep -q '<meta http-equiv="Content-Security-Policy"' "$page"
+  grep -q '<a class="skip-link" href="#main">' "$page"
+  grep -q '<main id="main">' "$page"
+  grep -q 'assets/style.css' "$page"
+  grep -q 'assets/site.js' "$page"
+  if grep -Eq 'https?://[^" ]+\.(css|js)' "$page"; then
     printf '%s\n' "site: remote executable dependency in ${page#"$repo_root/"}" >&2
     exit 1
   fi
-  rg -o '(href|src)="[^"]+"' "$page" | sed 's/^[^=]*="//; s/"$//' | while IFS= read -r reference
+  grep -Eo '(href|src)="[^"]+"' "$page" | sed 's/^[^=]*="//; s/"$//' | while IFS= read -r reference
   do
     case "$reference" in
       http://*|https://*|\#*) continue ;;
@@ -48,12 +48,13 @@ do
   done
 done
 
-if rg -q -i '\b(react|vue|svelte|nextjs|jekyll|bootstrap|tailwind)\b' "$site_root" -g '*.html' -g '*.css' -g '*.js'; then
+if find "$site_root" -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' \) -exec \
+  grep -Eiq '(^|[^[:alnum:]_])(react|vue|svelte|nextjs|jekyll|bootstrap|tailwind)([^[:alnum:]_]|$)' {} +; then
   printf '%s\n' 'site: unexpected framework or styling dependency' >&2
   exit 1
 fi
 
-if rg -q '(href|src)="/assets/' "$site_root" -g '*.html'; then
+if find "$site_root" -type f -name '*.html' -exec grep -Eq '(href|src)="/assets/' {} +; then
   printf '%s\n' 'site: root-relative asset path would break the GitHub project URL' >&2
   exit 1
 fi
