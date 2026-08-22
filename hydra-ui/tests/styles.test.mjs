@@ -71,6 +71,23 @@ test("the navigation sidebar can be resized from its right edge", () => {
   assert.match(app, /class: "nav-label", text: `\/h\/\$\{community\}`/);
 });
 
+test("sidebar communities support durable manual and metadata sorting", () => {
+  assert.match(index, /id="community-sort-menu"[\s\S]*id="community-sort-options"/);
+  assert.match(index, /class="icon-button community-sort-trigger"/);
+  assert.match(styles, /\.icon-button\s*\{[^}]*border:\s*0;[^}]*border-radius:\s*7px/);
+  assert.match(styles, /\.community-sort-trigger\s*\{[^}]*list-style:\s*none/);
+  assert.match(styles, /\.community-sort-menu\[open\] > \.community-sort-trigger\s*\{[^}]*background:\s*var\(--shade\)/);
+  assert.match(app, /\["ordered", "Ordered"\][\s\S]*\["alphabetical", "Alphabetically"\][\s\S]*\["last_activity", "Last Activity"\][\s\S]*\["date_joined", "Date Joined"\]/);
+  assert.match(app, /community_list_orders/);
+  assert.match(app, /community_list_sorts/);
+  assert.match(app, /subscription\.joinedAt/);
+  assert.match(app, /object\.editedAt \|\| object\.createdAt/);
+  assert.match(app, /onpointerdown:/);
+  assert.match(app, /onpointermove: updateCommunityPointerDrag/);
+  assert.match(app, /onpointerup:/);
+  assert.match(app, /persistCommunityListPreferences\("ordered", names\)/);
+});
+
 test("macOS integrates the native title bar with Hydra's toolbar", () => {
   assert.match(tauri, /"hiddenTitle": true/);
   assert.match(tauri, /"titleBarStyle": "Overlay"/);

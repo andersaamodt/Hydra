@@ -126,6 +126,10 @@ pub struct Settings {
     pub local_topic_assignments: BTreeMap<String, BTreeMap<String, Vec<String>>>,
     #[serde(default)]
     pub community_appearances: BTreeMap<String, CommunityAppearanceSetting>,
+    #[serde(default)]
+    pub community_list_orders: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub community_list_sorts: BTreeMap<String, String>,
     #[serde(default = "default_media_copy_enabled")]
     pub media_copy_enabled: bool,
     #[serde(default = "default_max_media_bytes")]
@@ -226,6 +230,8 @@ impl Default for Settings {
             reddit_export_imports: BTreeMap::new(),
             local_topic_assignments: BTreeMap::new(),
             community_appearances: BTreeMap::new(),
+            community_list_orders: BTreeMap::new(),
+            community_list_sorts: BTreeMap::new(),
             media_copy_enabled: default_media_copy_enabled(),
             max_media_bytes: default_max_media_bytes(),
             persona_blob_servers: BTreeMap::new(),
@@ -328,6 +334,31 @@ impl Settings {
     }
 
     fn validate_local_records(&self) -> Result<(), StoreError> {
+        if self.community_list_orders.len() > 10_000
+            || self
+                .community_list_orders
+                .iter()
+                .any(|(persona, communities)| {
+                    hydra_domain::PersonaId::parse(persona).is_err()
+                        || communities.len() > 10_000
+                        || communities.iter().collect::<BTreeSet<_>>().len() != communities.len()
+                        || communities
+                            .iter()
+                            .any(|community| hydra_domain::CommunityKey::parse(community).is_err())
+                })
+            || self.community_list_sorts.len() > 10_000
+            || self.community_list_sorts.iter().any(|(persona, sort)| {
+                hydra_domain::PersonaId::parse(persona).is_err()
+                    || !matches!(
+                        sort.as_str(),
+                        "ordered" | "alphabetical" | "last_activity" | "date_joined"
+                    )
+            })
+        {
+            return Err(StoreError::InvalidSettings(
+                "community list preferences are invalid".to_owned(),
+            ));
+        }
         if self.community_appearances.len() > 10_000
             || self.community_appearances.iter().any(|(topic, image)| {
                 hydra_domain::CommunityKey::parse(topic).is_err()
@@ -552,6 +583,28 @@ mod tests {
         store.save(&settings).unwrap();
         assert_eq!(store.load().unwrap(), settings);
         assert!(!root.path().join("settings.yaml.new").exists());
+    }
+
+    #[test]
+    fn community_list_preferences_are_persona_scoped_and_human_readable() {
+        let root = tempdir().unwrap();
+        let store = SettingsStore::new(root.path());
+        let persona = hydra_domain::PersonaId::new().to_string();
+        let mut settings = Settings::default();
+        settings.community_list_orders.insert(
+            persona.clone(),
+            vec!["science".to_owned(), "philosophy".to_owned()],
+        );
+        settings
+            .community_list_sorts
+            .insert(persona, "ordered".to_owned());
+
+        store.save(&settings).unwrap();
+
+        assert_eq!(store.load().unwrap(), settings);
+        let yaml = fs::read_to_string(root.path().join("settings.yaml")).unwrap();
+        assert!(yaml.contains("community_list_orders:"));
+        assert!(yaml.contains("community_list_sorts:"));
     }
 
     #[test]

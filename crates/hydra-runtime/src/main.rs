@@ -275,6 +275,7 @@ struct SubscriptionView {
     persona_id: String,
     community: String,
     public: bool,
+    joined_at: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -803,6 +804,8 @@ struct SettingsUpdateInput {
     community_crosspost_defaults: Option<BTreeMap<String, bool>>,
     content_crosspost_defaults: Option<BTreeMap<String, bool>>,
     community_appearances: Option<BTreeMap<String, hydra_store::CommunityAppearanceSetting>>,
+    community_list_orders: Option<BTreeMap<String, Vec<String>>>,
+    community_list_sorts: Option<BTreeMap<String, String>>,
     media_copy_enabled: Option<bool>,
     max_media_bytes: Option<u64>,
     persona_blob_servers: Option<BTreeMap<String, Vec<String>>>,
@@ -2433,6 +2436,7 @@ fn subscription_views(store: &DurableStore, private: &[PrivateState]) -> Vec<Sub
             persona_id: item.persona.to_string(),
             community: item.community.as_str().to_owned(),
             public: true,
+            joined_at: item.changed_at,
         })
         .collect::<Vec<_>>();
     views.extend(private.iter().flat_map(|state| {
@@ -2444,6 +2448,7 @@ fn subscription_views(store: &DurableStore, private: &[PrivateState]) -> Vec<Sub
                 persona_id: item.persona.to_string(),
                 community: item.community.as_str().to_owned(),
                 public: false,
+                joined_at: item.changed_at,
             })
     }));
     views
@@ -4809,6 +4814,12 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     }
     if let Some(value) = input.community_appearances {
         settings.community_appearances = value;
+    }
+    if let Some(value) = input.community_list_orders {
+        settings.community_list_orders = value;
+    }
+    if let Some(value) = input.community_list_sorts {
+        settings.community_list_sorts = value;
     }
     if let Some(value) = input.media_copy_enabled {
         settings.media_copy_enabled = value;

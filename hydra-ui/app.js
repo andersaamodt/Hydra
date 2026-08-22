@@ -57,6 +57,9 @@ const AUTOMATIC_SYNC_INTERVAL_MS = 120_000;
 const AUTOMATIC_SYNC_MIN_GAP_MS = 15_000;
 let automaticSyncStartedAt = 0;
 let automaticSyncDebounce = null;
+let communityPreferenceQueue = Promise.resolve();
+let communityPointerDrag = null;
+let suppressCommunityClick = false;
 
 function applyAppearance(settings = {}, community = session.route === "community" ? session.community : null) {
   const theme = ["light", "dark", "system"].includes(settings.theme) ? settings.theme : "light";
@@ -1019,22 +1022,178 @@ function renderPersona() {
   messagesButton.title = unreadCount ? `${unreadCount} unread message${unreadCount === 1 ? "" : "s"}` : "Messages";
 }
 
-function subscribedCommunities() {
+function communityEntries() {
   const persona = activePersona(session.state);
   const subscriptions = (session.state?.subscriptions ?? []).filter((item) => item.personaId === persona?.id);
-  const fromObjects = (session.state?.objects ?? []).flatMap((item) => item.communities ?? []);
-  return [...new Set([...subscriptions.map((item) => item.community), ...fromObjects])].sort();
+  const entries = new Map();
+  const entry = (community) => {
+    if (!entries.has(community)) entries.set(community, { community, joinedAt: 0, lastActivity: 0 });
+    return entries.get(community);
+  };
+  for (const subscription of subscriptions) {
+    const current = entry(subscription.community);
+    const joinedAt = Number(subscription.joinedAt) || 0;
+    if (joinedAt && (!current.joinedAt || joinedAt < current.joinedAt)) current.joinedAt = joinedAt;
+  }
+  for (const object of (session.state?.objects ?? [])) {
+    const activity = Number(object.editedAt || object.createdAt) || 0;
+    for (const community of (object.communities ?? [])) {
+      const current = entry(community);
+      current.lastActivity = Math.max(current.lastActivity, activity);
+    }
+  }
+  return [...entries.values()];
+}
+
+function communityListSortMode(entries = communityEntries()) {
+  const persona = activePersona(session.state);
+  const mode = session.state?.settings?.community_list_sorts?.[persona?.id] ?? "ordered";
+  if (mode === "date_joined" && !entries.some((item) => item.joinedAt)) return "ordered";
+  return ["ordered", "alphabetical", "last_activity", "date_joined"].includes(mode) ? mode : "ordered";
+}
+
+function sortedCommunityEntries(entries = communityEntries(), mode = communityListSortMode(entries)) {
+  const persona = activePersona(session.state);
+  const alphabetical = (left, right) => left.community.localeCompare(right.community, undefined, { sensitivity: "base" });
+  if (mode === "alphabetical") return [...entries].sort(alphabetical);
+  if (mode === "last_activity") return [...entries].sort((left, right) => right.lastActivity - left.lastActivity || alphabetical(left, right));
+  if (mode === "date_joined") return [...entries].sort((left, right) => right.joinedAt - left.joinedAt || alphabetical(left, right));
+  const order = session.state?.settings?.community_list_orders?.[persona?.id] ?? [];
+  const rank = new Map(order.map((community, index) => [community, index]));
+  return [...entries].sort((left, right) => {
+    const leftRank = rank.get(left.community);
+    const rightRank = rank.get(right.community);
+    if (leftRank !== undefined || rightRank !== undefined) return (leftRank ?? Number.MAX_SAFE_INTEGER) - (rightRank ?? Number.MAX_SAFE_INTEGER);
+    return alphabetical(left, right);
+  });
+}
+
+function persistCommunityListPreferences(mode, order = null) {
+  const persona = activePersona(session.state);
+  if (!persona) return;
+  const settings = session.state.settings ?? {};
+  const sorts = { ...(settings.community_list_sorts ?? {}), [persona.id]: mode };
+  const orders = { ...(settings.community_list_orders ?? {}) };
+  if (order) orders[persona.id] = order;
+  session.state.settings = { ...settings, community_list_sorts: sorts, community_list_orders: orders };
+  renderCommunities();
+  communityPreferenceQueue = communityPreferenceQueue
+    .catch(() => {})
+    .then(() => runtime("settings.update", { community_list_sorts: sorts, community_list_orders: orders }))
+    .catch((error) => {
+      toast(readableError(error), true);
+      if (!session.busy) void refresh();
+    });
+}
+
+function clearCommunityDropIndicators() {
+  document.querySelectorAll("#community-list .nav-item").forEach((item) => {
+    item.classList.remove("is-dragging", "is-drop-before", "is-drop-after");
+    item.removeAttribute("aria-grabbed");
+  });
+}
+
+function communityDropPlacement(clientY) {
+  const rows = [...document.querySelectorAll("#community-list .nav-item")];
+  if (!rows.length) return null;
+  const target = rows.find((row) => clientY < row.getBoundingClientRect().top + row.offsetHeight / 2);
+  return target
+    ? { community: target.dataset.community, after: false, element: target }
+    : { community: rows.at(-1).dataset.community, after: true, element: rows.at(-1) };
+}
+
+function updateCommunityPointerDrag(event) {
+  const drag = communityPointerDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!drag.started && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+  event.preventDefault();
+  drag.started = true;
+  clearCommunityDropIndicators();
+  drag.element.classList.add("is-dragging");
+  drag.element.setAttribute("aria-grabbed", "true");
+  const placement = communityDropPlacement(event.clientY);
+  if (!placement || placement.community === drag.community) return;
+  placement.element.classList.add(placement.after ? "is-drop-after" : "is-drop-before");
+}
+
+function finishCommunityPointerDrag(event, sorted) {
+  const drag = communityPointerDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  communityPointerDrag = null;
+  if (drag.element.hasPointerCapture(event.pointerId)) drag.element.releasePointerCapture(event.pointerId);
+  if (!drag.started) {
+    clearCommunityDropIndicators();
+    return;
+  }
+  event.preventDefault();
+  const placement = communityDropPlacement(event.clientY);
+  clearCommunityDropIndicators();
+  if (!placement || placement.community === drag.community) return;
+  const names = sorted.map((item) => item.community).filter((item) => item !== drag.community);
+  const target = names.indexOf(placement.community);
+  names.splice(target + (placement.after ? 1 : 0), 0, drag.community);
+  suppressCommunityClick = true;
+  window.setTimeout(() => { suppressCommunityClick = false; }, 0);
+  persistCommunityListPreferences("ordered", names);
+}
+
+function renderCommunitySortMenu(entries, mode) {
+  const options = document.querySelector("#community-sort-options");
+  const choices = [
+    ["ordered", "Ordered"],
+    ["alphabetical", "Alphabetically"],
+    ["last_activity", "Last Activity"],
+    ...(entries.some((item) => item.joinedAt) ? [["date_joined", "Date Joined"]] : []),
+  ];
+  options.replaceChildren(...choices.map(([value, label]) => element("button", {
+    type: "button",
+    role: "menuitemradio",
+    class: `community-menu-item${mode === value ? " is-active" : ""}`,
+    "aria-checked": mode === value,
+    text: label,
+    onclick: (event) => {
+      event.currentTarget.closest("details")?.removeAttribute("open");
+      persistCommunityListPreferences(value);
+    },
+  })));
 }
 
 function renderCommunities() {
   const list = document.querySelector("#community-list");
-  list.replaceChildren(...subscribedCommunities().map((community) => {
+  const entries = communityEntries();
+  const mode = communityListSortMode(entries);
+  const sorted = sortedCommunityEntries(entries, mode);
+  renderCommunitySortMenu(entries, mode);
+  list.replaceChildren(...sorted.map(({ community }) => {
     const selected = session.community === community && session.route === "community";
     return element("button", {
       type: "button",
       class: `nav-item${selected ? " is-active" : ""}`,
       title: `/h/${community}`,
-      onclick: () => setRoute("community", community),
+      dataset: { community },
+      onclick: () => {
+        if (suppressCommunityClick) return;
+        setRoute("community", community);
+      },
+      onpointerdown: (event) => {
+        if (event.button !== 0) return;
+        communityPointerDrag = {
+          community,
+          element: event.currentTarget,
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          started: false,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      },
+      onpointermove: updateCommunityPointerDrag,
+      onpointerup: (event) => finishCommunityPointerDrag(event, sorted),
+      onpointercancel: (event) => {
+        if (communityPointerDrag?.pointerId !== event.pointerId) return;
+        communityPointerDrag = null;
+        clearCommunityDropIndicators();
+      },
     }, [element("span", { text: "#" }), element("span", { class: "nav-label", text: `/h/${community}` })]);
   }));
 }
