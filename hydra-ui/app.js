@@ -1226,10 +1226,10 @@ function communityActionMenu(community) {
     element("div", { class: "community-menu-popover", role: "menu" }, [
       item(subscription ? "Unsubscribe…" : "Subscribe privately", () => subscription ? showUnsubscribeConfirmation(community) : setCommunitySubscription(community, true, false)),
       item(subscription?.public ? "Make subscription private" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
-      item("Community image", () => showCommunityAppearanceEditor(community)),
-      item("Community colors", () => showCommunityColorEditor(community)),
-      item("People worth a second look", () => showReverseDiscoveries(community)),
-      item("Propose a norm", () => showNormComposer(community)),
+      item("Community image…", () => showCommunityAppearanceEditor(community)),
+      item("Community colors…", () => showCommunityColorEditor(community)),
+      item("People worth a second look…", () => showReverseDiscoveries(community)),
+      item("Propose a norm…", () => showNormComposer(community)),
     ]),
   );
   return menu;
@@ -1252,8 +1252,8 @@ function postActionMenu(post, lens, community) {
     element("summary", { class: "community-menu-trigger post-menu-trigger", "aria-label": "Post actions", title: "Post actions", text: "⋮" }),
     element("div", { class: "community-menu-popover", role: "menu" }, [
       item("Why is this here?", () => toast(whyShown(post, lens, community))),
-      item("Post details", () => showPostDetails(post)),
-      item("Vote details", () => showVoteViews(post)),
+      item("Post details…", () => showPostDetails(post)),
+      item("Vote details…", () => showVoteViews(post)),
     ]),
   );
   return menu;

@@ -133,7 +133,7 @@ test("dark text and controls remain legible for every accent", () => {
 test("community colors are independent, human-authored, and route-scoped", () => {
   assert.match(app, /function effectiveCommunityColorScheme\(community\)/);
   assert.match(app, /communityColorSchemes/);
-  assert.match(app, /item\("Community colors", \(\) => showCommunityColorEditor\(community\)\)/);
+  assert.match(app, /item\("Community colors…", \(\) => showCommunityColorEditor\(community\)\)/);
   assert.match(app, /function showCommunityColorEditor\(community\)/);
   assert.match(app, /"light_base"|light_base:/);
   assert.match(app, /"dark_accent"|dark_accent:/);
@@ -326,7 +326,7 @@ test("votes toggle conventionally and secondary post context lives in the overfl
   assert.match(app, /class: "post-listing-tools"[\s\S]*class: "post-hydrants"[\s\S]*postActionMenu\(post, lens, community\)/);
   assert.doesNotMatch(app, /class: "post-actions"[\s\S]{0,800}postActionMenu\(post, lens, community\)/);
   assert.match(app, /item\("Why is this here\?"/);
-  assert.match(app, /item\("Vote details"/);
+  assert.match(app, /item\("Vote details…"/);
 });
 
 test("post listings use a minimal old-Reddit hierarchy", () => {
@@ -347,7 +347,7 @@ test("post listings use a minimal old-Reddit hierarchy", () => {
   assert.match(styles, /\.community-chip, \.state-chip\s*\{[^}]*font-size:\s*12px/);
   assert.doesNotMatch(styles, /font-size:\s*(?:9|10|11)px/);
   assert.match(app, /class: "post-hydrants"/);
-  assert.match(app, /item\("Post details"/);
+  assert.match(app, /item\("Post details…"/);
   assert.match(app, /onclick: \(\) => setRoute\("community", name\)/);
 });
 
@@ -441,6 +441,12 @@ test("community routes use one compact heading with art and actions", () => {
   assert.match(app, /text: "\/r\/"/);
   assert.match(app, /class: "community-menu-trigger"[^\n]*text: "⋮"/);
   assert.match(app, /subscription \? "Unsubscribe…" : "Subscribe privately"/);
+  assert.match(app, /item\("Community image…", \(\) => showCommunityAppearanceEditor\(community\)\)/);
+  assert.match(app, /item\("Community colors…", \(\) => showCommunityColorEditor\(community\)\)/);
+  assert.match(app, /item\("People worth a second look…", \(\) => showReverseDiscoveries\(community\)\)/);
+  assert.match(app, /item\("Propose a norm…", \(\) => showNormComposer\(community\)\)/);
+  assert.match(app, /item\("Post details…", \(\) => showPostDetails\(post\)\)/);
+  assert.match(app, /item\("Vote details…", \(\) => showVoteViews\(post\)\)/);
   assert.match(app, /function showUnsubscribeConfirmation\(community\)/);
   assert.match(app, /Posts and comments already preserved by Hydra remain safely stored and searchable/);
   assert.match(app, /function renderCommunityNormBanner\(community\)/);
