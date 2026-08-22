@@ -267,6 +267,8 @@ test("votes toggle conventionally and secondary post context lives in the overfl
   assert.doesNotMatch(app, /Reset vote|Reaffirm \+|Vote views|Feed reason/);
   assert.match(app, /function postActionMenu\(post, lens, community\)/);
   assert.match(app, /class: "community-menu-trigger post-menu-trigger"[^\n]*text: "⋮"/);
+  assert.match(app, /class: "post-listing-tools"[\s\S]*class: "post-hydrants"[\s\S]*postActionMenu\(post, lens, community\)/);
+  assert.doesNotMatch(app, /class: "post-actions"[\s\S]{0,800}postActionMenu\(post, lens, community\)/);
   assert.match(app, /item\("Why is this here\?"/);
   assert.match(app, /item\("Vote details"/);
 });

@@ -1421,7 +1421,10 @@ function postCard(post, lens, community) {
         ageElement(post.createdAt ?? post.editedAt, "post-age"),
         post.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
       ]),
-      communities.length ? element("div", { class: "post-hydrants", "aria-label": "Hydrants" }, communities) : null,
+      element("div", { class: "post-listing-tools" }, [
+        communities.length ? element("div", { class: "post-hydrants", "aria-label": "Hydrants" }, communities) : null,
+        postActionMenu(post, lens, community),
+      ]),
     ]),
     textPreview,
     postImagePreview(post),
@@ -1433,7 +1436,6 @@ function postCard(post, lens, community) {
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post)),
       community ? instantJudgmentButton(`Remove from /h/${community}`, "removal", post.anchor, (event) => queueRemoval(event, post, community)) : null,
       community ? pinAction(post, community) : null,
-      postActionMenu(post, lens, community),
     ]),
   ]);
   return element("article", { class: `post-card${pendingHide ? " is-pending-hide" : ""}` }, [vote, main]);
