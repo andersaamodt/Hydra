@@ -21,13 +21,13 @@
     </div>
     <a class="skip-link" href="#main">Skip to discussion</a>
     <div id="app" class="app-shell" aria-busy="true" hidden>
-      <header class="topbar" data-tauri-drag-region>
-        <div class="topbar-spacer" aria-hidden="true" data-tauri-drag-region></div>
+      <header class="topbar">
         <label class="search-box">
           <span class="sr-only">Search Hydra</span>
           <input id="global-search" type="search" placeholder="Search people, /h/ communities, or Reddit URLs" autocomplete="off" />
           <kbd>⌘K</kbd>
         </label>
+        <div class="topbar-drag-region" aria-hidden="true" data-tauri-drag-region></div>
         <div class="top-actions">
           <button id="messages-button" class="toolbar-icon-button message-button" type="button" data-nav="messages" aria-label="Messages" title="Messages">
             <svg class="toolbar-icon-glyph message-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

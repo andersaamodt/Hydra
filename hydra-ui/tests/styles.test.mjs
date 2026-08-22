@@ -69,11 +69,13 @@ test("macOS integrates the native title bar with Hydra's toolbar", () => {
   assert.match(tauri, /"trafficLightPosition": \{ "x": 15, "y": 20 \}/);
   assert.match(desktop, /TitleBarStyle::Overlay/);
   assert.match(desktop, /\.hidden_title\(true\)/);
-  assert.match(index, /<header class="topbar" data-tauri-drag-region>/);
+  assert.match(index, /<header class="topbar">[\s\S]*?<\/label>\s*<div class="topbar-drag-region" aria-hidden="true" data-tauri-drag-region><\/div>\s*<div class="top-actions">/);
+  assert.doesNotMatch(index, /<header class="topbar" data-tauri-drag-region>/);
   assert.match(app, /classList\.toggle\("platform-macos", isMacOS\)/);
   assert.match(app, /"data-tauri-drag-region": true/);
   assert.match(styles, /\.platform-macos \.app-shell\s*\{[^}]*grid-template-rows:\s*56px 1fr/);
-  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 610px\) 1fr;[^}]*padding:\s*7px 18px 7px 78px/);
+  assert.match(styles, /\.platform-macos \.topbar\s*\{[^}]*grid-template-columns:\s*minmax\(280px, 610px\) minmax\(0, 1fr\) auto;[^}]*padding:\s*7px 18px 7px 78px/);
+  assert.match(styles, /\.topbar-drag-region\s*\{[^}]*align-self:\s*stretch;[^}]*min-width:\s*0/);
   assert.match(styles, /\.platform-macos #settings-button\s*\{\s*display:\s*none;/);
 });
 
