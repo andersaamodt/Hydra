@@ -111,7 +111,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .platform-macos .app-shell { grid-template-rows: 56px 1fr; }
 .platform-macos .topbar { grid-template-columns: auto minmax(280px, 440px) minmax(0, 1fr) auto; padding: 7px 18px 7px 78px; }
 .topbar-nav { min-width: 0; display: flex; align-items: center; gap: 2px; }
-.topbar-nav-button { min-height: 34px; display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 6px; padding: 0 8px; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; }
+.topbar-nav-button { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; padding: 0 10px; color: var(--muted); background: transparent; cursor: pointer; font-size: 14px; }
+.topbar-nav-button > [aria-hidden="true"] { font-size: 17px; line-height: 1; }
 .topbar-nav-button:hover, .topbar-nav-button.is-active { color: var(--ink); background: var(--shade); }
 .topbar-drag-region { align-self: stretch; min-width: 0; }
 .persona-copy strong, .persona-copy small { display: block; }

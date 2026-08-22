@@ -262,6 +262,8 @@ test("the quiet toolbar keeps messages gray until unread mail arrives", () => {
   const sidebar = index.match(/<aside class="sidebar"[\s\S]*?<\/aside>/)?.[0] ?? "";
   assert.doesNotMatch(sidebar, /My Feed|Front Page|Open Nostr|Saved|Messages|Reddit Bridge|Settings/);
   assert.match(index, /class="topbar-nav"[\s\S]*data-nav="feed"[\s\S]*data-nav="front"[\s\S]*data-nav="open-nostr"[\s\S]*class="search-box"/);
+  assert.match(styles, /\.topbar-nav-button\s*\{[^}]*min-height:\s*36px;[^}]*gap:\s*6px;[^}]*font-size:\s*14px/);
+  assert.match(styles, /\.topbar-nav-button\s*>\s*\[aria-hidden="true"\]\s*\{[^}]*font-size:\s*17px/);
   assert.match(index, /<div class="top-actions">[\s\S]*id="saved-button"[\s\S]*id="messages-button"[\s\S]*id="settings-button"/);
   assert.doesNotMatch(index, /class="brand"|id="sync-button"|id="compose-button"/);
   assert.match(index, /class="toolbar-icon-glyph message-icon"[\s\S]*viewBox="0 0 24 24"/);
