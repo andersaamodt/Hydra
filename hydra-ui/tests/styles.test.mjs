@@ -11,13 +11,14 @@ const desktop = await readFile(new URL("../../apps/desktop/tauri/src/main.rs", i
 const capability = await readFile(new URL("../../apps/desktop/tauri/capabilities/default.json", import.meta.url), "utf8");
 
 test("the default light-blue scheme uses visibly tinted semantic surfaces", () => {
-  for (const variable of ["--surface-seed", "--accent-seed", "--canvas", "--sidebar-surface", "--bar", "--card-hover", "--modal"]) {
+  for (const variable of ["--surface-seed", "--accent-seed", "--canvas", "--main-surface", "--sidebar-surface", "--bar", "--card-hover", "--modal"]) {
     assert.match(styles, new RegExp(`${variable}:`));
   }
 
   assert.match(styles, /--accent-seed:\s*#5687bb/);
   assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--surface-seed\)/);
   assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--surface-seed\) 16%/);
+  assert.match(styles, /--main-surface:\s*#fbfcfe/);
   assert.match(styles, /:root\[data-resolved-theme="dark"\]/);
   assert.match(styles, /body\s*\{[^}]*background:\s*var\(--canvas\)/);
   assert.match(styles, /\.topbar\s*\{[^}]*background:\s*var\(--chrome\)/);
@@ -31,7 +32,7 @@ test("dark mode keeps every major surface on the dark palette", () => {
   for (const [selector, token] of [
     ["\\.topbar", "--chrome"],
     ["\\.sidebar", "--sidebar-surface"],
-    ["\\.main-panel", "--canvas"],
+    ["\\.main-panel", "--main-surface"],
     ["\\.view-header", "--chrome"],
     ["\\.lens-bar", "--bar"],
     ["\\.settings-tabs", "--panel"],
@@ -42,6 +43,7 @@ test("dark mode keeps every major surface on the dark palette", () => {
   }
 
   assert.match(styles, /--paper:\s*var\(--panel\)/);
+  assert.match(styles, /:root\[data-resolved-theme="dark"\][\s\S]*--main-surface:\s*#101419/);
   assert.match(styles, /:root\[data-resolved-theme="dark"\][\s\S]*--on-accent:\s*#18212b/);
   assert.match(styles, /\.primary-button\s*\{[^}]*color:\s*var\(--on-accent\)/);
 });

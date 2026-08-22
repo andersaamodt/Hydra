@@ -12,6 +12,7 @@
   --accent-faint: color-mix(in srgb, var(--accent-seed) 7%, transparent);
   --on-accent: #ffffff;
   --canvas: color-mix(in srgb, var(--surface-seed) 16%, #f3f7fb);
+  --main-surface: #fbfcfe;
   --chrome: color-mix(in srgb, var(--surface-seed) 10%, #f7faff);
   --sidebar-surface: color-mix(in srgb, var(--surface-seed) 20%, #eef4fa);
   --ink: #202a34;
@@ -56,6 +57,7 @@
   --accent-faint: color-mix(in srgb, var(--accent-seed) 10%, transparent);
   --on-accent: #18212b;
   --canvas: color-mix(in srgb, var(--surface-seed) 5%, #101419);
+  --main-surface: #101419;
   --chrome: color-mix(in srgb, var(--surface-seed) 4%, #0d1116);
   --sidebar-surface: color-mix(in srgb, var(--surface-seed) 8%, #11161b);
   --ink: #edf1f5;
@@ -164,7 +166,7 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .section-heading-row { display: flex; align-items: center; justify-content: space-between; }
 .icon-button { width: 30px; height: 30px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; }
 .icon-button:hover { color: var(--ink); background: rgba(255,255,255,.06); }
-.main-panel { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; background: var(--canvas); }
+.main-panel { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; background: var(--main-surface); }
 #view { min-height: 100%; }
 .view-header { position: sticky; top: 0; z-index: 3; height: 82px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 5px 28px; border-bottom: 1px solid var(--line); background: var(--chrome); }
 .view-header h1 { margin: 0; font: 650 23px/1.15 Georgia, serif; letter-spacing: -.01em; }
