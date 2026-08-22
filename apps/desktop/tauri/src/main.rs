@@ -16,9 +16,9 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 #[cfg(target_os = "macos")]
-use tauri::{TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_shell::{
     ShellExt,
     process::{CommandChild, CommandEvent},
@@ -231,6 +231,7 @@ fn community_image_mime(bytes: &[u8]) -> Option<&'static str> {
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::unnecessary_wraps)]
 fn open_settings_window(app: AppHandle, tab: Option<String>) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
