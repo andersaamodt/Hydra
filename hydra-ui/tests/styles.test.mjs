@@ -55,6 +55,7 @@ test("the application shell has no permanent right status sidebar", () => {
 test("the navigation sidebar can be resized from its right edge", () => {
   assert.match(index, /id="sidebar-resizer"[\s\S]*?role="separator"[\s\S]*?aria-orientation="vertical"[\s\S]*?tabindex="0"/);
   assert.match(styles, /\.sidebar-resizer\s*\{[^}]*left:\s*calc\(var\(--sidebar-width\) - 4px\);[^}]*cursor:\s*col-resize;[^}]*touch-action:\s*none/);
+  assert.doesNotMatch(styles, /\.sidebar-resizer:hover/);
   assert.match(app, /SIDEBAR_WIDTH_MIN\s*=\s*180/);
   assert.match(app, /SIDEBAR_WIDTH_MAX\s*=\s*420/);
   assert.match(app, /localStorage\.setItem\(SIDEBAR_WIDTH_STORAGE_KEY/);

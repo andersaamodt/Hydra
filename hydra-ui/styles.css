@@ -143,7 +143,6 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .sidebar { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; padding: 17px 12px 14px; border-right: 1px solid var(--line); }
 .sidebar-resizer { position: absolute; z-index: 6; top: 68px; bottom: 0; left: calc(var(--sidebar-width) - 4px); width: 8px; cursor: col-resize; touch-action: none; }
 .sidebar-resizer::after { content: ""; position: absolute; inset: 0 3px; background: transparent; }
-.sidebar-resizer:hover::after,
 .sidebar-resizer:focus-visible::after,
 .sidebar-resizer.is-resizing::after { background: var(--accent); }
 .platform-macos .sidebar-resizer { top: 56px; }
