@@ -253,8 +253,30 @@ test("interface copy stays functional instead of adopting a persona", () => {
     assert.equal(interfaceCopy.includes(phrase), false, phrase);
   }
   assert.match(app, /No posts in My Feed/);
-  assert.match(app, /Feed reason/);
+  assert.match(app, /Why is this here\?/);
   assert.match(app, /Block locally/);
+});
+
+test("votes toggle conventionally and secondary post context lives in the overflow menu", () => {
+  assert.match(app, /function currentPersonaVote\(target\)/);
+  assert.match(app, /function toggleVote\(target, value\)/);
+  assert.match(app, /currentPersonaVote\(target\) === value \? "0" : value/);
+  assert.match(app, /"aria-pressed": active/);
+  assert.doesNotMatch(app, /Reset vote|Reaffirm \+|Vote views|Feed reason/);
+  assert.match(app, /function postActionMenu\(post, lens, community\)/);
+  assert.match(app, /class: "community-menu-trigger post-menu-trigger"[^\n]*text: "⋮"/);
+  assert.match(app, /item\("Why is this here\?"/);
+  assert.match(app, /item\("Vote details"/);
+});
+
+test("React uses an accessible anchored emoji callout", () => {
+  assert.match(app, /function showEmojiReaction\(event, object\)/);
+  assert.match(app, /class: "emoji-reaction-callout"/);
+  assert.match(app, /positionAnchoredCallout\(callout, picker\.origin\)/);
+  assert.match(app, /ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4/);
+  assert.match(app, /closeEmojiReactionCallout\(true\)/);
+  assert.match(styles, /\.emoji-choice-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4/);
+  assert.match(styles, /\.emoji-reaction-callout::before/);
 });
 
 test("background Reddit refresh cannot overwrite a newer interaction", () => {
@@ -281,6 +303,8 @@ test("one-click judgments use a pausable anchored grace-period callout", () => {
   assert.doesNotMatch(app, /Timer paused while you decide/);
   assert.doesNotMatch(app, /Apply now/);
   assert.match(app, /class: "icon-button judgment-undo".*"aria-label": "Undo"/);
+  assert.match(app, /function undoIcon\(\)/);
+  assert.match(app, /M9 14 4 9l5-5/);
 });
 
 test("community routes use one compact heading with art and actions", () => {

@@ -53,6 +53,7 @@ const session = {
   revealedBlocks: new Set(),
   confirmingReveals: new Set(),
   pendingJudgment: null,
+  emojiPicker: null,
   communityImages: new Map(),
   busy: false,
 };
@@ -180,6 +181,25 @@ function element(tag, options = {}, children = []) {
 
 function actionButton(label, onClick, className = "quiet-button") {
   return element("button", { type: "button", class: className, text: label, disabled: session.busy, onclick: onClick });
+}
+
+function undoIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "undo-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  const arrow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  arrow.setAttribute("d", "M9 14 4 9l5-5");
+  const returnPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  returnPath.setAttribute("d", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11");
+  icon.append(arrow, returnPath);
+  return icon;
 }
 
 async function copyText(value, success = "Copied.") {
@@ -622,6 +642,29 @@ function communityActionMenu(community) {
   return menu;
 }
 
+function postActionMenu(post, lens, community) {
+  const menu = element("details", { class: "community-menu post-action-menu" });
+  const item = (label, action) => element("button", {
+    type: "button",
+    role: "menuitem",
+    class: "community-menu-item",
+    text: label,
+    disabled: session.busy,
+    onclick: (event) => {
+      event.currentTarget.closest("details")?.removeAttribute("open");
+      action();
+    },
+  });
+  menu.append(
+    element("summary", { class: "community-menu-trigger post-menu-trigger", "aria-label": "Post actions", title: "Post actions", text: "⋮" }),
+    element("div", { class: "community-menu-popover", role: "menu" }, [
+      item("Why is this here?", () => toast(whyShown(post, lens, community))),
+      item("Vote details", () => showVoteViews(post)),
+    ]),
+  );
+  return menu;
+}
+
 function communityViewHeader(community, title, extras = []) {
   const appearance = effectiveCommunityAppearance(community);
   const verified = appearance && session.communityImages.get(`${community}:${appearance.sha256}`);
@@ -867,10 +910,11 @@ function postCard(post, lens, community) {
     return blockedPlaceholder(post, "Post", effect);
   }
   const origin = provenance(post);
+  const currentVote = currentPersonaVote(post.anchor);
   const vote = element("div", { class: "vote-column", "aria-label": "Hydra vote" }, [
-    element("button", { type: "button", class: "vote-button", text: "▲", title: "Upvote or reaffirm", onclick: () => react(post.anchor, "+") }),
+    element("button", { type: "button", class: `vote-button${currentVote === "+" ? " is-active" : ""}`, text: "▲", title: currentVote === "+" ? "Remove upvote" : "Upvote", "aria-pressed": currentVote === "+", onclick: () => toggleVote(post.anchor, "+") }),
     element("span", { class: "vote-score", text: String(post.currentScore ?? 0), title: "Current Hydra score: one stance per persona" }),
-    element("button", { type: "button", class: "vote-button down", text: "▼", title: "Downvote or reaffirm", onclick: () => react(post.anchor, "-") }),
+    element("button", { type: "button", class: `vote-button down${currentVote === "-" ? " is-active" : ""}`, text: "▼", title: currentVote === "-" ? "Remove downvote" : "Downvote", "aria-pressed": currentVote === "-", onclick: () => toggleVote(post.anchor, "-") }),
   ]);
   const communities = (post.communities ?? []).map((name) => element("button", {
     type: "button", class: "community-chip", text: `/h/${name}`, onclick: () => setRoute("community", name),
@@ -890,13 +934,11 @@ function postCard(post, lens, community) {
     element("div", { class: "post-actions" }, [
       element("button", { type: "button", class: "text-action", text: `${post.discussionCount ?? 0} replies`, onclick: () => { session.selected = post.anchor; render(); } }),
       element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(post) }),
-      element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(post.anchor, "0") }),
-      element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(post) }),
-      element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(post) }),
+      element("button", { type: "button", class: "text-action", text: "React", onclick: (event) => showEmojiReaction(event, post) }),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post)),
       community ? instantJudgmentButton(`Remove from /h/${community}`, "removal", post.anchor, (event) => queueRemoval(event, post, community)) : null,
       community ? pinAction(post, community) : null,
-      element("button", { type: "button", class: "text-action", text: "Feed reason", title: whyShown(post, lens, community), onclick: () => toast(whyShown(post, lens, community)) }),
+      postActionMenu(post, lens, community),
     ]),
   ]);
   return element("article", { class: `post-card${pendingHide ? " is-pending-hide" : ""}` }, [vote, main]);
@@ -970,12 +1012,11 @@ function renderDiscussion(anchor) {
       element("p", { class: "evidence-note", text: media.preservation === "published" ? "Preserved locally, uploaded by content hash, and described by a Nostr file-metadata event." : media.preservation === "media_only" ? "Preserved locally and uploaded, but Nostr metadata publication is incomplete." : "Preserved locally only; relay-independent local continuity exists, but remote media replication is incomplete." }),
     ])),
     element("div", { class: "discussion-toolbar" }, [
-      actionButton("▲ Upvote", () => react(post.anchor, "+")),
+      voteActionButton("▲ Upvote", post.anchor, "+"),
       element("span", { class: "vote-score", text: String(post.currentScore ?? 0), title: "Current Hydra score: one stance per persona" }),
-      actionButton("▼ Downvote", () => react(post.anchor, "-")),
-      actionButton("Reset vote", () => react(post.anchor, "0")),
-      actionButton("Vote views", () => showVoteViews(post)),
-      actionButton("React…", () => showEmojiReaction(post)),
+      voteActionButton("▼ Downvote", post.anchor, "-"),
+      actionButton("Vote details", () => showVoteViews(post)),
+      actionButton("React", (event) => showEmojiReaction(event, post)),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post), "quiet-button"),
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", post.anchor, (event) => queueRemoval(event, post, session.community), "quiet-button") : null,
       session.community ? pinAction(post, session.community) : null,
@@ -1010,13 +1051,12 @@ function commentView(comment) {
     element("div", { class: "comment-body", text: comment.body }),
     emojiReactionStrip(comment),
     element("div", { class: "post-actions" }, [
-      element("button", { type: "button", class: "text-action", text: `▲ ${comment.currentScore ?? 0}`, onclick: () => react(comment.anchor, "+") }),
-      element("button", { type: "button", class: "text-action", text: "▼", onclick: () => react(comment.anchor, "-") }),
+      voteActionButton(`▲ ${comment.currentScore ?? 0}`, comment.anchor, "+", "text-action"),
+      voteActionButton("▼", comment.anchor, "-", "text-action"),
       element("button", { type: "button", class: "text-action", text: "Reply", onclick: () => showReply(comment) }),
       element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(comment) }),
-      element("button", { type: "button", class: "text-action", text: "Reset vote", onclick: () => react(comment.anchor, "0") }),
-      element("button", { type: "button", class: "text-action", text: "Vote views", onclick: () => showVoteViews(comment) }),
-      element("button", { type: "button", class: "text-action", text: "React…", onclick: () => showEmojiReaction(comment) }),
+      element("button", { type: "button", class: "text-action", text: "Vote details", onclick: () => showVoteViews(comment) }),
+      element("button", { type: "button", class: "text-action", text: "React", onclick: (event) => showEmojiReaction(event, comment) }),
       instantJudgmentButton("Hide", "hide", comment.anchor, (event) => queueHide(event, comment)),
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", comment.anchor, (event) => queueRemoval(event, comment, session.community)) : null,
       comment.author === persona?.publicKey ? element("button", { type: "button", class: "text-action", text: "Edit", onclick: () => showEdit(comment) }) : null,
@@ -1054,6 +1094,17 @@ function judgmentOrigin(event) {
   const rect = event?.currentTarget?.getBoundingClientRect?.();
   if (!rect) return { x: window.innerWidth / 2, top: window.innerHeight / 2, bottom: window.innerHeight / 2 };
   return { x: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom };
+}
+
+function positionAnchoredCallout(callout, origin) {
+  const margin = 12;
+  const box = callout.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - box.width - margin, Math.max(margin, origin.x - box.width / 2));
+  const fitsBelow = origin.bottom + box.height + 18 < window.innerHeight;
+  callout.classList.toggle("is-above", !fitsBelow);
+  callout.style.left = `${left}px`;
+  callout.style.top = `${fitsBelow ? origin.bottom + 12 : Math.max(margin, origin.top - box.height - 12)}px`;
+  callout.style.setProperty("--callout-pointer-x", `${Math.min(box.width - 22, Math.max(22, origin.x - left))}px`);
 }
 
 function queueJudgment(event, options) {
@@ -1306,21 +1357,14 @@ function renderPendingJudgmentCallout() {
     ...options,
     reason,
     element("div", { class: "judgment-callout-actions" }, [
-      element("button", { type: "button", class: "icon-button judgment-undo", text: "↶", title: "Undo", "aria-label": "Undo", onclick: undoPendingJudgment }),
+      element("button", { type: "button", class: "icon-button judgment-undo", title: "Undo", "aria-label": "Undo", onclick: undoPendingJudgment }, [undoIcon()]),
       actionButton("Apply", () => void commitPendingJudgment(), "primary-button"),
     ]),
   ]);
   document.body.append(callout);
   pending.callout = callout;
   pending.statusNode = status;
-  const margin = 12;
-  const box = callout.getBoundingClientRect();
-  const left = Math.min(window.innerWidth - box.width - margin, Math.max(margin, pending.origin.x - box.width / 2));
-  const fitsBelow = pending.origin.bottom + box.height + 18 < window.innerHeight;
-  callout.classList.toggle("is-above", !fitsBelow);
-  callout.style.left = `${left}px`;
-  callout.style.top = `${fitsBelow ? pending.origin.bottom + 12 : Math.max(margin, pending.origin.top - box.height - 12)}px`;
-  callout.style.setProperty("--callout-pointer-x", `${Math.min(box.width - 22, Math.max(22, pending.origin.x - left))}px`);
+  positionAnchoredCallout(callout, pending.origin);
   updatePendingJudgmentStatus();
   window.setTimeout(() => {
     const closeOnOutsidePress = (event) => {
@@ -2287,7 +2331,7 @@ function renderSettings() {
     ]),
       element("section", { class: "context-card" }, [
       element("h2", { text: "Vote review" }),
-      element("p", { text: "Revisit recent and old stances without erasing their history. Reaffirmation remains subject to the 18-hour credit interval." }),
+      element("p", { text: "Review recent and old votes. Clicking an active vote again removes it, just as it does in the feed." }),
       actionButton("Review my votes", showVoteReview),
     ]),
       element("section", { class: "context-card" }, [
@@ -2611,23 +2655,100 @@ function emojiReactionStrip(object) {
   )) : null;
 }
 
-function showEmojiReaction(object) {
-  const presets = ["❤️", "🤔", "🔥", "😂", "👏", "💡"];
-  modal("React with an emoji", "Emoji reactions are signed metadata and do not change Hydra’s vote score.", element("div", {}, [
-    element("div", { class: "post-actions" }, presets.map((emoji) => actionButton(emoji, async () => {
-      await react(object.anchor, emoji);
-      closeModal();
-    }))),
-    field("Other emoji", "text", "emoji", "", "One short reaction, up to 32 characters."),
-  ]), {
-    submitLabel: "React",
-    onSubmit: async (data) => {
-      const emoji = String(data.get("emoji") ?? "").trim();
-      if (!emoji || emoji.length > 32) throw new Error("Enter a short emoji reaction.");
-      await react(object.anchor, emoji);
-      closeModal();
+function closeEmojiReactionCallout(restoreFocus = false) {
+  const picker = session.emojiPicker;
+  if (!picker) return;
+  if (picker.outsideListener) document.removeEventListener("pointerdown", picker.outsideListener, true);
+  picker.callout?.remove();
+  session.emojiPicker = null;
+  if (restoreFocus) picker.trigger?.focus?.();
+}
+
+function showEmojiReaction(event, object) {
+  closeEmojiReactionCallout();
+  const presets = ["❤️", "😂", "🔥", "👏", "🤔", "💡", "🎉", "👀"];
+  const picker = {
+    target: object.anchor,
+    origin: judgmentOrigin(event),
+    trigger: event?.currentTarget ?? null,
+    callout: null,
+    outsideListener: null,
+  };
+  const choose = async (emoji) => {
+    const value = String(emoji ?? "").trim();
+    if (!value || value.length > 32) {
+      toast("Enter one short emoji reaction.", true);
+      return;
+    }
+    closeEmojiReactionCallout();
+    await react(object.anchor, value);
+  };
+  const custom = element("input", {
+    type: "text",
+    maxlength: "32",
+    placeholder: "Another emoji",
+    "aria-label": "Another emoji",
+    autocomplete: "off",
+    onkeydown: (inputEvent) => {
+      if (inputEvent.key !== "Enter") return;
+      inputEvent.preventDefault();
+      void choose(inputEvent.currentTarget.value);
     },
   });
+  const choices = presets.map((emoji) => element("button", {
+    type: "button",
+    class: "emoji-choice",
+    text: emoji,
+    title: `React ${emoji}`,
+    "aria-label": `React ${emoji}`,
+    onclick: () => void choose(emoji),
+  }));
+  const grid = element("div", {
+    class: "emoji-choice-grid",
+    role: "group",
+    "aria-label": "Emoji reactions",
+    onkeydown: (keyEvent) => {
+      const keys = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4 };
+      if (!(keyEvent.key in keys)) return;
+      const current = choices.indexOf(document.activeElement);
+      if (current < 0) return;
+      keyEvent.preventDefault();
+      choices[Math.min(choices.length - 1, Math.max(0, current + keys[keyEvent.key]))]?.focus();
+    },
+  }, choices);
+  const callout = element("aside", {
+    class: "emoji-reaction-callout",
+    role: "dialog",
+    "aria-label": "React with an emoji",
+  }, [
+    element("div", { class: "emoji-callout-header" }, [
+      element("strong", { text: "React" }),
+      element("button", { type: "button", class: "icon-button emoji-callout-close", text: "×", title: "Close", "aria-label": "Close emoji picker", onclick: () => closeEmojiReactionCallout(true) }),
+    ]),
+    element("p", { class: "emoji-callout-note", text: "Emoji reactions don’t change the vote score." }),
+    grid,
+    element("div", { class: "emoji-custom-row" }, [
+      custom,
+      element("button", { type: "button", class: "quiet-button", text: "Add", onclick: () => void choose(custom.value) }),
+    ]),
+  ]);
+  document.body.append(callout);
+  picker.callout = callout;
+  session.emojiPicker = picker;
+  positionAnchoredCallout(callout, picker.origin);
+  window.setTimeout(() => {
+    choices[0]?.focus();
+    const closeOnOutsidePress = (outsideEvent) => {
+      if (session.emojiPicker !== picker) {
+        document.removeEventListener("pointerdown", closeOnOutsidePress, true);
+        return;
+      }
+      if (picker.callout?.contains(outsideEvent.target) || picker.trigger?.contains?.(outsideEvent.target)) return;
+      closeEmojiReactionCallout();
+    };
+    picker.outsideListener = closeOnOutsidePress;
+    document.addEventListener("pointerdown", closeOnOutsidePress, true);
+  }, 0);
 }
 
 function showVoteViews(object) {
@@ -2640,7 +2761,7 @@ function showVoteViews(object) {
     ["Trusted score", object.trustedScore ?? 0, "Current stances from this persona and personas it follows."],
     ["Reddit-linked score", object.redditLinkedScore ?? 0, "Current stances from locally verified Reddit-linked personas."],
   ];
-  modal("Hydra vote views", "These scores are interpretations of signed reaction events; no score is authoritative.", element("div", { class: "content-list" }, rows.map(([label, value, detail]) => element("section", { class: "context-card" }, [
+  modal("Vote details", "Hydra can interpret decentralized signed vote events in several ways; the number beside the arrows is the current score.", element("div", { class: "content-list" }, rows.map(([label, value, detail]) => element("section", { class: "context-card" }, [
     element("div", { class: "meta-line" }, [element("strong", { text: label }), element("span", { class: "vote-score", text: String(value) })]),
     element("p", { text: detail }),
   ]))), { submitLabel: "Close", onSubmit: closeModal });
@@ -2659,14 +2780,13 @@ function showVoteReview() {
   const renderEntry = (reaction) => {
     const object = (session.state.objects ?? []).find((item) => item.anchor === reaction.target);
     const label = object?.title || object?.body?.slice(0, 80) || reaction.target;
-    const act = async (value) => { await react(reaction.target, value); showVoteReview(); };
+    const act = async (value) => { await toggleVote(reaction.target, value); showVoteReview(); };
     return element("article", { class: "context-card" }, [
       element("strong", { text: label }),
-      element("p", { class: "evidence-note", text: `${reaction.value === "+" ? "Upvoted" : reaction.value === "-" ? "Downvoted" : "Neutral"} ${relativeTime(reaction.occurredAt)} ago · ${reaction.creditedReaffirmation ? "credited reaffirmation" : "current stance event"}` }),
+      element("p", { class: "evidence-note", text: `${reaction.value === "+" ? "Upvoted" : reaction.value === "-" ? "Downvoted" : "No active vote"} ${relativeTime(reaction.occurredAt)} ago` }),
       element("div", { class: "post-actions" }, [
-        actionButton("Reaffirm +", () => act("+")),
-        actionButton("Reverse −", () => act("-")),
-        actionButton("Reset", () => act("0")),
+        voteActionButton("▲ Upvote", reaction.target, "+", "quiet-button", act),
+        voteActionButton("▼ Downvote", reaction.target, "-", "quiet-button", act),
       ]),
     ]);
   };
@@ -2678,12 +2798,39 @@ function showVoteReview() {
     element("h3", { text: `Recent votes (${recent.length})` }),
     ...recent.map(renderEntry),
   ] : [element("p", { text: "This persona has no votes to review yet." })]);
-  modal("Vote-review queue", "Closing this view leaves votes unchanged. Repeat votes remain in the event history.", body, { submitLabel: "Done", onSubmit: closeModal });
+  modal("Vote-review queue", "Click the active vote again to remove it. Closing this view leaves votes unchanged.", body, { submitLabel: "Done", onSubmit: closeModal });
+}
+
+function currentPersonaVote(target) {
+  const persona = activePersona(session.state);
+  let current = null;
+  for (const reaction of session.state?.reactions ?? []) {
+    if (reaction.actor !== persona?.publicKey || reaction.target !== target || !["+", "-", "0"].includes(reaction.value)) continue;
+    if (!current || reaction.occurredAt >= current.occurredAt) current = reaction;
+  }
+  return current?.value ?? "0";
+}
+
+function voteActionButton(label, target, value, className = "quiet-button", onVote = null) {
+  const active = currentPersonaVote(target) === value;
+  return element("button", {
+    type: "button",
+    class: `${className}${active ? " is-active vote-is-active" : ""}`,
+    text: label,
+    title: active ? "Click again to remove this vote" : label.replace(/^[▲▼]\s*/, ""),
+    "aria-pressed": active,
+    disabled: session.busy,
+    onclick: () => onVote ? onVote(value) : toggleVote(target, value),
+  });
+}
+
+async function toggleVote(target, value) {
+  return react(target, currentPersonaVote(target) === value ? "0" : value);
 }
 
 async function react(target, value) {
   const persona = activePersona(session.state);
-  try { await mutate("reaction.set", { persona_id: persona.id, target, value }, value === "0" ? "Current stance reset; vote history retained." : "Stance recorded."); } catch { /* toast already shown */ }
+  try { return await mutate("reaction.set", { persona_id: persona.id, target, value }, value === "0" ? "Vote removed." : "Vote recorded."); } catch { return null; /* toast already shown */ }
 }
 
 function showMessageComposer(recipient = "") {
@@ -3068,6 +3215,7 @@ document.addEventListener("keydown", (event) => {
   else if (editable && (event.metaKey || event.ctrlKey || event.altKey)) return;
   if (event.key === "Escape") {
     document.querySelectorAll(".community-menu[open]").forEach((menu) => menu.removeAttribute("open"));
+    closeEmojiReactionCallout(true);
     closeModal();
   }
 });
