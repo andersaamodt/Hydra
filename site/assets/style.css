@@ -1,14 +1,16 @@
 :root {
   color-scheme: light;
-  --canvas: #f6f8fb;
+  --canvas: #edf3f7;
   --paper: #ffffff;
   --benefit-surface: #fbfcfd;
-  --ink: #17202b;
-  --muted: #5d6672;
-  --plum: #1f2937;
-  --plum-light: #334155;
-  --soft-blue: #eaf1f7;
-  --soft-gray: #eef1f4;
+  --ink: #182735;
+  --muted: #566676;
+  --plum: #20384d;
+  --plum-light: #2f526d;
+  --action: #2c607f;
+  --action-hover: #244f69;
+  --soft-blue: #dceaf3;
+  --soft-gray: #e7edf1;
   --brimstone: #d4ad24;
   --brimstone-deep: #6d5700;
   --brimstone-wash: #f7f1d8;
@@ -113,8 +115,8 @@ a {
 .site-header nav a {
   padding: 0.5rem 0;
   color: var(--muted);
-  font-size: 0.93rem;
-  font-weight: 650;
+  font-size: 0.98rem;
+  font-weight: 680;
   text-decoration: none;
 }
 
@@ -184,13 +186,12 @@ h3 {
 }
 
 .button.primary {
-  background: var(--plum);
+  background: var(--action);
   color: #fff;
-  box-shadow: inset 0 -2px 0 var(--brimstone);
 }
 
 .button.primary:hover {
-  background: var(--plum-light);
+  background: var(--action-hover);
 }
 
 .button.secondary {
@@ -1191,7 +1192,8 @@ h3 {
   }
 
   .site-header nav a {
-    font-size: 0.78rem;
+    font-size: 0.9rem;
+    font-weight: 700;
     white-space: nowrap;
   }
 
