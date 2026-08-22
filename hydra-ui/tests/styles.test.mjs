@@ -69,6 +69,8 @@ test("the navigation sidebar can be resized from its right edge", () => {
   assert.match(styles, /\.nav-item\s*\{[^}]*grid-template-columns:\s*21px minmax\(0, 1fr\) auto;[^}]*overflow:\s*hidden;[^}]*padding:\s*0 4px;[^}]*border-radius:\s*7px/);
   assert.match(styles, /\.nav-label\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/);
   assert.match(app, /class: "nav-label", text: `\/h\/\$\{community\}`/);
+  assert.doesNotMatch(app, /\[element\("span", \{ text: "#" \}\), element\("span", \{ class: "nav-label", text: `\/h\/\$\{community\}`/);
+  assert.match(styles, /\.nav-item\[data-community\]\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
 });
 
 test("sidebar communities support durable manual and metadata sorting", () => {

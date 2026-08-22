@@ -1243,7 +1243,7 @@ function renderCommunities() {
         communityPointerDrag = null;
         clearCommunityDropIndicators();
       },
-    }, [element("span", { text: "#" }), element("span", { class: "nav-label", text: `/h/${community}` })]);
+    }, [element("span", { class: "nav-label", text: `/h/${community}` })]);
   }));
 }
 
