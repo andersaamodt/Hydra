@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#24132e">
+  <meta name="description" content="How Hydra creates ownerless communities with local data and chosen moderation.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.github.com; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="How Hydra works">
+  <meta property="og:description" content="Pick a topic. Choose your people. Keep your work.">
+  <meta property="og:url" content="https://andersaamodt.github.io/Hydra/how/">
+  <meta property="og:image" content="https://andersaamodt.github.io/Hydra/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://andersaamodt.github.io/Hydra/how/">
+  <link rel="icon" href="../assets/favicon.png" type="image/png">
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/site.js" defer></script>
+  <title>How Hydra works</title>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="../" aria-label="Hydra home">
+      <img src="../assets/favicon.png" width="36" height="36" alt="">
+      <span>Hydra</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="../">Home</a>
+      <a href="./" aria-current="page">How it works</a>
+      <a href="../download/">Download</a>
+      <a href="https://github.com/andersaamodt/Hydra">Source</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <header class="simple-hero page-width">
+      <h1>Simple by design.</h1>
+      <p>Hydra moves control out of the platform and into your hands.</p>
+    </header>
+
+    <ol class="steps page-width">
+      <li>
+        <span class="step-number">1</span>
+        <div>
+          <h2>Pick a Topic</h2>
+          <p>Join an existing <span class="topic-name">/h/</span> topic or start a new one. No one needs to grant permission or hand over ownership.</p>
+        </div>
+        <div class="step-example"><strong>/h/gardening</strong><small>Ownerless topic</small></div>
+      </li>
+      <li>
+        <span class="step-number">2</span>
+        <div>
+          <h2>Make a Persona</h2>
+          <p>Your persona belongs to you, not Hydra. Create more than one when different parts of your life should stay apart.</p>
+        </div>
+        <div class="persona-stack" aria-hidden="true"><span>A</span><span>M</span><span>J</span></div>
+      </li>
+      <li>
+        <span class="step-number">3</span>
+        <div>
+          <h2>Choose Your Flock</h2>
+          <p>Trust specific people for follows, blocks, silences, pins, or removals. Every choice can be different for every topic.</p>
+        </div>
+        <div class="flock-example" aria-label="A moderation choice inherited from Mara">
+          <span>You</span><span aria-hidden="true">←</span><span>Mara’s pins</span>
+        </div>
+      </li>
+      <li>
+        <span class="step-number">4</span>
+        <div>
+          <h2>Join In</h2>
+          <p>Post, reply, vote, message, save, and propose community norms. Hydra keeps the familiar shape of a discussion forum.</p>
+        </div>
+        <div class="step-example"><strong>One discussion</strong><small>Across matching topics</small></div>
+      </li>
+    </ol>
+
+    <section class="split-section page-width" aria-labelledby="boundaries-title">
+      <header>
+        <h2 id="boundaries-title">Clear Boundaries</h2>
+        <p>Hydra tells you what stays private and what becomes public.</p>
+      </header>
+      <div class="boundary-columns">
+        <section>
+          <h3>Stays Local</h3>
+          <ul>
+            <li>Drafts</li>
+            <li>Private lists</li>
+            <li>Revisit entries</li>
+            <li>Credentials</li>
+            <li>Local moderation</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Goes Public</h3>
+          <ul>
+            <li>Published posts</li>
+            <li>Published replies</li>
+            <li>Public profiles</li>
+            <li>Public reactions</li>
+            <li>Published judgments</li>
+          </ul>
+        </section>
+      </div>
+      <p class="boundary-note">Hydra publishes only when you take an action that clearly publishes.</p>
+    </section>
+
+    <section class="survival page-width" aria-labelledby="survival-title">
+      <div>
+        <h2 id="survival-title">Built to Survive</h2>
+        <p>The app is replaceable. The community is not.</p>
+      </div>
+      <div class="survival-flow" aria-label="Hydra connects people through an open protocol and independent relays">
+        <span>People</span><i aria-hidden="true"></i><span>Open protocol</span><i aria-hidden="true"></i><span>Many apps</span>
+      </div>
+      <p>Hydra uses Nostr, keeps readable local copies of public writing, and has no required Hydra server. Another compatible app can join the same conversation.</p>
+    </section>
+
+    <section class="plain-cta page-width" aria-labelledby="ready-title">
+      <h2 id="ready-title">Ready to try it?</h2>
+      <a class="button primary" href="../download/">Download Hydra</a>
+    </section>
+  </main>
+
+  <footer class="site-footer page-width">
+    <span>Hydra is free software.</span>
+    <nav aria-label="Footer navigation">
+      <a href="https://github.com/andersaamodt/Hydra/blob/main/PRIVACY.md">Privacy</a>
+      <a href="https://github.com/andersaamodt/Hydra/blob/main/docs/SECURITY.md">Security</a>
+      <a href="https://github.com/andersaamodt/Hydra/blob/main/LICENSE">License</a>
+      <a href="https://github.com/andersaamodt/Hydra">GitHub</a>
+    </nav>
+  </footer>
+</body>
+</html>

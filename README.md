@@ -2,6 +2,8 @@
 
 Hydra is the underground Reddit alternative: a desktop-first, local-first Nostr app where communities, relationships, writing, and memory survive any one platform.
 
+[Website](https://andersaamodt.github.io/Hydra/) · [Downloads](https://andersaamodt.github.io/Hydra/download/)
+
 Hydra 1.0 provides ownerless `/h/` topic communities, pseudonymous personas, editable posts and nested comments, voting and reaffirmation, private Revisit workflows, emergent norms, Nostr messaging, Open Nostr discovery, and an optional Reddit projection bridge.
 
 Reddit-specific behavior is isolated behind an adapter. Browsed Reddit bodies remain transient. Users can post, comment, and edit through the bridge, import their own writing from Reddit’s official account-data export with exact source permalinks intact, and use Big Stick or Reddacted on Reddit projections that originated in Hydra. Reddit vote projection is deferred pending policy clarification; Nostr voting remains available.

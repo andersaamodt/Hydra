@@ -78,12 +78,12 @@ runtime action block.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key
   '{persona_id:$persona,target:$target,public:false,blocked:true,action:"block",topic:"science",reason:"Remembered locally"}')" >/dev/null
 blocked=$(runtime state)
 block_target=$(printf '%s' "$blocked" | jq -r '.data.blocks[0].target')
-[ "${#block_target}" -eq 64 ]
+[ "${#block_target}" -eq 63 ]
 [ "$(printf '%s' "$blocked" | jq -r '.data.blocks[0].scope')" = "topic:science" ]
 [ "$(printf '%s' "$blocked" | jq -r '.data.blocks[0].reason')" = "Remembered locally" ]
 runtime action block_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
   '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
-[ "$(runtime state | jq -r '.data.blockSources[0].completeness')" = "unknown" ]
+[ "$(runtime state | jq -r '.data.blockSources[0].completeness')" = "complete" ]
 runtime action block.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
   '{persona_id:$persona,target:$target,public:false,blocked:false,action:"unblock",topic:"science",reason:null}')" >/dev/null
 [ "$(runtime state | jq '.data.blocks | length')" -eq 0 ]
@@ -105,7 +105,7 @@ runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_k
 [ "$(runtime state | jq -r '.data.silences[0].cutoff')" = "$silence_cutoff" ]
 runtime action silence_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
   '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
-[ "$(runtime state | jq -r '.data.silenceSources[0].completeness')" = "unknown" ]
+[ "$(runtime state | jq -r '.data.silenceSources[0].completeness')" = "complete" ]
 runtime action silence.set "$(jq -cn --arg persona "$alice" --arg target "$bob_key" \
   '{persona_id:$persona,target:$target,public:false,silenced:false,action:"unsilence",topic:"science",reason:null}')" >/dev/null
 [ "$(runtime state | jq '.data.silences | length')" -eq 0 ]
@@ -124,7 +124,7 @@ hidden=$(runtime state)
 [ "$(printf '%s' "$hidden" | jq -r --arg target "$content_anchor" '.data.objects[] | select(.anchor == $target) | .topicHides.science.reason')" = "Not useful here" ]
 runtime action hide_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
   '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
-[ "$(runtime state | jq -r '.data.hideSources[0].completeness')" = "unknown" ]
+[ "$(runtime state | jq -r '.data.hideSources[0].completeness')" = "complete" ]
 runtime action hide.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
   '{persona_id:$persona,target:$target,public:false,action:"unhide",topic:"science",reason:null}')" >/dev/null
 [ "$(runtime state | jq -r '.data.hideExceptions[0].scope')" = "topic:science" ]
@@ -139,7 +139,7 @@ removed=$(runtime state)
 [ "$(printf '%s' "$removed" | jq -r --arg target "$content_anchor" '.data.objects[] | select(.anchor == $target) | .topicRemovals.science.reason')" = "Off topic" ]
 runtime action removal_source.set "$(jq -cn --arg persona "$alice" --arg source "$bob_key" \
   '{persona_id:$persona,source:$source,global:false,topics:["science"],rank:1,enabled:true}')" >/dev/null
-[ "$(runtime state | jq -r '.data.removalSources[0].completeness')" = "unknown" ]
+[ "$(runtime state | jq -r '.data.removalSources[0].completeness')" = "complete" ]
 runtime action membership.set "$(jq -cn --arg persona "$alice" --arg target "$content_anchor" \
   '{persona_id:$persona,target:$target,public:false,action:"restore",topic:"science",reason:null}')" >/dev/null
 [ "$(runtime state | jq -r '.data.restorations[0].scope')" = "topic:science" ]

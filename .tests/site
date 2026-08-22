@@ -1,0 +1,61 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+site_root="$repo_root/site"
+
+for file in \
+  "$site_root/index.html" \
+  "$site_root/how/index.html" \
+  "$site_root/download/index.html" \
+  "$site_root/assets/style.css" \
+  "$site_root/assets/site.js" \
+  "$site_root/assets/hydra-icon.png" \
+  "$site_root/assets/favicon.png" \
+  "$site_root/.nojekyll"
+do
+  [ -f "$file" ] || {
+    printf '%s\n' "site: missing ${file#"$repo_root/"}" >&2
+    exit 1
+  }
+done
+
+node --check "$site_root/assets/site.js"
+
+for page in "$site_root/index.html" "$site_root/how/index.html" "$site_root/download/index.html"
+do
+  rg -q '<meta name="viewport"' "$page"
+  rg -q '<meta name="description"' "$page"
+  rg -q '<meta http-equiv="Content-Security-Policy"' "$page"
+  rg -q '<a class="skip-link" href="#main">' "$page"
+  rg -q '<main id="main">' "$page"
+  rg -q 'assets/style.css' "$page"
+  rg -q 'assets/site.js' "$page"
+  if rg -q 'https?://[^" ]+\.(css|js)' "$page"; then
+    printf '%s\n' "site: remote executable dependency in ${page#"$repo_root/"}" >&2
+    exit 1
+  fi
+  rg -o '(href|src)="[^"]+"' "$page" | sed 's/^[^=]*="//; s/"$//' | while IFS= read -r reference
+  do
+    case "$reference" in
+      http://*|https://*|\#*) continue ;;
+    esac
+    local_path=$(CDPATH='' cd -- "$(dirname -- "$page")" && pwd)/$reference
+    [ -e "$local_path" ] || {
+      printf '%s\n' "site: broken local reference $reference in ${page#"$repo_root/"}" >&2
+      exit 1
+    }
+  done
+done
+
+if rg -q -i '\b(react|vue|svelte|nextjs|jekyll|bootstrap|tailwind)\b' "$site_root" -g '*.html' -g '*.css' -g '*.js'; then
+  printf '%s\n' 'site: unexpected framework or styling dependency' >&2
+  exit 1
+fi
+
+if rg -q '(href|src)="/assets/' "$site_root" -g '*.html'; then
+  printf '%s\n' 'site: root-relative asset path would break the GitHub project URL' >&2
+  exit 1
+fi
+
+printf '%s\n' 'site: static website checks passed'

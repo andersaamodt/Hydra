@@ -16,4 +16,5 @@ node --check hydra-ui/app.js
 "$repo_root/.tests/protocol"
 "$repo_root/.tests/stonr"
 "$repo_root/.tests/release"
+"$repo_root/.tests/site"
 npx tauri build --debug --no-bundle
