@@ -320,7 +320,9 @@ test("React uses one Signal-style favorites-first emoji picker", () => {
   assert.match(styles, /\.emoji-reaction-callout\s*\{[^}]*border-radius:\s*22px/);
   assert.match(styles, /\.emoji-react-button\s*\{[^}]*border-radius:\s*6px/);
   assert.match(styles, /\.emoji-react-icon\s*\{[^}]*width:\s*18px/);
-  assert.doesNotMatch(styles, /\.emoji-reaction-callout::before/);
+  assert.match(styles, /\.emoji-reaction-callout::before\s*\{[^}]*transform:\s*rotate\(45deg\)/);
+  assert.match(styles, /\.emoji-reaction-callout\.is-above::before/);
+  assert.match(styles, /\.emoji-category-navigation button\s*\{[^}]*filter:\s*grayscale\(1\);[^}]*opacity:\s*\.68/);
 });
 
 test("background Reddit refresh cannot overwrite a newer interaction", () => {
