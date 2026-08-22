@@ -270,12 +270,18 @@ test("votes toggle conventionally and secondary post context lives in the overfl
 });
 
 test("React uses an accessible anchored emoji callout", () => {
+  assert.match(app, /function emojiReactButton\(object, className = "text-action"\)/);
+  assert.match(app, /class: `\$\{className\} emoji-react-button`/);
+  assert.match(app, /"aria-label": "React with an emoji"/);
+  assert.match(app, /M19 2v6/);
+  assert.doesNotMatch(app, /actionButton\("React"|text: "React", onclick: \(event\) => showEmojiReaction/);
   assert.match(app, /function showEmojiReaction\(event, object\)/);
   assert.match(app, /class: "emoji-reaction-callout"/);
   assert.match(app, /positionAnchoredCallout\(callout, picker\.origin\)/);
   assert.match(app, /ArrowLeft: -1, ArrowRight: 1, ArrowUp: -4, ArrowDown: 4/);
   assert.match(app, /closeEmojiReactionCallout\(true\)/);
   assert.match(styles, /\.emoji-choice-grid\s*\{[^}]*grid-template-columns:\s*repeat\(4/);
+  assert.match(styles, /\.emoji-react-icon\s*\{[^}]*width:\s*18px/);
   assert.match(styles, /\.emoji-reaction-callout::before/);
 });
 

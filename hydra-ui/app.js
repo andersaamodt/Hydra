@@ -202,6 +202,45 @@ function undoIcon() {
   return icon;
 }
 
+function emojiReactIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  for (const [name, value] of Object.entries({
+    class: "emoji-react-icon",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "2",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+    focusable: "false",
+  })) icon.setAttribute(name, value);
+  for (const pathData of [
+    "M22 11v1a10 10 0 1 1-9-10",
+    "M8 14s1.5 2 4 2 4-2 4-2",
+    "M9 9h.01",
+    "M15 9h.01",
+    "M19 2v6",
+    "M22 5h-6",
+  ]) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    icon.append(path);
+  }
+  return icon;
+}
+
+function emojiReactButton(object, className = "text-action") {
+  return element("button", {
+    type: "button",
+    class: `${className} emoji-react-button`,
+    title: "React",
+    "aria-label": "React with an emoji",
+    disabled: session.busy,
+    onclick: (event) => showEmojiReaction(event, object),
+  }, [emojiReactIcon()]);
+}
+
 async function copyText(value, success = "Copied.") {
   try {
     await navigator.clipboard.writeText(value);
@@ -934,7 +973,7 @@ function postCard(post, lens, community) {
     element("div", { class: "post-actions" }, [
       element("button", { type: "button", class: "text-action", text: `${post.discussionCount ?? 0} replies`, onclick: () => { session.selected = post.anchor; render(); } }),
       element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(post) }),
-      element("button", { type: "button", class: "text-action", text: "React", onclick: (event) => showEmojiReaction(event, post) }),
+      emojiReactButton(post),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post)),
       community ? instantJudgmentButton(`Remove from /h/${community}`, "removal", post.anchor, (event) => queueRemoval(event, post, community)) : null,
       community ? pinAction(post, community) : null,
@@ -1016,7 +1055,7 @@ function renderDiscussion(anchor) {
       element("span", { class: "vote-score", text: String(post.currentScore ?? 0), title: "Current Hydra score: one stance per persona" }),
       voteActionButton("▼ Downvote", post.anchor, "-"),
       actionButton("Vote details", () => showVoteViews(post)),
-      actionButton("React", (event) => showEmojiReaction(event, post)),
+      emojiReactButton(post, "quiet-button"),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post), "quiet-button"),
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", post.anchor, (event) => queueRemoval(event, post, session.community), "quiet-button") : null,
       session.community ? pinAction(post, session.community) : null,
@@ -1056,7 +1095,7 @@ function commentView(comment) {
       element("button", { type: "button", class: "text-action", text: "Reply", onclick: () => showReply(comment) }),
       element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(comment) }),
       element("button", { type: "button", class: "text-action", text: "Vote details", onclick: () => showVoteViews(comment) }),
-      element("button", { type: "button", class: "text-action", text: "React", onclick: (event) => showEmojiReaction(event, comment) }),
+      emojiReactButton(comment),
       instantJudgmentButton("Hide", "hide", comment.anchor, (event) => queueHide(event, comment)),
       session.community ? instantJudgmentButton(`Remove from /h/${session.community}`, "removal", comment.anchor, (event) => queueRemoval(event, comment, session.community)) : null,
       comment.author === persona?.publicKey ? element("button", { type: "button", class: "text-action", text: "Edit", onclick: () => showEdit(comment) }) : null,

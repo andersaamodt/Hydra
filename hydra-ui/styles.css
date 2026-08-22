@@ -249,6 +249,9 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .post-actions { margin-top: 12px; }
 .text-action { border: 0; padding: 3px 5px; color: var(--muted); background: none; cursor: pointer; font-size: 11px; }
 .text-action:hover { color: var(--ink); }
+.emoji-react-button { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 4px; color: var(--muted); }
+.emoji-react-button:hover, .emoji-react-button:focus-visible { color: var(--ink); background: var(--shade); }
+.emoji-react-icon { width: 18px; height: 18px; display: block; }
 .vote-is-active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-faint); }
 
 .context-card { padding: 14px 0; border-bottom: 1px solid var(--line); }
