@@ -1,18 +1,15 @@
 :root {
   color-scheme: light;
-  --canvas: #f4f1eb;
-  --paper: #fffdf8;
-  --benefit-surface: #ebe7de;
-  --ink: #241c25;
-  --muted: #665e67;
-  --plum: #2b1235;
-  --plum-light: #4b2559;
-  --mint: #dff4e5;
-  --blue: #dfeaf4;
-  --lilac: #e9e0ef;
-  --peach: #f4e4d8;
-  --stone: #e8e6df;
-  --line: rgba(43, 18, 53, 0.14);
+  --canvas: #f6f8fb;
+  --paper: #ffffff;
+  --benefit-surface: #fbfcfd;
+  --ink: #17202b;
+  --muted: #5d6672;
+  --plum: #1f2937;
+  --plum-light: #334155;
+  --soft-blue: #eaf1f7;
+  --soft-gray: #eef1f4;
+  --line: rgba(23, 32, 43, 0.13);
   --line-dark: rgba(255, 255, 255, 0.18);
   --page: 76rem;
   --radius: 1.5rem;
@@ -51,7 +48,7 @@ a {
 }
 
 :focus-visible {
-  outline: 3px solid #a45abb;
+  outline: 3px solid #4777a6;
   outline-offset: 4px;
 }
 
@@ -192,7 +189,7 @@ h3 {
 }
 
 .button.secondary:hover {
-  border-color: rgba(43, 18, 53, 0.32);
+  border-color: rgba(31, 41, 55, 0.32);
 }
 
 .button.disabled {
@@ -235,7 +232,7 @@ h3 {
 }
 
 .hero .button.secondary:hover {
-  border-color: rgba(43, 18, 53, 0.32);
+  border-color: rgba(31, 41, 55, 0.32);
 }
 
 .availability {
@@ -251,7 +248,7 @@ h3 {
   border-radius: 1.1rem;
   background: #f7f9fb;
   color: #25313d;
-  box-shadow: 0 1.75rem 4rem rgba(10, 3, 13, 0.34);
+  box-shadow: 0 1.75rem 4rem rgba(15, 23, 42, 0.18);
   transform: rotate(1.25deg);
 }
 
@@ -415,7 +412,7 @@ h3 {
 .benefit p {
   max-width: 35rem;
   margin: 0;
-  color: #4f4650;
+  color: #46505c;
   font-size: clamp(1rem, 1.5vw, 1.16rem);
 }
 
@@ -426,10 +423,10 @@ h3 {
   display: grid;
   place-items: center;
   margin-bottom: 2.25rem;
-  border: 1px solid rgba(36, 28, 37, 0.17);
+  border: 1px solid rgba(23, 32, 43, 0.16);
   border-radius: 1rem;
-  background: rgba(36, 28, 37, 0.035);
-  color: #5d595d;
+  background: rgba(23, 32, 43, 0.035);
+  color: #5b6571;
 }
 
 .benefit-icon b,
@@ -574,7 +571,7 @@ h3 {
   align-items: center;
   gap: 0.65rem;
   margin-top: 2rem;
-  color: #5d595d;
+  color: #5b6571;
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -582,7 +579,7 @@ h3 {
 .trust-line i {
   width: clamp(1rem, 4vw, 4rem);
   height: 1px;
-  background: rgba(36, 28, 37, 0.25);
+  background: rgba(23, 32, 43, 0.24);
 }
 
 .familiar {
@@ -622,7 +619,7 @@ h3 {
 }
 
 .topic-pair .hydra-topic {
-  background: var(--mint);
+  background: var(--soft-blue);
 }
 
 .topic-prefix,
@@ -691,7 +688,7 @@ h3 {
   gap: clamp(1.5rem, 4vw, 3rem);
   padding: clamp(1.75rem, 4vw, 3.25rem);
   border-radius: var(--radius);
-  background: var(--lilac);
+  background: var(--soft-gray);
 }
 
 .closing img {
@@ -762,7 +759,7 @@ h3 {
 
 .step-number {
   align-self: start;
-  color: #8a738f;
+  color: #738197;
   font: 650 1.35rem/1 "Iowan Old Style", Georgia, serif;
 }
 
@@ -784,7 +781,7 @@ h3 {
   min-height: 7rem;
   padding: 1.25rem;
   border-radius: 1rem;
-  background: var(--mint);
+  background: var(--soft-blue);
 }
 
 .step-example strong {
@@ -810,18 +807,18 @@ h3 {
   margin-left: -0.55rem;
   border: 4px solid var(--canvas);
   border-radius: 50%;
-  background: var(--blue);
+  background: var(--soft-blue);
   color: var(--plum);
   font-weight: 800;
 }
 
 .persona-stack span:first-child {
   margin-left: 0;
-  background: var(--peach);
+  background: var(--soft-gray);
 }
 
 .persona-stack span:last-child {
-  background: var(--lilac);
+  background: var(--soft-gray);
 }
 
 .flock-example {
@@ -838,7 +835,7 @@ h3 {
 .flock-example span:last-child {
   padding: 0.65rem 0.85rem;
   border-radius: 0.75rem;
-  background: var(--peach);
+  background: var(--soft-gray);
 }
 
 .split-section {
@@ -865,7 +862,7 @@ h3 {
 }
 
 .boundary-columns section:last-child {
-  background: var(--blue);
+  background: var(--soft-blue);
 }
 
 .boundary-columns h3 {
@@ -902,7 +899,7 @@ h3 {
   padding: clamp(2rem, 5vw, 4rem);
   border-radius: var(--radius);
   background: var(--plum);
-  color: #e9ddec;
+  color: #d8e1ea;
 }
 
 .survival h2 {
@@ -913,7 +910,7 @@ h3 {
 .survival > div:first-child p,
 .survival > p {
   margin: 0;
-  color: #cbbbd0;
+  color: #bec9d5;
 }
 
 .survival-flow {
@@ -970,7 +967,7 @@ h3 {
   padding: clamp(1.5rem, 4vw, 2.5rem);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--mint);
+  background: var(--soft-blue);
 }
 
 .download-focus h2 {
