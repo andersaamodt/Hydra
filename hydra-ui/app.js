@@ -1027,7 +1027,7 @@ function renderCommunities() {
       class: `nav-item${selected ? " is-active" : ""}`,
       title: `/h/${community}`,
       onclick: () => setRoute("community", community),
-    }, [element("span", { text: "#" }), element("span", { text: `/h/${community}` })]);
+    }, [element("span", { text: "#" }), element("span", { class: "nav-label", text: `/h/${community}` })]);
   }));
 }
 
@@ -2943,7 +2943,7 @@ function showPersonaMenu() {
   const body = element("div", {}, [
     ...personas.map((persona) => element("button", { type: "button", class: "nav-item", onclick: async () => {
       await mutate("persona.switch", { persona_id: persona.id }, `Switched to ${persona.displayName}.`);
-    } }, [element("span", { text: persona.displayName.slice(0, 1).toUpperCase() }), element("span", { text: persona.displayName }), persona.active ? element("span", { text: "Active" }) : null])),
+    } }, [element("span", { text: persona.displayName.slice(0, 1).toUpperCase() }), element("span", { class: "nav-label", text: persona.displayName }), persona.active ? element("span", { text: "Active" }) : null])),
     actionButton("Create another persona", () => { closeModal(); showPersonaCreator(); }),
     actionButton("Import an existing Nostr key", () => { closeModal(); showPersonaImporter(); }),
     actionButton("Connect an external signer", () => { closeModal(); showRemotePersonaConnector(); }),
