@@ -273,9 +273,13 @@ test("posting is community-scoped and synchronization is ambient", () => {
   assert.match(app, /function lensBar\(community = null\)/);
   assert.match(app, /class: "lens-bar community-filter-bar"/);
   assert.match(app, /class: "audience-filters"[\s\S]*aria-label": "Community audience"/);
-  assert.match(styles, /\.audience-filters\s*\{[^}]*border-left:\s*1px solid var\(--line\)/);
+  assert.match(styles, /\.audience-filters, \.catch-up-filters\s*\{[^}]*border-left:\s*1px solid var\(--line\)/);
   assert.match(styles, /\.audience-filter\s*\{[^}]*border:\s*0;[^}]*border-radius:\s*16px/);
   assert.match(styles, /\.audience-filter\.is-active\s*\{[^}]*background:\s*var\(--accent-soft\)/);
+  assert.match(app, /class: "catch-up-filters"[\s\S]*text: "Haven't interacted with"/);
+  assert.match(app, /hasInteractedWithPost\(session\.state, post, persona\)/);
+  assert.match(app, /emptyState\("All caught up"/);
+  assert.match(app, /"No posts match these filters"/);
   assert.match(app, /actionButton\("New post", \(\) => showComposer\(community\), "primary-button community-new-post"\)/);
   assert.match(app, /const AUTOMATIC_SYNC_INTERVAL_MS = 120_000/);
   assert.match(app, /async function automaticSync\(force = false\)/);

@@ -6,6 +6,7 @@ import {
   discussionItemMatches,
   exactDateTime,
   filterOpenNostrItems,
+  hasInteractedWithPost,
   isRedditDiscussionProjection,
   JUDGMENT_GRACE_MS,
   parseRedditObjectUrl,
@@ -42,6 +43,22 @@ test("community paths normalize without collapsing namespaces", () => {
 test("community names keep Reddit-compatible constraints", () => {
   assert.equal(validCommunity("hydra_qa"), "hydra_qa");
   assert.equal(validCommunity("hydra-qa"), null);
+});
+
+test("community catch-up recognizes durable persona interactions without treating a view as interaction", () => {
+  const persona = { id: "persona-me", publicKey: "npub-me" };
+  const post = { anchor: "post", kind: "post", author: "npub-other" };
+  const state = { personas: [{ ...persona, active: true }], objects: [post] };
+  assert.equal(hasInteractedWithPost(state, post), false);
+  assert.equal(hasInteractedWithPost({ ...state, reactions: [{ actor: "npub-me", target: "post", value: "0" }] }, post), true);
+  assert.equal(hasInteractedWithPost({ ...state, revisits: [{ personaId: "persona-me", target: "post" }] }, post), true);
+  assert.equal(hasInteractedWithPost({ ...state, objects: [post, { anchor: "reply", kind: "comment", author: "npub-me", root: "post" }] }, post), true);
+  assert.equal(hasInteractedWithPost({ ...state, hides: [{ personaId: "persona-me", target: "post" }] }, post), true);
+  assert.equal(hasInteractedWithPost({ ...state, removals: [{ personaId: "persona-me", target: "post" }] }, post), true);
+  assert.equal(hasInteractedWithPost({ ...state, pins: [{ personaId: "persona-me", target: "post" }] }, post), true);
+  assert.equal(hasInteractedWithPost({ ...state, pinDismissals: [{ personaId: "persona-me", target: "post" }] }, post), true);
+  assert.equal(hasInteractedWithPost(state, { ...post, author: "npub-me" }), true);
+  assert.equal(hasInteractedWithPost({ ...state, reactions: [{ actor: "npub-someone-else", target: "post", value: "+" }] }, post), false);
 });
 
 test("external directional controls are visible without changing stored evidence", () => {

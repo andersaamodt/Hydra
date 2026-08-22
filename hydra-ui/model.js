@@ -27,6 +27,17 @@ export function activePersona(state) {
   return state?.personas?.find((persona) => persona.active) ?? null;
 }
 
+export function hasInteractedWithPost(state, post, persona = activePersona(state)) {
+  if (!post?.anchor || !persona) return false;
+  const target = post.anchor;
+  if (post.author === persona.publicKey) return true;
+  if ((state?.reactions ?? []).some((item) => item.actor === persona.publicKey && item.target === target)) return true;
+  if ((state?.revisits ?? []).some((item) => item.personaId === persona.id && item.target === target)) return true;
+  if ((state?.objects ?? []).some((item) => item.kind === "comment" && item.author === persona.publicKey && (item.root === target || item.parent === target))) return true;
+  return ["hides", "removals", "pins", "pinDismissals"].some((collection) =>
+    (state?.[collection] ?? []).some((item) => item.personaId === persona.id && item.target === target));
+}
+
 const DIRECTIONAL_CONTROLS = new Map([
   ["\u061c", "ALM"],
   ["\u200e", "LRM"],

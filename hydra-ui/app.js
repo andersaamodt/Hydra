@@ -6,6 +6,7 @@ import {
   durabilityLabel,
   exactDateTime,
   filterOpenNostrItems,
+  hasInteractedWithPost,
   openNostrKindLabel,
   parseRedditObjectUrl,
   pendingJudgmentDecision,
@@ -39,6 +40,7 @@ const session = {
   chamber: "hydra",
   lens: "new",
   audience: "all",
+  uninteractedOnly: false,
   selected: null,
   treeFilters: {},
   reddit: { community: null, items: [], rules: [], rulesAvailable: false, after: null, threadRoot: null, threadItems: [], focusedFullname: null, refreshTimer: null, refreshStep: 0, requestEpoch: 0 },
@@ -1344,6 +1346,16 @@ function lensBar(community = null) {
       "aria-pressed": session.audience === id,
       onclick: () => { session.audience = id; renderFeed(); },
     }))),
+    element("div", { class: "catch-up-filters", role: "group", "aria-label": "Catch-up filter" }, [
+      element("button", {
+        type: "button",
+        class: `audience-filter catch-up-filter${session.uninteractedOnly ? " is-active" : ""}`,
+        text: "Haven't interacted with",
+        title: "Show posts you haven't voted on, reacted to, saved, hidden, pinned, or replied to",
+        "aria-pressed": session.uninteractedOnly,
+        onclick: () => { session.uninteractedOnly = !session.uninteractedOnly; renderFeed(); },
+      }),
+    ]),
     actionButton("New post", () => showComposer(community), "primary-button community-new-post"),
   ]);
 }
@@ -1374,18 +1386,28 @@ function renderFeed() {
 
   let lens = session.lens;
   if (session.route === "revisited") lens = "revisited";
+  const allCommunityPosts = community ? sortedPosts(session.state, "new", community) : [];
   let posts = sortedPosts(session.state, lens, community);
   if (community) posts = filterCommunityAudience(posts);
   if (!community && session.route === "feed") posts = myFeedPosts(session.state, posts);
+  const postsBeforeInteractionFilter = posts;
+  if (community && session.uninteractedOnly) {
+    const persona = activePersona(session.state);
+    posts = posts.filter((post) => !hasInteractedWithPost(session.state, post, persona));
+  }
   const list = element("div", { class: "content-list" });
   if (posts.length === 0) {
     const revisit = session.route === "revisited";
-    list.append(emptyState(
-      community ? `No posts in /h/${community}` : revisit ? "Nothing saved yet" : "No posts in My Feed",
-      community ? "The Reddit tab may contain posts from the corresponding subreddit." : revisit ? "Use Save on a post to keep it privately for this persona." : "Follow a persona or subscribe to a community to add posts.",
-      null,
-      null,
-    ));
+    const caughtUp = community && session.uninteractedOnly && postsBeforeInteractionFilter.length > 0;
+    const filteredCommunity = community && allCommunityPosts.length > 0;
+    list.append(caughtUp
+      ? emptyState("All caught up", "You've interacted with every post matching the current lens and audience.", "Show all posts", () => { session.uninteractedOnly = false; renderFeed(); })
+      : emptyState(
+          filteredCommunity ? "No posts match these filters" : community ? `No posts in /h/${community}` : revisit ? "Nothing saved yet" : "No posts in My Feed",
+          filteredCommunity ? "Try another lens, audience, or interaction filter." : community ? "The Reddit tab may contain posts from the corresponding subreddit." : revisit ? "Use Save on a post to keep it privately for this persona." : "Follow a persona or subscribe to a community to add posts.",
+          null,
+          null,
+        ));
   } else {
     list.append(...posts.map((post) => postCard(post, lens, community)));
   }
