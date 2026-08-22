@@ -303,9 +303,10 @@ test("React uses one Signal-style favorites-first emoji picker", () => {
   assert.doesNotMatch(app, /actionButton\("React"|text: "React", onclick: \(event\) => showEmojiReaction/);
   assert.match(app, /function showEmojiReaction\(event, object\)/);
   assert.match(app, /class: "emoji-reaction-callout"/);
-  assert.match(app, /DEFAULT_FAVORITE_REACTION_EMOJIS = \["❤️", "👍", "👎", "😆", "😮", "😢", "🎉"\]/);
+  assert.match(app, /DEFAULT_FAVORITE_REACTION_EMOJIS = \["❤️", "👍", "👎", "😆", "😮", "😢", "🤔"\]/);
   assert.match(app, /DEFAULT_COMPACT_REACTION_SLOT_COUNT = 7/);
-  assert.match(app, /LEGACY_FAVORITE_REACTION_EMOJIS[\s\S]*storeEmojiList\(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS\)/);
+  assert.match(app, /FAVORITE_REACTION_EMOJIS_STORAGE_KEY = "hydra\.favoriteReactionEmojis\.v1"/);
+  assert.doesNotMatch(app, /LEGACY_FAVORITE_REACTION_EMOJIS|PREVIOUS_FAVORITE_REACTION_EMOJIS/);
   assert.match(app, /renderCompactEmojiPicker\(picker\)/);
   assert.match(app, /class: "emoji-picker-expand"/);
   assert.match(app, /function renderExpandedEmojiPicker\(picker\)/);

@@ -85,11 +85,10 @@ const SIDEBAR_WIDTH_MIN = 180;
 const SIDEBAR_WIDTH_MAX = 420;
 const SIDEBAR_WIDTH_DEFAULT = 230;
 const SIDEBAR_WIDTH_STORAGE_KEY = "hydra.sidebarWidth";
-const FAVORITE_REACTION_EMOJIS_STORAGE_KEY = "hydra.favoriteReactionEmojis";
+const FAVORITE_REACTION_EMOJIS_STORAGE_KEY = "hydra.favoriteReactionEmojis.v1";
 const RECENT_REACTION_EMOJIS_STORAGE_KEY = "hydra.recentReactionEmojis";
 const COMPACT_REACTION_SLOT_COUNT_STORAGE_KEY = "hydra.compactReactionSlotCount";
-const LEGACY_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😂", "😮", "😢"];
-const DEFAULT_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😆", "😮", "😢", "🎉"];
+const DEFAULT_FAVORITE_REACTION_EMOJIS = ["❤️", "👍", "👎", "😆", "😮", "😢", "🤔"];
 const DEFAULT_COMPACT_REACTION_SLOT_COUNT = 7;
 const MIN_COMPACT_REACTION_SLOT_COUNT = 3;
 const MAX_COMPACT_REACTION_SLOT_COUNT = 10;
@@ -418,11 +417,7 @@ function storeEmojiList(key, value) {
 }
 
 function favoriteReactionEmojis() {
-  const favorites = storedEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
-  if (favorites.length === LEGACY_FAVORITE_REACTION_EMOJIS.length && favorites.every((emoji, index) => emoji === LEGACY_FAVORITE_REACTION_EMOJIS[index])) {
-    return storeEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
-  }
-  return favorites;
+  return storedEmojiList(FAVORITE_REACTION_EMOJIS_STORAGE_KEY, DEFAULT_FAVORITE_REACTION_EMOJIS);
 }
 
 function compactReactionSlotCount() {
