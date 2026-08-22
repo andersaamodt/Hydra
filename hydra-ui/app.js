@@ -605,6 +605,8 @@ function emojiReactButton(object, className = "text-action") {
     class: `${className} emoji-react-button`,
     title: "React",
     "aria-label": "React with an emoji",
+    "aria-haspopup": "dialog",
+    "aria-expanded": "false",
     disabled: session.busy,
     onclick: (event) => showEmojiReaction(event, object),
   }, [emojiReactIcon()]);
@@ -3143,6 +3145,7 @@ function closeEmojiReactionCallout(restoreFocus = false) {
   const picker = session.emojiPicker;
   if (!picker) return;
   if (picker.outsideListener) document.removeEventListener("pointerdown", picker.outsideListener, true);
+  picker.trigger?.setAttribute?.("aria-expanded", "false");
   picker.callout?.remove();
   session.emojiPicker = null;
   if (restoreFocus) picker.trigger?.focus?.();
@@ -3406,11 +3409,16 @@ function renderExpandedEmojiPicker(picker) {
 }
 
 function showEmojiReaction(event, object) {
+  const trigger = event?.currentTarget ?? null;
+  if (session.emojiPicker?.target === object.anchor && session.emojiPicker.trigger === trigger) {
+    closeEmojiReactionCallout();
+    return;
+  }
   closeEmojiReactionCallout();
   const picker = {
     target: object.anchor,
     origin: judgmentOrigin(event),
-    trigger: event?.currentTarget ?? null,
+    trigger,
     callout: null,
     outsideListener: null,
     expanded: false,
@@ -3446,6 +3454,7 @@ function showEmojiReaction(event, object) {
   document.body.append(callout);
   picker.callout = callout;
   session.emojiPicker = picker;
+  trigger?.setAttribute?.("aria-expanded", "true");
   renderCompactEmojiPicker(picker);
   window.setTimeout(() => {
     const closeOnOutsidePress = (outsideEvent) => {

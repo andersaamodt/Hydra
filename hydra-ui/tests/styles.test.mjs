@@ -301,9 +301,14 @@ test("React uses one Signal-style favorites-first emoji picker", () => {
   assert.match(app, /function emojiReactButton\(object, className = "text-action"\)/);
   assert.match(app, /class: `\$\{className\} emoji-react-button`/);
   assert.match(app, /"aria-label": "React with an emoji"/);
+  assert.match(app, /"aria-haspopup": "dialog"/);
+  assert.match(app, /"aria-expanded": "false"/);
   assert.match(app, /M19 2v6/);
   assert.doesNotMatch(app, /actionButton\("React"|text: "React", onclick: \(event\) => showEmojiReaction/);
   assert.match(app, /function showEmojiReaction\(event, object\)/);
+  assert.match(app, /session\.emojiPicker\?\.target === object\.anchor && session\.emojiPicker\.trigger === trigger[\s\S]*closeEmojiReactionCallout\(\);[\s\S]*return;/);
+  assert.match(app, /trigger\?\.setAttribute\?\.\("aria-expanded", "true"\)/);
+  assert.match(app, /picker\.trigger\?\.setAttribute\?\.\("aria-expanded", "false"\)/);
   assert.match(app, /class: "emoji-reaction-callout"/);
   assert.match(app, /DEFAULT_FAVORITE_REACTION_EMOJIS = \["❤️", "👍", "👎", "😆", "😮", "😢", "🤔"\]/);
   assert.match(app, /DEFAULT_COMPACT_REACTION_SLOT_COUNT = 7/);
