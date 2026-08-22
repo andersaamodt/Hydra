@@ -1587,6 +1587,38 @@ pub fn post_anchor(
         .sign_with(signer)
 }
 
+/// Builds a standard NIP-7D thread anchor whose title links to a web URL.
+///
+/// The standard `r` tag identifies the referenced URL, while the NIP-48
+/// proxy tag lets Hydra retain the same value on its materialized head.
+///
+/// # Errors
+///
+/// Returns an error for missing title/community, invalid URL metadata, or
+/// invalid Nostr tags/signing.
+pub fn link_post_anchor(
+    signer: &impl EventSigner,
+    title: &str,
+    body: &str,
+    communities: &[CommunityKey],
+    source: &hydra_domain::ExternalId,
+    created_at: u64,
+) -> Result<Event, ProtocolError> {
+    validate_title(title)?;
+    require_communities(communities)?;
+    source.validate().map_err(domain_protocol_error)?;
+    let mut tags = vec![
+        tag(["title", title])?,
+        tag(["r", &source.canonical])?,
+        tag(["proxy", &source.canonical, "web"])?,
+    ];
+    tags.extend(community_tags(communities)?);
+    EventBuilder::new(Kind::Thread, body)
+        .tags(tags)
+        .custom_created_at(Timestamp::from(created_at))
+        .sign_with(signer)
+}
+
 /// Builds a NIP-7D post anchor for content the signer authored on an external
 /// service and supplied through that service's account-data export.
 ///
@@ -2402,7 +2434,7 @@ fn native_thread_head(event: &Event) -> Result<ObjectHead, ProtocolError> {
         author: event_author(event)?,
         kind: ObjectKind::Post,
         title: Some(title.to_owned()),
-        body: ContentBody::parse(event.content.clone()).map_err(domain_protocol_error)?,
+        body: ContentBody::parse_post(event.content.clone()).map_err(domain_protocol_error)?,
         communities,
         root: None,
         parent: None,
@@ -2936,6 +2968,24 @@ mod tests {
         assert_eq!(entity.author, Some(event.pubkey));
         assert_eq!(entity.kind, Some(event.kind));
         assert_eq!(entity.relays[0].as_str(), "wss://relay.example");
+    }
+
+    #[test]
+    fn link_posts_retain_their_url_and_may_have_an_empty_body() {
+        let keys = Keys::generate();
+        let source = hydra_domain::ExternalId::new("url", "https://example.com/essay").unwrap();
+        let event =
+            link_post_anchor(&keys, "An external essay", "", &communities(), &source, 10).unwrap();
+        let head = received_object_head(&event, None).unwrap().unwrap();
+
+        assert_eq!(head.body.as_str(), "");
+        assert_eq!(head.external_root, None);
+        assert_eq!(head.external_source.unwrap().canonical, source.canonical);
+        assert!(
+            event
+                .as_json()
+                .contains("[\"r\",\"https://example.com/essay\"]")
+        );
     }
 
     #[test]

@@ -1370,6 +1370,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Persistent evidence".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],

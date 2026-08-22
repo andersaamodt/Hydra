@@ -25,6 +25,7 @@ const invoke = window.__TAURI__?.core?.invoke;
 const deepLink = window.__TAURI__?.deepLink;
 const desktopDialog = window.__TAURI__?.dialog;
 const desktopEvent = window.__TAURI__?.event;
+const desktopShell = window.__TAURI__?.shell;
 const isSettingsWindow = new URLSearchParams(window.location.search).get("window") === "settings";
 const isMacOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
 const requestedSettingsTab = new URLSearchParams(window.location.search).get("tab");
@@ -1366,6 +1367,7 @@ function showPostFlair(post, community = null) {
 
 function showPostDetails(post) {
   const source = provenance(post);
+  const link = postLinkUrl(post);
   const author = (session.state.personas ?? []).find((persona) => persona.publicKey === post.author);
   const communities = (post.communities ?? []).map((name) => element("button", {
     type: "button",
@@ -1381,6 +1383,10 @@ function showPostDetails(post) {
     ]),
     element("div", { class: "post-detail-row" }, [element("span", { text: "Author key" }), element("code", { text: post.author })]),
     element("div", { class: "post-detail-row" }, [element("span", { text: "Post anchor" }), element("code", { text: post.anchor })]),
+    link ? element("div", { class: "post-detail-row" }, [
+      element("span", { text: "Link" }),
+      element("button", { type: "button", class: "text-action post-detail-link", text: link, onclick: () => void openPostTitle(post) }),
+    ]) : null,
     element("div", { class: "post-detail-row" }, [element("span", { text: "Stored" }), element("strong", { text: durabilityLabel(post.durability) })]),
     element("div", { class: "post-detail-row" }, [element("span", { text: "Updated" }), element("time", { datetime: new Date(post.editedAt * 1000).toISOString(), text: new Date(post.editedAt * 1000).toLocaleString() })]),
     communities.length ? element("div", { class: "post-detail-row" }, [element("span", { text: "Hydrants" }), element("div", { class: "post-detail-hydrants" }, communities)]) : null,
@@ -1586,7 +1592,7 @@ function communityPinsPanel(community) {
     if (!post) return null;
     const provenance = pin.direct ? "Pinned by you" : `Pinned by ${pin.sourceCount} ${pin.sourceCount === 1 ? "person" : "people"} you follow`;
     return element("article", { class: "community-sidebar-item pinned-item" }, [
-      element("button", { type: "button", class: "post-title compact", text: post.title || "Untitled discussion", onclick: () => openDiscussion(post.anchor) }),
+      element("div", { class: "pinned-title-line" }, postTitleListing(post, "post-title compact")),
       element("p", { class: "evidence-note", text: `${provenance}${pin.uncertain ? " · source data is stale" : ""}` }),
       element("div", { class: "post-actions" }, [
         !pin.direct ? actionButton("Why?", () => showSources("Pin sources", pin.sources), "text-action") : null,
@@ -1903,6 +1909,62 @@ function openDiscussion(anchor) {
   render();
 }
 
+function postLinkUrl(post) {
+  if (post?.kind !== "post" || !post.externalSource) return null;
+  try {
+    const url = new URL(post.externalSource);
+    if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function postLinkDomain(post) {
+  const link = postLinkUrl(post);
+  if (!link) return null;
+  return new URL(link).hostname.replace(/^www\./i, "");
+}
+
+function postLinkInput(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error();
+    return url.href;
+  } catch {
+    throw new Error("Use a complete http:// or https:// link without an embedded username or password.");
+  }
+}
+
+async function openPostTitle(post) {
+  const link = postLinkUrl(post);
+  if (!link) {
+    openDiscussion(post.anchor);
+    return;
+  }
+  try {
+    if (desktopShell?.open) await desktopShell.open(link);
+    else window.open(link, "_blank", "noopener,noreferrer");
+  } catch (error) {
+    toast(`Could not open ${postLinkDomain(post)}: ${readableError(error)}`, true);
+  }
+}
+
+function postTitleListing(post, className = "post-title") {
+  const domain = postLinkDomain(post);
+  return [
+    element("button", {
+      type: "button",
+      class: `${className}${domain ? " is-external" : ""}`,
+      text: post.title || "Untitled discussion",
+      onclick: () => void openPostTitle(post),
+    }),
+    domain ? element("span", { class: "post-domain", text: `(${domain})` }) : null,
+  ];
+}
+
 function imageMediaFor(post) {
   return (post.media ?? []).find((media) => media.mimeType?.startsWith("image/")) ?? null;
 }
@@ -1978,7 +2040,7 @@ function postCard(post, lens, community, catchUpFading = false) {
   const communities = (post.communities ?? []).map((name) => element("button", {
     type: "button", class: "community-chip", text: `/h/${name}`, onclick: () => setRoute("community", name),
   }));
-  const textOnly = !(post.media ?? []).length;
+  const textOnly = !(post.media ?? []).length && !postLinkUrl(post);
   const textPreview = textOnly && session.state.settings?.show_text_previews !== false && post.body?.trim()
     ? element("p", { class: "post-body post-text-preview", text: post.body })
     : null;
@@ -1986,7 +2048,7 @@ function postCard(post, lens, community, catchUpFading = false) {
     element("div", { class: "post-listing-head" }, [
       element("div", { class: "post-title-line" }, [
         postFlairChip(post, community),
-        element("button", { type: "button", class: "post-title", text: post.title || "Untitled discussion", onclick: () => openDiscussion(post.anchor) }),
+        ...postTitleListing(post),
         ageElement(post.createdAt ?? post.editedAt, "post-age"),
         post.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
       ]),
@@ -3553,17 +3615,21 @@ function showPostComposer(draft = null, defaultCommunity = null) {
   const body = element("div", {}, [
     field("Title", "text", "title", draft?.title ?? "", "", { required: true }),
     field("Communities", "text", "communities", draft?.communities?.join(", ") || defaultCommunity || "", "Separate several ownerless /h/ coordinates with commas.", { required: true, placeholder: "science, biology" }),
-    field("Post", "textarea", "body", draft?.body ?? "", "The post is stored in Hydra. A Reddit projection is optional.", { required: true }),
+    field("Link URL", "url", "link_url", draft?.linkUrl ?? "", "Optional. When present, clicking the title opens this link in your browser."),
+    field("Post", "textarea", "body", draft?.body ?? "", "Write a text post, or leave this empty for a link post. The post is stored in Hydra."),
     field("Initial flair", "text", "flair", "", "Optional. This is your one global flair choice for the post, not a hidden tag."),
     toggle("Crosspost to Reddit", "crosspost", configuredCrosspostDefault("post", defaultCommunity), "Off by default. Attribution is also off unless selected later."),
     actionButton("Save encrypted draft", async () => {
       const data = new FormData(modalRoot.querySelector("form"));
-      await mutate("draft.save", { id: draftId, persona_id: persona.id, kind: "post", title: data.get("title"), body: data.get("body"), communities: parseCommunities(data.get("communities")), parent: null }, "Draft saved only for this persona.");
+      await mutate("draft.save", { id: draftId, persona_id: persona.id, kind: "post", title: data.get("title"), link_url: String(data.get("link_url") ?? "").trim() || null, body: data.get("body"), communities: parseCommunities(data.get("communities")), parent: null }, "Draft saved only for this persona.");
     }),
   ]);
   modal(draft ? "Continue Hydra draft" : "New Hydra post", `Posting as ${persona.displayName}`, body, { submitLabel: "Publish to Hydra", onSubmit: async (data) => {
     const communities = parseCommunities(data.get("communities"));
-    const response = await mutate("post.create", { persona_id: persona.id, title: data.get("title"), body: data.get("body"), communities }, "Post saved locally and queued for its selected relays.");
+    const linkUrl = postLinkInput(data.get("link_url"));
+    const postBody = String(data.get("body") ?? "");
+    if (!linkUrl && !postBody.trim()) throw new Error("Write a text post or add a link URL.");
+    const response = await mutate("post.create", { persona_id: persona.id, title: data.get("title"), link_url: linkUrl, body: postBody, communities }, "Post saved locally and queued for its selected relays.");
     const flair = String(data.get("flair") ?? "").trim();
     if (flair) await mutate("post.flair.set", { persona_id: persona.id, target: response.result.anchor, community: null, flair }, "Post and initial flair published.");
     if (draft) {

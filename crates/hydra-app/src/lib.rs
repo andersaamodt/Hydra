@@ -1176,6 +1176,7 @@ fn record_delivery(
 pub struct CreatePost {
     pub persona_id: PersonaId,
     pub title: String,
+    pub link_url: Option<String>,
     pub body: String,
     pub communities: Vec<CommunityKey>,
     pub relays: Vec<String>,
@@ -2855,6 +2856,21 @@ impl<S: SecretStore> ProjectionService<S> {
     }
 }
 
+fn link_post_source(value: Option<String>) -> Result<Option<ExternalId>, AppError> {
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let parsed = url::Url::parse(value.trim()).map_err(|_| DomainError::InvalidObjectShape)?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(DomainError::InvalidObjectShape.into());
+    }
+    Ok(Some(ExternalId::new("url", parsed.to_string())?))
+}
+
 impl<S: SecretStore> DiscussionService<S> {
     #[must_use]
     pub fn new(secrets: S) -> Self {
@@ -2962,6 +2978,7 @@ impl<S: SecretStore> DiscussionService<S> {
         let CreatePost {
             persona_id,
             title,
+            link_url,
             body,
             communities,
             relays,
@@ -2970,8 +2987,22 @@ impl<S: SecretStore> DiscussionService<S> {
         let (persona, keys) = persona_and_keys(&self.secrets, store, persona_id)?;
         ObjectHead::validate_title(&title)?;
         let content = ContentBody::parse_post(body)?;
-        let anchor =
-            hydra_nostr::post_anchor(&keys, &title, content.as_str(), &communities, recorded_at)?;
+        let link_source = link_post_source(link_url)?;
+        if content.as_str().trim().is_empty() && link_source.is_none() {
+            return Err(DomainError::Empty.into());
+        }
+        let anchor = if let Some(source) = &link_source {
+            hydra_nostr::link_post_anchor(
+                &keys,
+                &title,
+                content.as_str(),
+                &communities,
+                source,
+                recorded_at,
+            )?
+        } else {
+            hydra_nostr::post_anchor(&keys, &title, content.as_str(), &communities, recorded_at)?
+        };
         let reference = EventReference {
             id: anchor.id,
             kind: anchor.kind,
@@ -2997,7 +3028,7 @@ impl<S: SecretStore> DiscussionService<S> {
             parent: None,
             external_root: None,
             external_parent: None,
-            external_source: None,
+            external_source: link_source,
             edited_at: recorded_at,
         };
         let outbound = vec![
@@ -4308,6 +4339,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Still worth discussing".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4320,6 +4352,57 @@ mod tests {
         assert_eq!(store.state().heads.current_count(), 1);
         assert_eq!(store.state().outbound.len(), 2);
         assert!(store.state().deliveries.is_empty());
+    }
+
+    #[test]
+    fn link_post_keeps_a_safe_browser_url_and_allows_an_empty_body() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let persona = PersonaService::new(secrets.clone())
+            .create(&mut store, "Alice".to_owned(), 10)
+            .unwrap();
+        let discussion = DiscussionService::new(secrets);
+        let head = discussion
+            .create_post(
+                &mut store,
+                CreatePost {
+                    persona_id: persona.id,
+                    title: "An external essay".to_owned(),
+                    link_url: Some("https://example.com/essay".to_owned()),
+                    body: String::new(),
+                    communities: vec![CommunityKey::parse("science").unwrap()],
+                    relays: vec!["wss://relay.example".to_owned()],
+                    recorded_at: 20,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(head.body.as_str(), "");
+        assert_eq!(
+            head.external_source.unwrap().canonical,
+            "https://example.com/essay"
+        );
+        assert!(store.state().outbound.values().any(|item| {
+            item.event_json
+                .contains("[\"r\",\"https://example.com/essay\"]")
+        }));
+        assert!(
+            discussion
+                .create_post(
+                    &mut store,
+                    CreatePost {
+                        persona_id: persona.id,
+                        title: "Unsafe".to_owned(),
+                        link_url: Some("javascript:alert(1)".to_owned()),
+                        body: String::new(),
+                        communities: vec![CommunityKey::parse("science").unwrap()],
+                        relays: Vec::new(),
+                        recorded_at: 21,
+                    },
+                )
+                .is_err()
+        );
     }
 
     #[test]
@@ -4337,6 +4420,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Still worth discussing".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4599,6 +4683,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Root".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4658,6 +4743,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Root".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4706,6 +4792,7 @@ mod tests {
                 CreatePost {
                     persona_id: alice.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Root".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4744,6 +4831,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Root".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4794,6 +4882,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Root".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -4934,6 +5023,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Root".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -5423,6 +5513,7 @@ mod tests {
                 CreatePost {
                     persona_id: alice.id,
                     title: "One logical object".to_owned(),
+                    link_url: None,
                     body: "The judgment follows this anchor across revisions.".to_owned(),
                     communities: vec![science.clone()],
                     relays: Vec::new(),
@@ -5550,6 +5641,7 @@ mod tests {
                 CreatePost {
                     persona_id: bob.id,
                     title: private_word.to_owned(),
+                    link_url: None,
                     body: "Filtered locally".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -5645,6 +5737,7 @@ mod tests {
                 CreatePost {
                     persona_id: bob.id,
                     title: "Bob first".to_owned(),
+                    link_url: None,
                     body: "Older".to_owned(),
                     communities: vec![science.clone()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -5658,6 +5751,7 @@ mod tests {
                 CreatePost {
                     persona_id: alice.id,
                     title: "Alice later".to_owned(),
+                    link_url: None,
                     body: "Newer".to_owned(),
                     communities: vec![science.clone()],
                     relays: vec!["wss://relay.example".to_owned()],
@@ -5875,6 +5969,7 @@ mod tests {
                 CreatePost {
                     persona_id: persona.id,
                     title: "Fungal networks".to_owned(),
+                    link_url: None,
                     body: "Still worth discussing".to_owned(),
                     communities: vec![CommunityKey::parse("science").unwrap()],
                     relays: vec![
@@ -5936,6 +6031,7 @@ mod tests {
             persona: alice.id,
             kind: hydra_domain::DraftKind::Post,
             title: Some("Private working title".to_owned()),
+            link_url: None,
             body: "Private working body".to_owned(),
             communities: vec![CommunityKey::parse("science").unwrap()],
             parent: None,

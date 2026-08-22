@@ -8,6 +8,7 @@
     "core:event:default",
     "deep-link:default",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "shell:allow-open"
   ]
 }

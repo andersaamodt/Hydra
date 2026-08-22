@@ -19,6 +19,8 @@ pub struct DraftRecord {
     pub persona: PersonaId,
     pub kind: DraftKind,
     pub title: Option<String>,
+    #[serde(default)]
+    pub link_url: Option<String>,
     pub body: String,
     pub communities: Vec<CommunityKey>,
     pub parent: Option<AnchorId>,
@@ -45,6 +47,10 @@ impl DraftRecord {
                 title.len() > crate::ObjectHead::MAX_TITLE_LEN
                     || crate::text::has_unsafe_inline_text(title)
             })
+            || self.link_url.as_ref().is_some_and(|url| {
+                url.len() > crate::ExternalId::MAX_CANONICAL_LEN
+                    || url.chars().any(char::is_control)
+            })
             || self.communities.len() > crate::ObjectHead::MAX_COMMUNITIES
         {
             return Err(DomainError::InvalidObjectShape);
@@ -53,10 +59,18 @@ impl DraftRecord {
             DraftKind::Post if self.communities.is_empty() || self.parent.is_some() => {
                 Err(DomainError::InvalidObjectShape)
             }
-            DraftKind::Comment if self.parent.is_none() || !self.communities.is_empty() => {
+            DraftKind::Comment
+                if self.parent.is_none()
+                    || !self.communities.is_empty()
+                    || self.link_url.is_some() =>
+            {
                 Err(DomainError::InvalidObjectShape)
             }
-            DraftKind::Norm if self.communities.len() != 1 || self.parent.is_some() => {
+            DraftKind::Norm
+                if self.communities.len() != 1
+                    || self.parent.is_some()
+                    || self.link_url.is_some() =>
+            {
                 Err(DomainError::InvalidObjectShape)
             }
             _ => Ok(()),

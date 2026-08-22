@@ -205,6 +205,7 @@ struct DraftView<'a> {
     persona_id: String,
     kind: &'static str,
     title: Option<&'a str>,
+    link_url: Option<&'a str>,
     body: &'a str,
     communities: Vec<&'a str>,
     parent: Option<&'a str>,
@@ -576,6 +577,7 @@ struct SaveDraftInput {
     persona_id: String,
     kind: String,
     title: Option<String>,
+    link_url: Option<String>,
     body: String,
     #[serde(default)]
     communities: Vec<String>,
@@ -592,6 +594,7 @@ struct DiscardDraftInput {
 struct CreatePostInput {
     persona_id: String,
     title: String,
+    link_url: Option<String>,
     body: String,
     communities: Vec<String>,
 }
@@ -2204,6 +2207,7 @@ fn draft_views(private_states: &[PrivateState]) -> Vec<DraftView<'_>> {
                 DraftKind::Norm => "norm",
             },
             title: draft.title.as_deref(),
+            link_url: draft.link_url.as_deref(),
             body: &draft.body,
             communities: draft.communities.iter().map(CommunityKey::as_str).collect(),
             parent: draft.parent.as_ref().map(AnchorId::as_str),
@@ -5610,6 +5614,7 @@ fn save_draft_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
         persona: PersonaId::parse(&input.persona_id)?,
         kind: parse_draft_kind(&input.kind)?,
         title: input.title,
+        link_url: input.link_url,
         body: input.body,
         communities: input
             .communities
@@ -5675,6 +5680,7 @@ fn create_post_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
         CreatePost {
             persona_id: persona,
             title: input.title,
+            link_url: input.link_url,
             body: input.body,
             communities,
             relays: settings.write_relays_for(persona).to_vec(),

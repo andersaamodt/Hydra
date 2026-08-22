@@ -390,6 +390,18 @@ test("post listings use a minimal old-Reddit hierarchy", () => {
   assert.match(app, /onclick: \(\) => setRoute\("community", name\)/);
 });
 
+test("link posts open externally and show an old-Reddit domain suffix", () => {
+  assert.match(app, /const desktopShell = window\.__TAURI__\?\.shell/);
+  assert.match(app, /function postLinkUrl\(post\)[\s\S]*\["http:", "https:"\][\s\S]*url\.username \|\| url\.password/);
+  assert.match(app, /function openPostTitle\(post\)[\s\S]*desktopShell\?\.open[\s\S]*desktopShell\.open\(link\)/);
+  assert.match(app, /function postTitleListing\(post[\s\S]*class: "post-domain"[\s\S]*text: `\(\$\{domain\}\)`/);
+  assert.match(styles, /\.post-domain\s*\{[^}]*color:\s*var\(--faint\);[^}]*font-size:\s*12px/);
+  assert.match(app, /field\("Link URL", "url", "link_url"/);
+  assert.match(app, /Write a text post or add a link URL/);
+  assert.match(app, /link_url: linkUrl/);
+  assert.match(capability, /"shell:allow-open"/);
+});
+
 test("text and local image listing previews are independently configurable", () => {
   assert.match(app, /settings\.show_text_previews !== false/);
   assert.match(app, /settings\.show_image_previews !== false/);
