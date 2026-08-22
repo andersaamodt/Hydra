@@ -367,8 +367,8 @@ test("community routes use one compact heading with art and actions", () => {
   assert.match(app, /function communityViewHeader\(community, title, extras = \[\]\)/);
   assert.match(app, /function communityActionMenu\(community\)/);
   assert.match(app, /class: "community-header-actions"[^\n]*\.\.\.extras, communityActionMenu\(community\)/);
-  assert.match(app, /text: "\/h"/);
-  assert.match(app, /text: "\/r"/);
+  assert.match(app, /text: "\/h\/"/);
+  assert.match(app, /text: "\/r\/"/);
   assert.match(app, /class: "community-menu-trigger"[^\n]*text: "⋮"/);
   assert.match(app, /function renderCommunityNormBanner\(community\)/);
   assert.match(app, /if \(!norms\.length\) return null;/);

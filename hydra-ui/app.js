@@ -1131,12 +1131,12 @@ function chamberTabs() {
   return element("div", { class: "view-tabs", role: "tablist", "aria-label": "Community chamber" }, [
     element("button", {
       type: "button", role: "tab", class: `tab-button${session.chamber === "hydra" ? " is-active" : ""}`,
-      "aria-selected": session.chamber === "hydra", tabindex: session.chamber === "hydra" ? "0" : "-1", text: "/h",
+      "aria-selected": session.chamber === "hydra", tabindex: session.chamber === "hydra" ? "0" : "-1", text: "/h/",
       onclick: () => selectChamber("hydra"), onkeydown: move,
     }),
     element("button", {
       type: "button", role: "tab", class: `tab-button reddit${session.chamber === "reddit" ? " is-active" : ""}`,
-      "aria-selected": session.chamber === "reddit", tabindex: session.chamber === "reddit" ? "0" : "-1", text: "/r",
+      "aria-selected": session.chamber === "reddit", tabindex: session.chamber === "reddit" ? "0" : "-1", text: "/r/",
       onclick: () => selectChamber("reddit"), onkeydown: move,
     }),
   ]);
