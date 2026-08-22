@@ -140,7 +140,7 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 .source-link { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
 
 .sidebar { min-height: 0; overflow: auto; background: var(--sidebar-surface); }
-.sidebar { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; padding: 17px 12px 14px; border-right: 1px solid var(--line); }
+.sidebar { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; padding: 17px 7px 14px; border-right: 1px solid var(--line); }
 .sidebar-resizer { position: absolute; z-index: 6; top: 68px; bottom: 0; left: calc(var(--sidebar-width) - 4px); width: 8px; cursor: col-resize; touch-action: none; }
 .sidebar-resizer::after { content: ""; position: absolute; inset: 0 3px; background: transparent; }
 .sidebar-resizer:focus-visible::after,
@@ -149,10 +149,11 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 html.sidebar-is-resizing,
 html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !important; }
 .nav-heading { margin: 8px 10px; color: var(--faint); font-size: 12px; font-weight: 750; letter-spacing: .03em; }
-.nav-item { width: 100%; min-height: 40px; display: grid; grid-template-columns: 23px 1fr auto; align-items: center; gap: 5px; margin: 2px 0; padding: 0 10px; border: 0; border-radius: 5px; color: var(--nav-ink); background: transparent; text-align: left; cursor: pointer; }
+.nav-item { width: 100%; min-height: 40px; display: grid; grid-template-columns: 23px minmax(0, 1fr) auto; align-items: center; gap: 5px; margin: 2px 0; overflow: hidden; padding: 0 10px; border: 0; border-radius: 7px; color: var(--nav-ink); background: transparent; text-align: left; cursor: pointer; }
 .nav-item:hover { color: var(--ink); background: rgba(255,255,255,.045); }
 .nav-item.is-active { color: var(--nav-active); background: var(--accent-soft); }
 .nav-item span:first-child { color: var(--nav-icon); text-align: center; }
+.nav-item span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-icon { width: 18px; height: 18px; display: block; margin: 0 auto; }
 .community-nav { margin-top: 20px; }
 .section-heading-row { display: flex; align-items: center; justify-content: space-between; }

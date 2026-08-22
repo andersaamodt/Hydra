@@ -1025,6 +1025,7 @@ function renderCommunities() {
     return element("button", {
       type: "button",
       class: `nav-item${selected ? " is-active" : ""}`,
+      title: `/h/${community}`,
       onclick: () => setRoute("community", community),
     }, [element("span", { text: "#" }), element("span", { text: `/h/${community}` })]);
   }));
