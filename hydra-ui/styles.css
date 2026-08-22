@@ -154,7 +154,7 @@ kbd { padding: 2px 6px; border: 1px solid var(--line); border-bottom-color: rgba
 html.sidebar-is-resizing,
 html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !important; }
 .nav-heading { margin: 8px 10px; color: var(--faint); font-size: 12px; font-weight: 750; letter-spacing: .03em; }
-.nav-item { width: 100%; min-height: 40px; display: grid; grid-template-columns: 23px minmax(0, 1fr) auto; align-items: center; gap: 5px; margin: 2px 0; overflow: hidden; padding: 0 10px; border: 0; border-radius: 7px; color: var(--nav-ink); background: transparent; text-align: left; cursor: pointer; }
+.nav-item { width: 100%; min-height: 40px; display: grid; grid-template-columns: 21px minmax(0, 1fr) auto; align-items: center; gap: 4px; margin: 2px 0; overflow: hidden; padding: 0 4px; border: 0; border-radius: 7px; color: var(--nav-ink); background: transparent; text-align: left; cursor: pointer; }
 .nav-item:hover { color: var(--ink); background: rgba(255,255,255,.045); }
 .nav-item.is-active { color: var(--nav-active); background: var(--accent-soft); }
 .nav-item span:first-child { color: var(--nav-icon); text-align: center; }

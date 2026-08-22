@@ -64,7 +64,7 @@ test("the navigation sidebar can be resized from its right edge", () => {
   assert.match(app, /ArrowLeft:[\s\S]*ArrowRight:[\s\S]*Home:[\s\S]*End:/);
   assert.match(app, /addEventListener\("dblclick"[\s\S]*SIDEBAR_WIDTH_DEFAULT/);
   assert.match(styles, /\.sidebar\s*\{[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*padding:\s*17px 7px 14px/);
-  assert.match(styles, /\.nav-item\s*\{[^}]*grid-template-columns:\s*23px minmax\(0, 1fr\) auto;[^}]*overflow:\s*hidden;[^}]*border-radius:\s*7px/);
+  assert.match(styles, /\.nav-item\s*\{[^}]*grid-template-columns:\s*21px minmax\(0, 1fr\) auto;[^}]*overflow:\s*hidden;[^}]*padding:\s*0 4px;[^}]*border-radius:\s*7px/);
   assert.match(styles, /\.nav-label\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/);
   assert.match(app, /class: "nav-label", text: `\/h\/\$\{community\}`/);
 });

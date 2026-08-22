@@ -1,235 +1,144 @@
-# Post labels and global user flair
+# Post and user flair design
 
 Status: proposed for post-1.0 work. Hydra 1.0 remains release-frozen.
 
 ## Decision
 
-Hydra should have two deliberately different features:
+Hydra should support both post flair and user flair as optional, public,
+topic-scoped self-expression:
 
-- **Global user flair** is one optional, public label a persona chooses for
-  themself. It travels with that persona everywhere in Hydra.
-- **Post flair** is the leading visible label derived from signed label choices
-  made by people about a post. It can resolve differently in each `/h/`
-  community where the post appears.
+- **Post flair** is chosen by the post author. A post may have at most one flair
+  for each `/h/` topic it belongs to.
+- **User flair** is chosen by the persona for themself. A persona may have at
+  most one flair for each `/h/` topic.
 
-There is no flair on a subreddit, Hydra community, or hydrant itself. A
-community only provides context for resolving a post's labels.
+Flair is descriptive, not authoritative. It does not grant permissions, prove a
+credential, rank a person, or imply approval by a community. Hydra communities
+are ownerless, so there is no canonical moderator-owned flair catalog.
 
-Hydra should not support third-party or moderator-assigned user flair now. That
-would be a public branding/credential system, with materially different abuse
-and trust semantics. NIP-58 badges or a future attestation feature are the
-proper place for awarded claims.
+Examples:
+
+- A post shared to `/h/gardening` and `/h/science` can be `Question` in the
+  former and `Field report` in the latter.
+- The same persona can be `Tomato enthusiast` in `/h/gardening` and
+  `Ecologist` in `/h/science`.
 
 ## What Hydra has today
 
-Hydra currently models neither feature.
+Hydra does not currently model post or user flair.
 
-The existing `ObjectHead.communities` values are routing/membership tags: they
-say that a post appears in `/h/science`, for example. Provenance and durability
-chips describe Hydra state, and persona display names are global identity
-metadata. None of those are flair.
+The nearby features are not flair:
 
-## Are post flair and tags the same thing?
+- `ObjectHead.communities` are membership/topic tags, not content
+  classification within a topic.
+- Provenance and durability chips describe Hydra state.
+- Persona display names are global to the persona rather than topic-scoped.
+- Norms, pins, removals, and other signed judgments can shape a viewer's
+  experience, but do not decorate an author or post.
+- NIP-58 badges are issuer-awarded credentials or recognition. They should not
+  be presented as self-chosen user flair.
 
-At the protocol and domain layers, yes: post flair should be a presentation of
-signed post labels rather than a second classification system.
+## Product model
 
-Hydra still needs two kinds of tag-like data:
+### Shared rules
 
-- **Hydrants** (`/h/science`) determine where a post appears.
-- **Post labels** (`Question`, `Field report`) describe what kind of post it is
-  within that context.
+- Flair is optional.
+- Flair is plain text: no HTML, URLs, images, custom CSS, or remote fonts.
+- A flair contains 1-32 Unicode scalar values after trimming, is one line, and
+  passes Hydra's existing unsafe-inline-text checks.
+- A colon is allowed because the topic is carried by the label namespace, not
+  encoded into the visible text.
+- A malformed or unsupported flair is ignored without hiding an otherwise
+  valid post or profile.
+- Text is always rendered; color is supplementary and never conveys meaning.
+- The client assigns a stable accessible tone from its bounded theme palette.
+  Publishers do not control foreground or background colors.
 
-The interface renders the leading post label as a compact flair chip. The label
-detail surface shows the other proposed labels and their support. This keeps
-`flair` as a useful visual treatment without inventing a separate semantic
-object.
+### No canonical catalog
 
-User-facing copy may say `flair`; internal types and protocol documentation
-should say `post label` or `label choice`.
+The first version should not add flair definitions, templates, or a special
+flair authority. The composer offers free text plus recently observed values in
+the current topic. Suggestions are conveniences, not an allowlist.
 
-## Global user flair
+This keeps the protocol small and avoids turning whoever publishes a catalog
+into a de facto community owner. A later version may let a persona follow
+another persona's flair vocabulary, using the same explicit source-selection
+pattern as Hydra's other community-shaping choices.
 
-### Behavior
+### Credentials stay separate
 
-- A persona has zero or one current user flair.
-- The persona chooses and can replace or clear it.
-- The same flair appears beside the persona wherever sufficient space exists:
-  post bylines, comment bylines, messages, search results, and the profile.
-- Compact or safety-sensitive surfaces may omit it, but never substitute a
-  different flair.
-- The detail surface says `Chosen by this persona`.
-- It grants no permissions and carries no verification treatment.
+Statements such as `Verified physician`, `Maintainer`, or `Moderator` can be
+misleading when self-applied. Hydra should render self-chosen flair as
+`Chosen by this persona` in its detail surface and reserve verified or awarded
+claims for NIP-58 badges or a future attestation design. A badge may appear on a
+profile, but it must not silently become user flair.
 
-Examples include `Hydra tinkerer`, `Ask me about fungi`, and `Recovering
-academic`.
+## Nostr representation
 
-### Validation and appearance
+Use NIP-32 `L` and `l` tags for portable self-labeling. The reverse-domain
+namespaces are open conventions, not an assertion that Hydra owns a topic.
 
-- Plain text only: no HTML, URLs, images, custom CSS, or remote fonts.
-- 1-32 Unicode scalar values after trimming.
-- One line and compliant with Hydra's existing unsafe-inline-text checks.
-- Text is always present; color is decorative and never conveys meaning.
-- Hydra assigns a stable tone from its bounded accessible theme palette.
-  Publishers cannot choose foreground or background colors.
-- Malformed flair is ignored without hiding an otherwise valid profile.
+### Post flair
 
-### Nostr representation
-
-The persona's replaceable NIP-01 metadata event (`kind:0`) carries a NIP-32
-self-label:
-
-```json
-["L", "org.hydra.flair.user"]
-["l", "Hydra tinkerer", "org.hydra.flair.user"]
-```
-
-There is at most one `l` value in this namespace. Updating the display name or
-user flair republishes the complete current profile metadata. Clearing user
-flair removes these tags from the next profile event.
-
-Hydra currently has local personas but no durable remote profile projection.
-Implementation needs a bounded `PersonaProfile` keyed by public key, containing
-display metadata, optional user flair, and the winning profile event timestamp
-and id. Signing custody remains in the local `Persona` type and must not leak
-into the public projection.
-
-## Communal post labels
-
-### One current choice per person
-
-For each post, a persona may publish:
-
-- one **default** label choice that applies everywhere the post appears; and
-- an optional override for any particular `/h/` community.
-
-For one persona in one community, the community override replaces that
-persona's default. It does not count as a second endorsement.
-
-This gives the desired default behavior without inventing a primary community:
-
-```text
-Alice's default choice:              Question
-Alice's /h/science override:         Field report
-
-Effective in /h/gardening:           Question
-Effective in /h/science:             Field report
-Effective in a newly added hydrant:  Question
-```
-
-The post author uses this same mechanism. The composer makes one initial
-default choice easy and keeps per-community overrides under an advanced
-control. Other people can later choose or change their own label.
-
-### Resolution
-
-For each `(post, community)`:
-
-1. Resolve each persona to at most one current effective choice: their
-   community override, otherwise their default.
-2. Exclude invalid events and choices from personas hidden by the viewer's
-   ordinary local block/filter rules.
-3. Count distinct personas supporting each canonical label.
-4. If one label has the highest count, it is the leading label and is rendered
-   as post flair.
-5. If the top labels tie and the post author's effective choice is among them,
-   the author's choice leads.
-6. Otherwise render a neutral `N labels` chip rather than choosing an arbitrary
-   winner.
-
-Matching should use a canonical comparison form. At minimum, trim and
-Unicode-normalize before case-insensitive comparison so `Question` and
-`question` do not split support. Display the post author's spelling when they
-support the winning canonical label; otherwise choose the lexicographically
-smallest valid spelling among its current supporters. Relay arrival order must
-not affect the rendered result.
-
-Counts mean `signed choices currently available to this client`, not global
-truth. Relay coverage and local filtering can make the leading label differ
-between viewers. The interface should say `7 people label this Question`, not
-`The community says Question`.
-
-Do not add reputation weighting, moderator weighting, or a new trust graph in
-the first version. One public key contributes at most one current choice per
-post/community. If label brigading becomes a real problem, explicit source
-selection can be added later using Hydra's existing design language.
-
-### Alternatives and abuse controls
-
-The leading chip exposes a hover, keyboard-focus, and click/tap popover:
-
-```text
-Labels in /h/science
-
-Question       7 people   <- leading
-Field report   4 people
-Discussion     2 people
-
-[Choose a label]  [Hide a label from my view]
-```
-
-- Alternatives remain collapsed by default so a single hostile proposal does
-  not become ambient branding.
-- Blocked or locally filtered personas do not contribute choices or spellings.
-- A persona can locally hide a particular label value without hiding the post.
-- Label text is inert and follows the same validation as user flair.
-- Post authors have one ordinary choice and the tie-break described above, not
-  a global veto over what other clients may derive.
-
-### Nostr representation
-
-NIP-32 `kind:1985` label events are immutable, so they do not cleanly represent
-one current, replaceable choice. Hydra should define one addressable label-choice
-event. `kind:30802` is the proposed allocation, subject to the protocol review
-performed when the feature is implemented.
-
-An active community-scoped choice has this shape:
+Post flair lives on the existing replaceable Hydra object head (`kind:30800`).
+For a post in `/h/science` with the flair `Question`, its head includes:
 
 ```json
-{
-  "kind": 30802,
-  "tags": [
-    ["d", "hydra:post-label:<anchor-id>:science"],
-    ["e", "<anchor-id>"],
-    ["k", "11"],
-    ["t", "science"],
-    ["L", "org.hydra.label.post"],
-    ["l", "Field report", "org.hydra.label.post"],
-    ["version", "hydra-protocol/v2"],
-    ["status", "active"]
-  ],
-  "content": ""
-}
+["L", "org.hydra.flair.post.science"]
+["l", "Question", "org.hydra.flair.post.science"]
 ```
 
-A default choice uses `all` instead of a community in its `d` tag and omits
-`t`. A withdrawal republishes the same address with `status=withdrawn` and no
-`l` tag. The normal addressable-event winner rules select one current event per
-publisher, post, and scope.
+Rules:
 
-The event targets the immutable post anchor, not the editable object head, so
-label choices survive post edits. A community-scoped choice is only effective
-when the current post head actually contains that community.
+- The suffix is a valid normalized `CommunityKey`.
+- The community must also appear in the head's topic tags.
+- There is at most one `l` value for each post-flair namespace.
+- Comment and norm heads ignore post-flair namespaces.
+- An edit republishes the complete current head, so changing or clearing flair
+  follows the existing object-head lifecycle.
 
-This is classification, not exclusion, membership, pinning, or authority. It
-should not be forced into Flocking's judgment faculties, though it can reuse
-similar storage, current-event, completeness, and provenance patterns.
-
-The materialized domain data is independent of `ObjectHead`:
+The domain representation is a map rather than a single field:
 
 ```text
-PostLabelChoice {
-    author: NostrPublicKey,
-    target: AnchorId,
-    scope: All | Community(CommunityKey),
-    value: Option<FlairText>,
-    changed_at: u64,
-    event_id: String,
-}
+ObjectHead.flairs: BTreeMap<CommunityKey, FlairText>
 ```
 
-The runtime derives per-community leaders and alternative counts. It does not
-persist one supposedly canonical winning flair on the post.
+This is necessary because one Hydra post can belong to several ownerless topic
+communities and has no primary community.
+
+### User flair
+
+User flair lives on the persona's replaceable NIP-01 profile metadata event
+(`kind:0`). For the same topic it includes:
+
+```json
+["L", "org.hydra.flair.user.science"]
+["l", "Ecologist", "org.hydra.flair.user.science"]
+```
+
+Rules:
+
+- There is at most one value for each user-flair namespace.
+- The profile event author is the flair subject; Hydra does not accept a
+  third-party user-flair assignment as that person's self-chosen flair.
+- Updating a display name or any user flair republishes the complete current
+  profile metadata, preserving all other known profile fields and flair tags.
+- Clearing a flair removes both of its namespace tags from the next profile
+  event.
+
+Hydra currently models local personas but not a durable remote profile view.
+Implementation therefore needs a bounded `PersonaProfile` projection keyed by
+public key, containing display metadata, `flairs`, and the winning profile
+event timestamp/id. Local signing custody remains in `Persona` and must not be
+mixed into this public projection.
+
+### Why not `kind:1985` for current user flair?
+
+NIP-32 label events are immutable. Deletion and replacement can be observed
+inconsistently across relays, which is a poor fit for a single current cosmetic
+choice. A `kind:0` profile is already replaceable and represents the persona's
+current public self-description. Third-party `kind:1985` labels can still be
+retained as evidence, but they are not self-chosen user flair.
 
 ## Interface design
 
@@ -237,120 +146,113 @@ persist one supposedly canonical winning flair on the post.
 
 ```text
 [Question]  Why are my tomato leaves curling?                 3h
-            Alice [Hydra tinkerer]                     /h/gardening
-            12 replies  Save  React  Label  Hide
+            Alice [Tomato enthusiast]                 /h/gardening
+            12 replies  Save  React  Hide
 ```
 
-- The leading post label precedes the title.
-- Global user flair follows the resolved display name.
-- `Label` opens the current choices and lets the active persona select an
-  existing value or propose a new one.
-- Clicking the leading post flair opens its detail popover; an explicit action
-  there can filter the feed by that label.
+- Post flair precedes the title and is visually stronger than user flair.
+- The byline uses the resolved display name rather than a raw public key when
+  known; user flair follows the name.
+- Clicking post flair applies a local exact-match feed filter. The filter bar
+  makes the active filter obvious and removable.
+- Clicking user flair opens the persona profile, not a reputation view.
+- A tooltip or detail popover says who chose the flair and its `/h/` scope.
 
 ### Discussion and comments
 
-- The discussion header shows the resolved post flair for the active community.
-- Post and comment bylines show the author's global user flair.
-- The label detail surface shows exact counts and the viewer's current choice.
-- Blocked placeholders and compact notifications omit flair when provenance or
-  space would be ambiguous.
+- The discussion header shows the post flair beside the title.
+- Author bylines and comment bylines show user flair for the active topic.
+- Flair does not repeat inside blocked placeholders or notifications where
+  space and provenance are ambiguous.
 
 ### Aggregated and direct-link contexts
 
 Hydra must not invent a primary community:
 
-- In `/h/<community>`, resolve and show that community's leading label.
-- In an aggregated feed, show the label only if every attached community
-  currently resolves to the same value. Otherwise show `N flairs` with
-  `/h/community · Flair` rows.
-- On a direct discussion link with no community context, use the same all-topic
-  summary and let the viewer select a community context.
-- Global user flair remains the same in every context.
+- On a `/h/<topic>` route, show only that topic's post and user flair.
+- On an aggregated feed, show a post flair only when the post has exactly one.
+  If it has several, show a quiet `N flairs` control that lists
+  `/h/topic · Flair` pairs.
+- User flair is hidden in aggregated feeds because there is no active topic.
+- On a direct discussion link with no route context, list all post flairs with
+  their topic names and omit user flair until a topic context is selected.
 
-### Post composer
+### Composing a post
 
-The composer provides one optional `Post flair` field. Its initial value becomes
-the author's default choice everywhere the post appears:
+After topic parsing, the post composer shows one optional row per topic:
 
 ```text
-Hydrants       gardening, science
-Post flair     [ Question       v]
-               [Customize by hydrant]
+Topics       gardening, science
+gardening    [ Question       v]
+science      [ Field report   v]
 ```
 
-Expanding the control allows per-community overrides. Publishing the post and
-its initial label choices is one user action but produces independent queued
-events, so a label publication failure never loses or mutates the post.
+Each field accepts free text and suggests the persona's recent choices followed
+by recently observed values. Removing a topic removes its draft flair after a
+clear inline warning. Drafts store the map locally.
 
-### Changing a post label
+### Setting user flair
 
-The label picker shows existing candidates as a radio list with support counts,
-plus `Propose another label`. The active scope is explicit:
+The community header and the persona's own profile both expose `Set my flair in
+/h/<topic>`. The modal contains one optional text field, a live chip preview,
+and this explanation:
 
-- `Everywhere this post appears` updates the persona's default choice.
-- `Only /h/science` updates the persona's community override.
-- `Use my default here` withdraws the community override.
-- `Remove my choice` withdraws both only after confirmation if both are in
-  scope.
+> This is your public, self-chosen label in /h/topic. It is not a verified
+> credential or a community role.
 
-### User-flair editor and profile
+Saving republishes the persona's complete profile metadata. The action must show
+the ordinary public-publication affordance; it is never silently local-only.
 
-Persona settings and the persona's own profile expose `Set my user flair`. The
-editor previews the chip and explains:
+### Profile
 
-> This public, self-chosen label travels with this persona throughout Hydra. It
-> is not a verified credential or a role assigned by other people.
-
-Profiles display that one flair beside the name. There is no community-flair
-section and no third-party assignment control.
+The profile shows the active topic's user flair near the display name. An
+expanded `Community flair` section lists the persona's other topic/value pairs.
+For the active persona, each row is editable. For anyone else, details say
+`Chosen by <display name>`.
 
 ## Reddit bridge
 
-Reddit post and user flair are controlled by subreddit templates and moderator
-permissions. They are not equivalent to Hydra's labels or self-chosen global
-user flair.
+Reddit post and user flair are controlled by subreddit-specific templates and
+permissions, so the bridge must not pretend they are equivalent to Hydra's
+ownerless flair.
 
 Initial behavior:
 
-- Do not automatically import Reddit flair into Hydra labels or user flair.
+- Do not automatically copy Reddit flair into Hydra flair.
 - Do not automatically project Hydra flair to Reddit.
-- Keep any Reddit flair required for an explicit projection in adapter-owned
-  metadata.
+- Preserve any Reddit flair needed for an explicit projection only in
+  adapter-owned metadata.
 
-A later projection flow may let the user explicitly map a leading Hydra post
-label to an available subreddit template. Mapping failure must never fail or
-mutate the Hydra original.
+A later bridge feature may let the user explicitly map one Hydra topic flair to
+one currently available subreddit template at projection time. Failure to map
+or apply Reddit flair must never fail or mutate the Hydra original.
 
 ## Delivery plan
 
-1. Add global user flair to profile publication, bounded remote profile
-   ingestion, runtime views, and bylines.
-2. Add `FlairText`, `PostLabelChoice`, addressable event parsing/publication,
-   current-choice storage, and withdrawals.
-3. Add per-community resolution with unique-person counts, tie handling, local
-   filters, and completeness/provenance details.
-4. Add initial/default post flair to the composer and label controls to feeds
-   and discussions.
-5. Add alternative popovers, exact-label filtering, accessibility coverage,
-   and protocol/UI tests.
+1. Add `FlairText` validation and topic-to-flair maps to post heads, drafts, and
+   the public profile projection.
+2. Parse and publish the NIP-32 tags on object heads and profile metadata;
+   begin fetching and materializing bounded `kind:0` profile events.
+3. Carry effective flairs through the runtime snapshot without adding ranking
+   or trust semantics.
+4. Add composer/profile controls, community-context rendering, and accessible
+   chip styles.
+5. Add exact-match post-flair filtering and protocol/UI tests.
 
-Global user flair is the smaller feature and should ship first. Communal post
-labels should follow as a separate increment because they add aggregation and
-abuse-handling semantics rather than a field on `ObjectHead`.
+Post flair should ship before user flair if the work is split. It uses Hydra's
+existing object-head sync path and validates the multi-community interaction.
+User flair then adds the more substantial remote-profile ingestion work.
 
 ## Acceptance criteria
 
-- User flair is self-chosen, global, replaceable, and clearable.
-- No user can assign user flair to another persona.
-- A persona contributes at most one effective label to a post in a community.
-- Default post-label choices apply everywhere unless that persona overrides a
-  particular community.
-- The unique leading label is visible; alternatives and their support are
-  inspectable without being ambient.
-- Ties never choose an arbitrary primary label.
-- Counts are described as locally available signed choices, not global truth.
-- Malformed or hostile label data cannot suppress content or inject styles.
+- A post can independently set, edit, and clear one flair per attached topic.
+- A persona can independently set, edit, and clear one public flair per topic.
+- Community views show only the current topic's flair.
+- Aggregated views never choose a primary topic implicitly.
+- Self-chosen flair is never rendered as verified, awarded, or permissioned.
+- Malformed remote flair cannot suppress valid content or inject styles.
+- Flair is readable and distinguishable without color and under all Hydra
+  themes.
 - Existing posts and profiles without flair render unchanged.
 
 ## References
