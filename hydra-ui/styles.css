@@ -4,35 +4,36 @@
   background: var(--canvas);
   color-scheme: light;
   font-synthesis: none;
+  --surface-seed: #5687bb;
   --accent-seed: #5687bb;
   --accent: color-mix(in srgb, var(--accent-seed) 88%, #26384b);
   --accent-strong: color-mix(in srgb, var(--accent-seed) 64%, #1b2d40);
   --accent-soft: color-mix(in srgb, var(--accent-seed) 15%, transparent);
   --accent-faint: color-mix(in srgb, var(--accent-seed) 7%, transparent);
   --on-accent: #ffffff;
-  --canvas: color-mix(in srgb, var(--accent-seed) 16%, #f3f7fb);
-  --chrome: color-mix(in srgb, var(--accent-seed) 10%, #f7faff);
-  --sidebar-surface: color-mix(in srgb, var(--accent-seed) 20%, #eef4fa);
+  --canvas: color-mix(in srgb, var(--surface-seed) 16%, #f3f7fb);
+  --chrome: color-mix(in srgb, var(--surface-seed) 10%, #f7faff);
+  --sidebar-surface: color-mix(in srgb, var(--surface-seed) 20%, #eef4fa);
   --ink: #202a34;
   --muted: #566575;
   --faint: #657586;
-  --line: color-mix(in srgb, var(--accent-seed) 25%, transparent);
-  --panel: color-mix(in srgb, var(--accent-seed) 10%, #ffffff);
-  --panel-2: color-mix(in srgb, var(--accent-seed) 18%, #f7faff);
-  --panel-3: color-mix(in srgb, var(--accent-seed) 28%, #eef4fa);
+  --line: color-mix(in srgb, var(--surface-seed) 25%, transparent);
+  --panel: color-mix(in srgb, var(--surface-seed) 10%, #ffffff);
+  --panel-2: color-mix(in srgb, var(--surface-seed) 18%, #f7faff);
+  --panel-3: color-mix(in srgb, var(--surface-seed) 28%, #eef4fa);
   --paper: var(--panel);
   --red: #bd4e48;
   --amber: #9a751c;
   --blue: #436f9f;
   --vote-up: #ff4500;
   --vote-down: #4f72d8;
-  --shadow: 0 18px 55px color-mix(in srgb, var(--accent-seed) 20%, transparent);
+  --shadow: 0 18px 55px color-mix(in srgb, var(--surface-seed) 20%, transparent);
   --nav-ink: #485869;
   --nav-active: var(--accent-strong);
   --nav-icon: color-mix(in srgb, var(--accent-seed) 65%, #5f6c79);
-  --bar: color-mix(in srgb, var(--accent-seed) 16%, #edf3f9);
-  --card-hover: color-mix(in srgb, var(--accent-seed) 14%, #ffffff);
-  --shade: color-mix(in srgb, var(--accent-seed) 10%, transparent);
+  --bar: color-mix(in srgb, var(--surface-seed) 16%, #edf3f9);
+  --card-hover: color-mix(in srgb, var(--surface-seed) 14%, #ffffff);
+  --shade: color-mix(in srgb, var(--surface-seed) 10%, transparent);
   --body-ink: #3c4b59;
   --strong-body-ink: #2e3d4a;
   --comment-ink: #3c4b59;
@@ -42,7 +43,7 @@
   --provenance-ink: var(--accent-strong);
   --projected-ink: #315f96;
   --reddit-ink: #98483d;
-  --modal: #fbfcfd;
+  --modal: color-mix(in srgb, var(--surface-seed) 10%, #fbfcfd);
   --raw-ink: #3c4b59;
   --danger-ink: #8c2522;
 }
@@ -54,16 +55,16 @@
   --accent-soft: color-mix(in srgb, var(--accent-seed) 22%, transparent);
   --accent-faint: color-mix(in srgb, var(--accent-seed) 10%, transparent);
   --on-accent: #18212b;
-  --canvas: color-mix(in srgb, var(--accent-seed) 5%, #101419);
-  --chrome: color-mix(in srgb, var(--accent-seed) 4%, #0d1116);
-  --sidebar-surface: color-mix(in srgb, var(--accent-seed) 8%, #11161b);
+  --canvas: color-mix(in srgb, var(--surface-seed) 5%, #101419);
+  --chrome: color-mix(in srgb, var(--surface-seed) 4%, #0d1116);
+  --sidebar-surface: color-mix(in srgb, var(--surface-seed) 8%, #11161b);
   --ink: #edf1f5;
   --muted: #9ca9b7;
   --faint: #8796a5;
-  --line: color-mix(in srgb, var(--accent-seed) 28%, transparent);
-  --panel: color-mix(in srgb, var(--accent-seed) 8%, #151b21);
-  --panel-2: color-mix(in srgb, var(--accent-seed) 14%, #151b21);
-  --panel-3: color-mix(in srgb, var(--accent-seed) 21%, #151b21);
+  --line: color-mix(in srgb, var(--surface-seed) 28%, transparent);
+  --panel: color-mix(in srgb, var(--surface-seed) 8%, #151b21);
+  --panel-2: color-mix(in srgb, var(--surface-seed) 14%, #151b21);
+  --panel-3: color-mix(in srgb, var(--surface-seed) 21%, #151b21);
   --red: #ff766f;
   --amber: #edc96d;
   --blue: #77b8ff;
@@ -73,8 +74,8 @@
   --nav-ink: #b4bec8;
   --nav-active: #edf3f8;
   --nav-icon: color-mix(in srgb, var(--accent-seed) 60%, #9ca9b7);
-  --bar: color-mix(in srgb, var(--accent-seed) 7%, rgba(8, 12, 16, .72));
-  --card-hover: color-mix(in srgb, var(--accent-seed) 10%, #151b21);
+  --bar: color-mix(in srgb, var(--surface-seed) 7%, rgba(8, 12, 16, .72));
+  --card-hover: color-mix(in srgb, var(--surface-seed) 10%, #151b21);
   --shade: rgba(0, 0, 0, .1);
   --body-ink: #c0cad3;
   --strong-body-ink: #d2dae1;
@@ -85,7 +86,7 @@
   --provenance-ink: var(--accent-strong);
   --projected-ink: #b8d7ff;
   --reddit-ink: #ffb6a9;
-  --modal: color-mix(in srgb, var(--accent-seed) 9%, #151b21);
+  --modal: color-mix(in srgb, var(--surface-seed) 9%, #151b21);
   --raw-ink: #c8d2db;
   --danger-ink: #ffd0cd;
 }
@@ -264,6 +265,16 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .community-image-preview small, .community-image-preview strong { display: block; }
 .community-image-preview small { color: var(--muted); font-size: 12px; }
 .community-image-preview strong { font: 700 19px/1.1 Georgia, serif; }
+.community-theme-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.community-theme-sample { min-width: 0; display: grid; gap: 8px; border: 1px solid color-mix(in srgb, var(--sample-base) 32%, transparent); border-radius: 8px; padding: 12px; }
+.community-theme-sample.light { color: #202a34; background: color-mix(in srgb, var(--sample-base) 16%, #f3f7fb); }
+.community-theme-sample.dark { color: #edf1f5; background: color-mix(in srgb, var(--sample-base) 8%, #101419); }
+.community-theme-sample > strong { font-size: 12px; }
+.community-theme-sample-panel { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-radius: 6px; padding: 10px; background: color-mix(in srgb, var(--sample-base) 18%, transparent); }
+.community-theme-sample-panel span { overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 700; }
+.community-theme-sample-panel button { border: 0; border-radius: 5px; padding: 6px 9px; color: #fff; background: var(--sample-accent); font-weight: 700; }
+.community-theme-sample.dark .community-theme-sample-panel button { color: #18212b; }
+.community-theme-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
 .secondary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .community-actions, .post-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .norm-field summary { cursor: pointer; color: var(--muted); }
@@ -326,6 +337,7 @@ body.settings-window { min-width: 0; min-height: 0; }
 .field { display: grid; gap: 6px; margin: 14px 0; }
 .field > span { color: var(--field-ink); font-size: 12px; font-weight: 650; }
 .field input, .field textarea, .field select { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px 11px; color: var(--ink); background: rgba(255,255,255,.035); outline: 0; }
+.field input[type="color"] { min-height: 44px; padding: 4px; cursor: pointer; }
 .field textarea { min-height: 128px; resize: vertical; line-height: 1.5; }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
 .field-help { color: var(--faint); font-size: 12px; }

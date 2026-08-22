@@ -283,6 +283,25 @@ pub struct CommunityAppearanceRecord {
     pub appearance: flocking_core::CommunityAppearance,
 }
 
+/// One persona's encrypted direct choice for a community color scheme.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommunityColorChoiceRecord {
+    pub persona: PersonaId,
+    pub public: bool,
+    pub choice: crate::CommunityColorChoice,
+}
+
+impl CommunityColorChoiceRecord {
+    /// Revalidates the portable color choice before it affects a persona's view.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the choice contains malformed colors or event identity.
+    pub fn validate(&self) -> Result<(), DomainError> {
+        self.choice.validate()
+    }
+}
+
 impl CommunityAppearanceRecord {
     /// Revalidates the portable image choice before it affects a persona's view.
     ///
@@ -437,6 +456,7 @@ pub enum PrivateRecord {
     FlockingProfile(FlockingProfile),
     FlockingJudgment(FlockingJudgmentRecord),
     CommunityAppearance(CommunityAppearanceRecord),
+    CommunityColorChoice(CommunityColorChoiceRecord),
 }
 
 impl PrivateRecord {
@@ -466,6 +486,7 @@ impl PrivateRecord {
             Self::FlockingProfile(item) => item.validate(),
             Self::FlockingJudgment(item) => item.validate(),
             Self::CommunityAppearance(item) => item.validate(),
+            Self::CommunityColorChoice(item) => item.validate(),
         }
     }
 }
@@ -482,6 +503,7 @@ pub struct PrivateState {
     pub flocking_profile: Option<FlockingProfile>,
     pub flocking_judgments: BTreeMap<String, FlockingJudgmentRecord>,
     pub community_appearances: BTreeMap<String, CommunityAppearanceRecord>,
+    pub community_color_choices: BTreeMap<String, CommunityColorChoiceRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

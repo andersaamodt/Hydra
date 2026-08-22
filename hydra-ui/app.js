@@ -18,6 +18,7 @@ import {
   visibleInlineText,
   whyShown,
 } from "./model.js";
+import { ACCENT_COLORS, resolvedThemeColors, suggestedDarkColors } from "./theme.js";
 
 const invoke = window.__TAURI__?.core?.invoke;
 const deepLink = window.__TAURI__?.deepLink;
@@ -27,13 +28,6 @@ const isSettingsWindow = new URLSearchParams(window.location.search).get("window
 const isMacOS = /Macintosh|Mac OS X/.test(navigator.userAgent);
 const requestedSettingsTab = new URLSearchParams(window.location.search).get("tab");
 const systemColorScheme = window.matchMedia("(prefers-color-scheme: dark)");
-const ACCENT_COLORS = {
-  "stone-blue": "#5687bb",
-  indigo: "#6574a8",
-  violet: "#826fa3",
-  terracotta: "#a56f5d",
-  moss: "#6f846f",
-};
 document.documentElement.classList.toggle("settings-window", isSettingsWindow);
 document.documentElement.classList.toggle("platform-macos", isMacOS);
 document.body.classList.toggle("settings-window", isSettingsWindow);
@@ -64,13 +58,15 @@ const AUTOMATIC_SYNC_MIN_GAP_MS = 15_000;
 let automaticSyncStartedAt = 0;
 let automaticSyncDebounce = null;
 
-function applyAppearance(settings = {}) {
+function applyAppearance(settings = {}, community = session.route === "community" ? session.community : null) {
   const theme = ["light", "dark", "system"].includes(settings.theme) ? settings.theme : "light";
-  const accent = ACCENT_COLORS[settings.accent] ?? ACCENT_COLORS["stone-blue"];
   const resolvedTheme = theme === "system" ? (systemColorScheme.matches ? "dark" : "light") : theme;
+  const scheme = community ? effectiveCommunityColorScheme(community) : null;
+  const colors = resolvedThemeColors(settings, scheme, resolvedTheme);
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.resolvedTheme = resolvedTheme;
-  document.documentElement.style.setProperty("--accent-seed", accent);
+  document.documentElement.style.setProperty("--surface-seed", colors.base);
+  document.documentElement.style.setProperty("--accent-seed", colors.accent);
 }
 
 applyAppearance();
@@ -937,6 +933,11 @@ function effectiveCommunityAppearance(community) {
   return (session.state?.communityAppearances ?? []).find((item) => item.personaId === persona?.id && item.topic === community);
 }
 
+function effectiveCommunityColorScheme(community) {
+  const persona = activePersona(session.state);
+  return (session.state?.communityColorSchemes ?? []).find((item) => item.personaId === persona?.id && item.topic === community);
+}
+
 function followedAppearanceSources() {
   const persona = activePersona(session.state);
   return (session.state?.appearanceSources ?? []).filter((item) => item.personaId === persona?.id);
@@ -1059,6 +1060,7 @@ function communityActionMenu(community) {
       item(subscription ? "Unsubscribe" : "Subscribe privately", () => setCommunitySubscription(community, !subscription, false)),
       item(subscription?.public ? "Make subscription private" : "Publish subscription", () => setCommunitySubscription(community, true, !subscription?.public)),
       item("Community image", () => showCommunityAppearanceEditor(community)),
+      item("Community colors", () => showCommunityColorEditor(community)),
       item("People worth a second look", () => showReverseDiscoveries(community)),
       item("Propose a norm", () => showNormComposer(community)),
     ]),
@@ -1330,6 +1332,88 @@ function showCommunityAppearanceEditor(community) {
       throw error;
     }
   } });
+}
+
+function communityThemeSample(mode, community) {
+  return element("div", { class: `community-theme-sample ${mode}` }, [
+    element("strong", { text: mode === "dark" ? "Dark" : "Light" }),
+    element("div", { class: "community-theme-sample-panel" }, [
+      element("span", { text: `/h/${community}` }),
+      element("button", { type: "button", text: "Action", tabindex: "-1" }),
+    ]),
+  ]);
+}
+
+function showCommunityColorEditor(community) {
+  const persona = activePersona(session.state);
+  const current = effectiveCommunityColorScheme(community);
+  const colors = {
+    lightBase: current?.lightBase ?? "#b9d3eb",
+    lightAccent: current?.lightAccent ?? "#326a9d",
+    darkBase: current?.darkBase ?? "#182634",
+    darkAccent: current?.darkAccent ?? "#82b9e7",
+  };
+  const provenance = current?.direct
+    ? "Your color scheme is being used."
+    : current?.sources?.length
+      ? `${current.sources.length} ${current.sources.length === 1 ? "person" : "people"} you follow chose this exact scheme.`
+      : "Hydra's colors are being used because no followed scheme is available.";
+  const lightBase = field("Light base", "color", "light_base", colors.lightBase, "Canvas, chrome, panels, and borders.", { required: true });
+  const lightAccent = field("Light accent", "color", "light_accent", colors.lightAccent, "Actions, links, focus, and selection.", { required: true });
+  const darkBase = field("Dark base", "color", "dark_base", colors.darkBase, "The surface identity in dark mode.", { required: true });
+  const darkAccent = field("Dark accent", "color", "dark_accent", colors.darkAccent, "The interactive identity in dark mode.", { required: true });
+  const preview = element("div", { class: "community-theme-preview", "aria-label": "Light and dark community color preview" }, [
+    communityThemeSample("light", community),
+    communityThemeSample("dark", community),
+  ]);
+  const updatePreview = () => {
+    const scheme = {
+      lightBase: lightBase.querySelector("input").value,
+      lightAccent: lightAccent.querySelector("input").value,
+      darkBase: darkBase.querySelector("input").value,
+      darkAccent: darkAccent.querySelector("input").value,
+    };
+    for (const mode of ["light", "dark"]) {
+      const resolved = resolvedThemeColors({}, scheme, mode);
+      const sample = preview.querySelector(`.${mode}`);
+      sample.style.setProperty("--sample-base", resolved.base);
+      sample.style.setProperty("--sample-accent", resolved.accent);
+    }
+  };
+  for (const control of [lightBase, lightAccent, darkBase, darkAccent]) {
+    control.querySelector("input").addEventListener("input", updatePreview);
+  }
+  const generateDark = actionButton("Generate dark from light", () => {
+    const generated = suggestedDarkColors(lightBase.querySelector("input").value, lightAccent.querySelector("input").value);
+    darkBase.querySelector("input").value = generated.darkBase;
+    darkAccent.querySelector("input").value = generated.darkAccent;
+    updatePreview();
+  });
+  const restore = current?.ownChoice ? actionButton("Use followed scheme", () => mutate("community_color_scheme.set", {
+    persona_id: persona.id,
+    topic: community,
+    public: Boolean(current.ownPublic),
+  }, current.ownPublic ? "Your withdrawal was published; followed colors now decide the scheme." : "Followed colors now decide the scheme.")) : null;
+  const body = element("div", {}, [
+    element("p", { class: "field-help", text: provenance }),
+    preview,
+    element("div", { class: "community-theme-fields" }, [lightBase, lightAccent, darkBase, darkAccent]),
+    element("div", { class: "secondary-actions" }, [generateDark, restore]),
+    toggle("Share this choice", "public", current?.ownChoice ? current.ownPublic : true, "People who follow your appearance choices can use this exact four-color scheme."),
+  ]);
+  updatePreview();
+  modal("Community colors", `Choose the surface and accent identity for ${community}. Hydra derives legible text and component colors.`, body, {
+    submitLabel: current?.ownChoice ? "Update colors" : "Use colors",
+    onSubmit: (data) => mutate("community_color_scheme.set", {
+      persona_id: persona.id,
+      topic: community,
+      public: Boolean(data.get("public")),
+      light_base: data.get("light_base"),
+      light_accent: data.get("light_accent"),
+      dark_base: data.get("dark_base"),
+      dark_accent: data.get("dark_accent"),
+    }, data.get("public") ? "Community colors published." : "Community colors saved privately."),
+  });
 }
 
 async function inspectCommunityImage(community, url) {
@@ -2667,6 +2751,7 @@ function renderSettings() {
       field("Public display name", "text", "display_name", persona.displayName, "", { required: true }),
       field("Mode", "select", "theme", settings.theme ?? "light", "", { values: [["light", "Light"], ["dark", "Dark"], ["system", "Follow system"]], onchange: saveAppearanceChoice }),
       field("Accent color", "select", "accent", settings.accent ?? "stone-blue", "Hydra derives selection, focus, and lightly tinted surfaces from this one color.", { values: [["stone-blue", "Light blue"], ["indigo", "Indigo"], ["violet", "Violet"], ["terracotta", "Terracotta"], ["moss", "Moss"],], onchange: saveAppearanceChoice }),
+      toggle("Use community colors", "use_community_colors", settings.use_community_colors !== false, "Changes the main window's surfaces and accents when you enter a hydrant. Light, Dark, or System mode remains your choice."),
       element("section", { class: "context-card" }, [
         element("h2", { text: "Privacy" }),
         element("p", { text: "Personas are pseudonymous, not guaranteed anonymous. Timing, relays, media servers, IP addresses, writing style, and mistakes can correlate separate keys. Telemetry is off by default." }),
@@ -3624,9 +3709,9 @@ function showPersonaProfile(publicKey) {
     ...followSets.map((item) => element("p", { class: "evidence-note", text: `Public follow set: ${item.title} (${item.members.length} selected personas)` })),
     effectiveFollow?.inherited ? element("p", { class: "evidence-note", text: `Their posts are in your feed through ${effectiveFollow.source?.slice(0, 16)}…. This has not changed your personal follow list.` }) : null,
     publicKey !== active.publicKey && !alreadyFollowed ? actionButton("Follow this persona", () => { closeModal(); mutate("follow.set", { persona_id: active.id, target: publicKey, public: true, following: true }, "Public follow updated."); }, "primary-button") : null,
-    publicKey !== active.publicKey ? actionButton(appearanceFollowed ? "Stop following their community images" : "Follow their community images", () => {
+    publicKey !== active.publicKey ? actionButton(appearanceFollowed ? "Stop following their community appearance" : "Follow their community appearance", () => {
       closeModal();
-      mutate("appearance_source.set", { persona_id: active.id, source: publicKey, enabled: !appearanceFollowed }, appearanceFollowed ? "Community image choices unfollowed." : "Their community image choices will be used after the next sync.");
+      mutate("appearance_source.set", { persona_id: active.id, source: publicKey, enabled: !appearanceFollowed }, appearanceFollowed ? "Community appearance choices unfollowed." : "Their community image and color choices will be used after the next sync.");
     }) : null,
     publicKey !== active.publicKey ? element("section", { class: "profile-judgments" }, [
       element("h3", { text: "Use their judgments" }),
@@ -3876,7 +3961,7 @@ async function saveSettings(event) {
   const blobServers = String(data.get("blob_servers")).split(/\s+/).map((item) => item.trim()).filter(Boolean);
   const personaBlobServers = { ...(settings.persona_blob_servers ?? {}), [persona.id]: blobServers };
   const feedSourceWeights = { followed: Number(data.get("feed_followed")), communities: Number(data.get("feed_communities")), replies: Number(data.get("feed_replies")), revisit: Number(data.get("feed_revisit")) };
-  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), accent: data.get("accent"), show_text_previews: Boolean(data.get("show_text_previews")), show_image_previews: Boolean(data.get("show_image_previews")), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
+  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), accent: data.get("accent"), use_community_colors: Boolean(data.get("use_community_colors")), show_text_previews: Boolean(data.get("show_text_previews")), show_image_previews: Boolean(data.get("show_image_previews")), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
   if (String(data.get("display_name")).trim() !== persona.displayName) {
     await mutate("persona.profile.update", { persona_id: persona.id, display_name: String(data.get("display_name")).trim() }, "Public persona profile updated and queued for publication.");
   }

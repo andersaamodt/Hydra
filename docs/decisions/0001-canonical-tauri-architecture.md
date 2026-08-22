@@ -23,7 +23,7 @@ storage truth, feed policy, or UI semantics.
 
 ## Protocol audit
 
-The Nostr registry was audited at upstream commit `db5fe3de8c5d1443b634c9bbf66ecb004f337057` on 2026-07-22. Experimental kinds `30800` and `30801` were unassigned at that revision and are retained provisionally for editable content heads and projection records respectively.
+The Nostr registry was audited at upstream commit `db5fe3de8c5d1443b634c9bbf66ecb004f337057` on 2026-07-22. Experimental kinds `30800` and `30801` were unassigned at that revision and are retained provisionally for editable content heads and projection records respectively. The official machine-readable kind registry was checked again on 2026-08-21 before assigning unlisted experimental kind `30802` to independently replaceable community-color choices.
 
 Reddit identity proofs are a Hydra-defined provider convention using NIP-39's extensible `platform:identity` form because NIP-39 does not define a Reddit-specific proof recipe.
 

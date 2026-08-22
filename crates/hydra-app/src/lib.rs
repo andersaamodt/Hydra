@@ -13,13 +13,14 @@ use std::{
 
 pub use hydra_domain::PrivateState;
 use hydra_domain::{
-    AnchorId, ArchiveManifest, BlockRecord, CommunityAppearanceRecord, CommunityKey,
-    CommunitySubscription, ContentBody, DeliveryState, DirectMessageRecord, DomainError,
-    DraftRecord, DurableEvent, EncryptedPrivateRecord, ExternalId, FlockingJudgmentRecord,
-    FlockingProfile, FollowRecord, LocalFilterKind, LocalFilterRecord, MediaManifest,
-    MessageDirection, NostrPublicKey, ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId,
-    PrivateRecord, Projection, PublicFollowSet, PublicProjectionRecord, ReactionRecord,
-    ReactionValue, RevisitIntent, RevisitRecord,
+    AnchorId, ArchiveManifest, BlockRecord, CommunityAppearanceRecord, CommunityColorChoice,
+    CommunityColorChoiceRecord, CommunityColorScheme, CommunityKey, CommunitySubscription,
+    ContentBody, DeliveryState, DirectMessageRecord, DomainError, DraftRecord, DurableEvent,
+    EncryptedPrivateRecord, ExternalId, FlockingJudgmentRecord, FlockingProfile, FollowRecord,
+    LocalFilterKind, LocalFilterRecord, MediaManifest, MessageDirection, NostrPublicKey,
+    ObjectHead, ObjectKind, OutboundEvent, Persona, PersonaId, PrivateRecord, Projection,
+    PublicFollowSet, PublicProjectionRecord, ReactionRecord, ReactionValue, RevisitIntent,
+    RevisitRecord,
 };
 pub use hydra_lens::{FeedLens, FeedService};
 use hydra_media::{BlossomClient, MediaStore};
@@ -365,6 +366,7 @@ impl ImportService {
             && event.kind != Kind::Custom(hydra_nostr::PROJECTION_RECORD_KIND)
             && event.kind != Kind::Custom(flocking_core::JUDGMENT_KIND)
             && event.kind != Kind::Custom(flocking_core::COMMUNITY_APPEARANCE_KIND)
+            && event.kind != Kind::Custom(hydra_nostr::COMMUNITY_COLOR_SCHEME_KIND)
             && !hydra_nostr::is_reading_surface_event(&event)
         {
             return Ok(Vec::new());
@@ -389,6 +391,7 @@ impl ImportService {
                         public_projections: Vec::new(),
                         flocking_judgments: Vec::new(),
                         community_appearances: Vec::new(),
+                        community_color_choices: Vec::new(),
                     },
                     recorded_at,
                 )?;
@@ -404,6 +407,7 @@ impl ImportService {
                 public_projections: materialized.public_projections,
                 flocking_judgments: materialized.flocking_judgments,
                 community_appearances: materialized.community_appearances,
+                community_color_choices: materialized.community_color_choices,
             },
             recorded_at,
         )?;
@@ -417,6 +421,7 @@ struct PublicMaterialization {
     public_projections: Vec<PublicProjectionRecord>,
     flocking_judgments: Vec<flocking_core::Judgment>,
     community_appearances: Vec<flocking_core::CommunityAppearance>,
+    community_color_choices: Vec<CommunityColorChoice>,
 }
 
 fn materialize_public_event(
@@ -429,6 +434,7 @@ fn materialize_public_event(
     let mut public_projections = Vec::new();
     let flocking_judgments = hydra_nostr::received_flocking_judgments(event)?;
     let community_appearances = hydra_nostr::received_community_appearances(event)?;
+    let community_color_choices = hydra_nostr::received_community_color_choices(event)?;
     if let Some(projection) = hydra_nostr::received_projection_record(event)? {
         match projection_anchor_author(store, event, &heads, &projection)? {
             Some(author) if author == projection.author => public_projections.push(projection),
@@ -457,6 +463,7 @@ fn materialize_public_event(
         public_projections,
         flocking_judgments,
         community_appearances,
+        community_color_choices,
     })
 }
 
@@ -1529,6 +1536,15 @@ pub struct SetCommunityAppearance {
     pub changed_at: u64,
 }
 
+pub struct SetCommunityColorScheme {
+    pub persona_id: PersonaId,
+    pub topic: CommunityKey,
+    pub scheme: Option<CommunityColorScheme>,
+    pub public: bool,
+    pub relays: Vec<String>,
+    pub changed_at: u64,
+}
+
 pub struct SetAppearanceSource {
     pub persona_id: PersonaId,
     pub source: NostrPublicKey,
@@ -2337,6 +2353,56 @@ impl<S: SecretStore> SocialService<S> {
             store,
             &keys,
             &PrivateRecord::CommunityAppearance(record.clone()),
+            PrivateCommit {
+                outbound,
+                recorded_at: request.changed_at,
+                ..PrivateCommit::default()
+            },
+        )?;
+        Ok(record)
+    }
+
+    /// Stores a direct community-color choice and optionally publishes its signed event.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid colors, missing credentials, signing, or persistence.
+    pub fn set_community_color_scheme(
+        &self,
+        store: &mut DurableStore,
+        request: &SetCommunityColorScheme,
+    ) -> Result<CommunityColorChoiceRecord, AppError> {
+        let (persona, keys) = persona_and_keys(&self.secrets, store, request.persona_id)?;
+        let choice = CommunityColorChoice {
+            author: persona.public_key.clone(),
+            topic: request.topic.clone(),
+            scheme: request.scheme.clone(),
+            created_at: request.changed_at,
+            event_id: None,
+        };
+        choice.validate()?;
+        let mut record = CommunityColorChoiceRecord {
+            persona: request.persona_id,
+            public: request.public,
+            choice,
+        };
+        let mut outbound = Vec::new();
+        if request.public {
+            let event = hydra_nostr::community_color_choice_event(&keys, &record.choice)?;
+            record.choice = hydra_nostr::received_community_color_choices(&event)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    AppError::Protocol(hydra_nostr::ProtocolError::Nostr(
+                        "signed community colors were not readable".to_owned(),
+                    ))
+                })?;
+            outbound.push(outbound_event(&event, &request.relays));
+        }
+        store_private_record(
+            store,
+            &keys,
+            &PrivateRecord::CommunityColorChoice(record.clone()),
             PrivateCommit {
                 outbound,
                 recorded_at: request.changed_at,
@@ -3624,6 +3690,7 @@ fn store_private_record(
             PrivateRecord::FlockingProfile(item) => item.persona,
             PrivateRecord::FlockingJudgment(item) => item.persona,
             PrivateRecord::CommunityAppearance(item) => item.persona,
+            PrivateRecord::CommunityColorChoice(item) => item.persona,
         },
         ciphertext: hydra_nostr::encrypt_private(&keys.storage_keys, &plaintext)?,
         stored_at: commit.recorded_at,
@@ -3727,6 +3794,11 @@ pub fn private_state(
                 state
                     .community_appearances
                     .insert(item.appearance.topic.to_string(), item);
+            }
+            PrivateRecord::CommunityColorChoice(item) => {
+                state
+                    .community_color_choices
+                    .insert(item.choice.topic.as_str().to_owned(), item);
             }
         }
     }
@@ -5805,5 +5877,57 @@ mod tests {
             .unwrap();
         assert_eq!(profile.config.appearance_sources.len(), 1);
         assert!(profile.appearance_complete_sources.is_empty());
+    }
+
+    #[test]
+    fn community_colors_are_persona_scoped_signed_and_independent_from_images() {
+        let root = tempdir().unwrap();
+        let mut store = DurableStore::open(root.path()).unwrap();
+        let secrets = MemorySecrets::default();
+        let alice = PersonaService::new(secrets.clone())
+            .create(&mut store, "Alice".to_owned(), 10)
+            .unwrap();
+        let scheme = CommunityColorScheme {
+            light_base: "#b9d3eb".to_owned(),
+            light_accent: "#326a9d".to_owned(),
+            dark_base: "#182634".to_owned(),
+            dark_accent: "#82b9e7".to_owned(),
+        };
+
+        let record = SocialService::new(secrets.clone())
+            .set_community_color_scheme(
+                &mut store,
+                &SetCommunityColorScheme {
+                    persona_id: alice.id,
+                    topic: CommunityKey::parse("science").unwrap(),
+                    scheme: Some(scheme.clone()),
+                    public: true,
+                    relays: vec!["wss://relay.example".to_owned()],
+                    changed_at: 20,
+                },
+            )
+            .unwrap();
+
+        assert!(record.choice.event_id.is_some());
+        assert_eq!(record.choice.scheme, Some(scheme.clone()));
+        assert!(store.state().community_appearances.is_empty());
+        let event_json = store
+            .state()
+            .outbound
+            .values()
+            .find(|event| event.event_json.contains("\"kind\":30802"))
+            .unwrap()
+            .event_json
+            .clone();
+        ImportService::receive_public(&mut store, &event_json, 21).unwrap();
+        assert_eq!(store.state().community_color_choices.len(), 1);
+        assert_eq!(
+            private_state(&secrets, &store, alice.id)
+                .unwrap()
+                .community_color_choices["science"]
+                .choice
+                .scheme,
+            Some(scheme)
+        );
     }
 }

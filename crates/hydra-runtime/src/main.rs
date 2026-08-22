@@ -19,9 +19,9 @@ use hydra_app::{
     MessagingService, PersonaService, PlatformSecretStore, PreserveAndPublishMedia, PrivateState,
     ProjectionService, PublishFollowSet, ReactToObject, RemoveRevisit, RequestObjectDisowning,
     RescuePerson, SendDirectMessage, SetAppearanceSource, SetCommunityAppearance,
-    SetCommunitySubscription, SetContentJudgment, SetFollow, SetLocalFilter, SetPersonJudgment,
-    SetPersonSource, SetPinDismissal, SetReverseBlockSource, SetRevisit, SocialService,
-    SyncService, private_state,
+    SetCommunityColorScheme, SetCommunitySubscription, SetContentJudgment, SetFollow,
+    SetLocalFilter, SetPersonJudgment, SetPersonSource, SetPinDismissal, SetReverseBlockSource,
+    SetRevisit, SocialService, SyncService, private_state,
 };
 use hydra_bridge::{BridgeError as ForeignBridgeError, BridgeRegistry};
 use hydra_domain::{
@@ -123,6 +123,7 @@ struct HydraState<'a> {
     reverse_sources: Vec<ReverseSourceView>,
     reverse_discoveries: Vec<ReverseDiscoveryView>,
     community_appearances: Vec<CommunityAppearanceView>,
+    community_color_schemes: Vec<CommunityColorSchemeView>,
     appearance_sources: Vec<AppearanceSourceView>,
     filters: Vec<FilterView<'a>>,
     visible_anchors: Vec<String>,
@@ -380,6 +381,21 @@ struct CommunityAppearanceView {
     width: Option<u32>,
     height: Option<u32>,
     alt: Option<String>,
+    direct: bool,
+    sources: Vec<String>,
+    own_choice: bool,
+    own_public: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommunityColorSchemeView {
+    persona_id: String,
+    topic: String,
+    light_base: Option<String>,
+    light_accent: Option<String>,
+    dark_base: Option<String>,
+    dark_accent: Option<String>,
     direct: bool,
     sources: Vec<String>,
     own_choice: bool,
@@ -704,6 +720,17 @@ struct CommunityAppearanceInput {
 }
 
 #[derive(Debug, Deserialize)]
+struct CommunityColorSchemeInput {
+    persona_id: String,
+    topic: String,
+    public: bool,
+    light_base: Option<String>,
+    light_accent: Option<String>,
+    dark_base: Option<String>,
+    dark_accent: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct AppearanceSourceInput {
     persona_id: String,
     source: String,
@@ -766,6 +793,7 @@ struct SettingsUpdateInput {
     replication_threshold: Option<usize>,
     theme: Option<String>,
     accent: Option<String>,
+    use_community_colors: Option<bool>,
     show_text_previews: Option<bool>,
     show_image_previews: Option<bool>,
     onboarding_complete: Option<bool>,
@@ -1519,6 +1547,7 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
     let reverse_sources = reverse_source_views(&private_states);
     let reverse_discoveries = reverse_discovery_views(&store, &settings, &private_states);
     let community_appearances = community_appearance_views(&store, &settings, &private_states);
+    let community_color_schemes = community_color_scheme_views(&store, &settings, &private_states);
     let appearance_sources = appearance_source_views(&private_states);
     let filters = filter_views(&private_states);
     let (visible_anchors, feed_orders, my_feed_order) =
@@ -1560,6 +1589,7 @@ fn state_envelope(root: &PathBuf) -> Result<serde_json::Value, RuntimeError> {
         reverse_sources,
         reverse_discoveries,
         community_appearances,
+        community_color_schemes,
         appearance_sources,
         filters,
         visible_anchors,
@@ -2978,6 +3008,103 @@ fn community_appearance_views(
         .collect()
 }
 
+fn community_color_scheme_views(
+    store: &DurableStore,
+    settings: &Settings,
+    private: &[PrivateState],
+) -> Vec<CommunityColorSchemeView> {
+    let Some(persona_id) = active_persona_id(store, settings) else {
+        return Vec::new();
+    };
+    let Some(persona) = store.state().personas.get(persona_id) else {
+        return Vec::new();
+    };
+    let state = private.first();
+    let selected_sources = state
+        .and_then(|state| state.flocking_profile.as_ref())
+        .map(|profile| {
+            profile
+                .config
+                .appearance_sources
+                .iter()
+                .filter_map(|source| hydra_nostr::nostr_public_key(source).ok())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let complete_sources = state
+        .and_then(|state| state.flocking_profile.as_ref())
+        .map(|profile| {
+            profile
+                .appearance_complete_sources
+                .iter()
+                .filter_map(|source| hydra_nostr::nostr_public_key(source).ok())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut choices = store.state().community_color_choices.clone();
+    if let Some(state) = state {
+        choices.extend(
+            state
+                .community_color_choices
+                .values()
+                .map(|record| record.choice.clone()),
+        );
+    }
+    let mut topics = choices
+        .iter()
+        .map(|choice| choice.topic.clone())
+        .collect::<BTreeSet<_>>();
+    topics.extend(
+        store
+            .state()
+            .heads
+            .current_heads()
+            .flat_map(|head| head.communities.iter().cloned()),
+    );
+    topics
+        .into_iter()
+        .map(|topic| {
+            let result =
+                hydra_domain::evaluate_community_colors(hydra_domain::CommunityColorInput {
+                    persona: &persona.public_key,
+                    topic: &topic,
+                    selected_sources: &selected_sources,
+                    complete_sources: &complete_sources,
+                    choices: &choices,
+                });
+            let own = state.and_then(|state| state.community_color_choices.get(topic.as_str()));
+            CommunityColorSchemeView {
+                persona_id: persona_id.to_string(),
+                topic: topic.as_str().to_owned(),
+                light_base: result
+                    .scheme
+                    .as_ref()
+                    .map(|scheme| scheme.light_base.clone()),
+                light_accent: result
+                    .scheme
+                    .as_ref()
+                    .map(|scheme| scheme.light_accent.clone()),
+                dark_base: result
+                    .scheme
+                    .as_ref()
+                    .map(|scheme| scheme.dark_base.clone()),
+                dark_accent: result
+                    .scheme
+                    .as_ref()
+                    .map(|scheme| scheme.dark_accent.clone()),
+                direct: result.direct,
+                sources: result
+                    .sources
+                    .into_iter()
+                    .map(|source| source.to_string())
+                    .collect(),
+                own_choice: own.is_some_and(|record| record.choice.scheme.is_some()),
+                own_public: own.is_some_and(|record| record.public),
+            }
+        })
+        .collect()
+}
+
 fn appearance_source_views(private: &[PrivateState]) -> Vec<AppearanceSourceView> {
     private
         .iter()
@@ -3111,6 +3238,7 @@ async fn run_action(root: &PathBuf, action: &str, input: &str) -> Result<(), Run
         "reverse_source.set" => reverse_source_action(root, input),
         "rescue" => rescue_action(root, input),
         "community_appearance.set" => community_appearance_action(root, input),
+        "community_color_scheme.set" => community_color_scheme_action(root, input),
         "appearance_source.set" => appearance_source_action(root, input),
         "filter.set" => local_filter_action(root, input),
         "message.send" => send_message_action(root, input).await,
@@ -4658,6 +4786,9 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     if let Some(value) = input.accent {
         settings.accent = value;
     }
+    if let Some(value) = input.use_community_colors {
+        settings.use_community_colors = value;
+    }
     if let Some(value) = input.onboarding_complete {
         settings.onboarding_complete = value;
     }
@@ -5806,6 +5937,49 @@ fn community_appearance_action(root: &PathBuf, input: &str) -> Result<(), Runtim
         },
     )?;
     print_changed("community_appearance.set")
+}
+
+fn community_color_scheme_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {
+    let input: CommunityColorSchemeInput = serde_json::from_str(input)?;
+    let persona = PersonaId::parse(&input.persona_id)?;
+    let colors = [
+        input.light_base,
+        input.light_accent,
+        input.dark_base,
+        input.dark_accent,
+    ];
+    let scheme = if colors.iter().all(Option::is_none) {
+        None
+    } else if colors.iter().all(Option::is_some) {
+        let [light_base, light_accent, dark_base, dark_accent] = colors;
+        Some(hydra_domain::CommunityColorScheme {
+            light_base: light_base.unwrap().trim().to_ascii_lowercase(),
+            light_accent: light_accent.unwrap().trim().to_ascii_lowercase(),
+            dark_base: dark_base.unwrap().trim().to_ascii_lowercase(),
+            dark_accent: dark_accent.unwrap().trim().to_ascii_lowercase(),
+        })
+    } else {
+        return Err(RuntimeError::InvalidInput(
+            "all four community colors are required".to_owned(),
+        ));
+    };
+    if let Some(scheme) = &scheme {
+        scheme.validate()?;
+    }
+    let settings = SettingsStore::new(root).load()?;
+    let mut store = DurableStore::open(root)?;
+    SocialService::new(PlatformSecretStore).set_community_color_scheme(
+        &mut store,
+        &SetCommunityColorScheme {
+            persona_id: persona,
+            topic: CommunityKey::parse(input.topic)?,
+            scheme,
+            public: input.public,
+            relays: settings.write_relays_for(persona).to_vec(),
+            changed_at: unix_now(),
+        },
+    )?;
+    print_changed("community_color_scheme.set")
 }
 
 fn appearance_source_action(root: &PathBuf, input: &str) -> Result<(), RuntimeError> {

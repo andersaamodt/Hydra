@@ -28,7 +28,9 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use url::Url;
 
-pub use hydra_protocol::{OBJECT_HEAD_KIND, PROJECTION_RECORD_KIND, PROTOCOL_VERSION};
+pub use hydra_protocol::{
+    COMMUNITY_COLOR_SCHEME_KIND, OBJECT_HEAD_KIND, PROJECTION_RECORD_KIND, PROTOCOL_VERSION,
+};
 
 pub const CANON_NAMESPACE: &str = "dev.wizardry.canon";
 pub const CANON_SCHEMA_VERSION: &str = "2";
@@ -144,6 +146,145 @@ pub fn community_appearance_event(
     signer.sign(builder)
 }
 
+/// Parses one signed, addressable community-color choice.
+///
+/// # Errors
+///
+/// Returns an error for an invalid signature, address, action, or color tuple.
+pub fn received_community_color_choices(
+    event: &Event,
+) -> Result<Vec<hydra_domain::CommunityColorChoice>, ProtocolError> {
+    if event.kind.as_u16() != COMMUNITY_COLOR_SCHEME_KIND {
+        return Ok(Vec::new());
+    }
+    event.verify().map_err(nostr_error)?;
+    let one = |name: &str| -> Result<&str, ProtocolError> {
+        let mut values = event.tags.iter().filter_map(|item| {
+            let parts = item.as_slice();
+            (parts.first().map(String::as_str) == Some(name))
+                .then(|| parts.get(1).map(String::as_str))
+                .flatten()
+        });
+        let value = values
+            .next()
+            .ok_or_else(|| ProtocolError::Nostr(format!("missing {name} tag")))?;
+        if values.next().is_some() {
+            return Err(ProtocolError::Nostr(format!("duplicate {name} tag")));
+        }
+        Ok(value)
+    };
+    if one("v")? != hydra_domain::COMMUNITY_COLOR_SCHEME_VERSION {
+        return Err(ProtocolError::Nostr(
+            "unsupported community-color version".to_owned(),
+        ));
+    }
+    let topic = CommunityKey::parse(one("t")?).map_err(nostr_error)?;
+    if one("d")? != topic.as_str() {
+        return Err(ProtocolError::Nostr(
+            "community-color address does not match its topic".to_owned(),
+        ));
+    }
+    let color = |role: &str| -> Result<String, ProtocolError> {
+        let mut values = event.tags.iter().filter_map(|item| {
+            let parts = item.as_slice();
+            (parts.first().map(String::as_str) == Some("color")
+                && parts.get(1).map(String::as_str) == Some(role)
+                && parts.len() == 3)
+                .then(|| parts.get(2).cloned())
+                .flatten()
+        });
+        let value = values
+            .next()
+            .ok_or_else(|| ProtocolError::Nostr(format!("missing {role} color")))?;
+        if values.next().is_some() {
+            return Err(ProtocolError::Nostr(format!("duplicate {role} color")));
+        }
+        Ok(value)
+    };
+    let color_tag_count = event
+        .tags
+        .iter()
+        .filter(|item| item.as_slice().first().map(String::as_str) == Some("color"))
+        .count();
+    let scheme = match one("j")? {
+        "withdraw" => {
+            if color_tag_count != 0 {
+                return Err(ProtocolError::Nostr(
+                    "withdrawn community colors contain color tags".to_owned(),
+                ));
+            }
+            None
+        }
+        "set" => {
+            if color_tag_count != 4 {
+                return Err(ProtocolError::Nostr(
+                    "community-color choice requires exactly four color tags".to_owned(),
+                ));
+            }
+            Some(hydra_domain::CommunityColorScheme {
+                light_base: color("light-base")?,
+                light_accent: color("light-accent")?,
+                dark_base: color("dark-base")?,
+                dark_accent: color("dark-accent")?,
+            })
+        }
+        _ => {
+            return Err(ProtocolError::Nostr(
+                "unknown community-color action".to_owned(),
+            ));
+        }
+    };
+    let choice = hydra_domain::CommunityColorChoice {
+        author: NostrPublicKey::parse(event.pubkey.to_bech32().map_err(nostr_error)?)
+            .map_err(nostr_error)?,
+        topic,
+        scheme,
+        created_at: event.created_at.as_secs(),
+        event_id: Some(event.id.to_hex()),
+    };
+    choice.validate().map_err(nostr_error)?;
+    Ok(vec![choice])
+}
+
+/// Builds and signs one canonical community-color event.
+///
+/// # Errors
+///
+/// Returns an error for invalid colors or signing failure.
+pub fn community_color_choice_event(
+    signer: &impl EventSigner,
+    choice: &hydra_domain::CommunityColorChoice,
+) -> Result<Event, ProtocolError> {
+    choice.validate().map_err(nostr_error)?;
+    let signer_key = signer.public_key().to_bech32().map_err(nostr_error)?;
+    if choice.author.as_str() != signer_key {
+        return Err(ProtocolError::Nostr(
+            "community-color signer does not match its author".to_owned(),
+        ));
+    }
+    let mut tags = vec![
+        tag(["d", choice.topic.as_str()])?,
+        tag(["v", hydra_domain::COMMUNITY_COLOR_SCHEME_VERSION])?,
+        tag(["t", choice.topic.as_str()])?,
+    ];
+    if let Some(scheme) = &choice.scheme {
+        tags.extend([
+            tag(["j", "set"])?,
+            tag(["color", "light-base", scheme.light_base.as_str()])?,
+            tag(["color", "light-accent", scheme.light_accent.as_str()])?,
+            tag(["color", "dark-base", scheme.dark_base.as_str()])?,
+            tag(["color", "dark-accent", scheme.dark_accent.as_str()])?,
+        ]);
+    } else {
+        tags.push(tag(["j", "withdraw"])?);
+    }
+    signer.sign(
+        EventBuilder::new(Kind::Custom(COMMUNITY_COLOR_SCHEME_KIND), "")
+            .tags(tags)
+            .custom_created_at(Timestamp::from_secs(choice.created_at)),
+    )
+}
+
 /// Builds and signs one canonical Flocking judgment event.
 ///
 /// # Errors
@@ -189,6 +330,7 @@ pub async fn fetch_flocking_judgment_events(
                 Kind::ContactList,
                 Kind::Custom(flocking_core::JUDGMENT_KIND),
                 Kind::Custom(flocking_core::COMMUNITY_APPEARANCE_KIND),
+                Kind::Custom(COMMUNITY_COLOR_SCHEME_KIND),
                 Kind::Custom(10_000),
             ]),
             Duration::from_secs(8),
@@ -3384,6 +3526,33 @@ mod tests {
             "private memory"
         );
         assert!(decrypt_private(&bob, &ciphertext).is_err());
+    }
+
+    #[test]
+    fn community_colors_round_trip_as_a_separate_addressable_choice() {
+        let keys = Keys::generate();
+        let choice = hydra_domain::CommunityColorChoice {
+            author: NostrPublicKey::parse(keys.public_key().to_bech32().unwrap()).unwrap(),
+            topic: CommunityKey::parse("science").unwrap(),
+            scheme: Some(hydra_domain::CommunityColorScheme {
+                light_base: "#b9d3eb".to_owned(),
+                light_accent: "#326a9d".to_owned(),
+                dark_base: "#182634".to_owned(),
+                dark_accent: "#82b9e7".to_owned(),
+            }),
+            created_at: 42,
+            event_id: None,
+        };
+        let event = community_color_choice_event(&keys, &choice).unwrap();
+        let parsed = received_community_color_choices(&event).unwrap();
+
+        assert_eq!(event.kind, Kind::Custom(COMMUNITY_COLOR_SCHEME_KIND));
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].author, choice.author);
+        assert_eq!(parsed[0].topic, choice.topic);
+        assert_eq!(parsed[0].scheme, choice.scheme);
+        assert_eq!(parsed[0].created_at, 42);
+        assert_eq!(parsed[0].event_id, Some(event.id.to_hex()));
     }
 
     #[tokio::test]

@@ -95,6 +95,8 @@ pub struct Settings {
     #[serde(default = "default_accent")]
     pub accent: String,
     #[serde(default = "default_enabled")]
+    pub use_community_colors: bool,
+    #[serde(default = "default_enabled")]
     pub show_text_previews: bool,
     #[serde(default = "default_enabled")]
     pub show_image_previews: bool,
@@ -208,6 +210,7 @@ impl Default for Settings {
             replication_threshold: 2,
             theme: default_theme(),
             accent: default_accent(),
+            use_community_colors: true,
             show_text_previews: true,
             show_image_previews: true,
             onboarding_complete: false,
@@ -576,6 +579,7 @@ mod tests {
         assert_eq!(defaults.accent, "stone-blue");
         assert!(defaults.show_text_previews);
         assert!(defaults.show_image_previews);
+        assert!(defaults.use_community_colors);
 
         let root = tempdir().unwrap();
         let serialized = serde_yaml::to_string(&defaults).unwrap();
@@ -585,6 +589,7 @@ mod tests {
                 !line.starts_with("accent:")
                     && !line.starts_with("show_text_previews:")
                     && !line.starts_with("show_image_previews:")
+                    && !line.starts_with("use_community_colors:")
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -597,6 +602,7 @@ mod tests {
         let migrated = SettingsStore::new(root.path()).load().unwrap();
         assert!(migrated.show_text_previews);
         assert!(migrated.show_image_previews);
+        assert!(migrated.use_community_colors);
     }
 
     #[cfg(unix)]

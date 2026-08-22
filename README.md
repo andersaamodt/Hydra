@@ -48,7 +48,7 @@ When Stonr is installed, the canonical test gate also launches a local relay and
 
 - `crates/hydra-domain`: framework-free identities, communities, reactions, memory, and state machines.
 - `crates/hydra-store`: checksummed append log, encrypted private records, drafts, settings, and media.
-- `crates/hydra-nostr`: standard Nostr composition, the two minimal Hydra protocol additions, and the projection-only Canon adapter.
+- `crates/hydra-nostr`: standard Nostr composition, Hydra's minimal custom protocol additions, and the projection-only Canon adapter.
 - `crates/hydra-reddit`: detachable OAuth, browsing, projection, Big Stick, Reddacted, and official export adapter.
 - `crates/hydra-app`: domain orchestration without desktop dependencies.
 - `crates/hydra-runtime`: typed actions and Theurgy-compatible envelopes.

@@ -13,6 +13,7 @@ mod projection;
 mod publication;
 mod social;
 mod text;
+mod theme;
 mod transport;
 
 pub use community::CommunityKey;
@@ -33,9 +34,14 @@ pub use operation::{OperationId, OperationState};
 pub use projection::{Projection, ProjectionId, ProjectionState, PublicProjectionRecord};
 pub use publication::{PublicationState, ReplicationStatus};
 pub use social::{
-    BlockRecord, CommunityAppearanceRecord, CommunitySubscription, DirectMessageRecord, DraftKind,
-    DraftRecord, EncryptedPrivateRecord, FlockingJudgmentRecord, FlockingProfile, FollowRecord,
-    LocalFilterKind, LocalFilterRecord, MessageDirection, PrivateRecord, PrivateState,
-    PublicFollowSet, ReactionRecord, ReactionValue, RevisitIntent, RevisitRecord,
+    BlockRecord, CommunityAppearanceRecord, CommunityColorChoiceRecord, CommunitySubscription,
+    DirectMessageRecord, DraftKind, DraftRecord, EncryptedPrivateRecord, FlockingJudgmentRecord,
+    FlockingProfile, FollowRecord, LocalFilterKind, LocalFilterRecord, MessageDirection,
+    PrivateRecord, PrivateState, PublicFollowSet, ReactionRecord, ReactionValue, RevisitIntent,
+    RevisitRecord,
+};
+pub use theme::{
+    COMMUNITY_COLOR_SCHEME_VERSION, CommunityColorChoice, CommunityColorInput,
+    CommunityColorResult, CommunityColorScheme, evaluate_community_colors,
 };
 pub use transport::{DeliveryState, OutboundEvent};

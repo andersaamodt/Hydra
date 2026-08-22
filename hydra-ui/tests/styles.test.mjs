@@ -4,19 +4,20 @@ import { readFile } from "node:fs/promises";
 
 const styles = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
+const theme = await readFile(new URL("../theme.js", import.meta.url), "utf8");
 const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const tauri = await readFile(new URL("../../apps/desktop/tauri/tauri.conf.json", import.meta.url), "utf8");
 const desktop = await readFile(new URL("../../apps/desktop/tauri/src/main.rs", import.meta.url), "utf8");
 const capability = await readFile(new URL("../../apps/desktop/tauri/capabilities/default.json", import.meta.url), "utf8");
 
 test("the default light-blue scheme uses visibly tinted semantic surfaces", () => {
-  for (const variable of ["--accent-seed", "--canvas", "--sidebar-surface", "--bar", "--card-hover", "--modal"]) {
+  for (const variable of ["--surface-seed", "--accent-seed", "--canvas", "--sidebar-surface", "--bar", "--card-hover", "--modal"]) {
     assert.match(styles, new RegExp(`${variable}:`));
   }
 
   assert.match(styles, /--accent-seed:\s*#5687bb/);
-  assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--accent-seed\)/);
-  assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--accent-seed\) 16%/);
+  assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--surface-seed\)/);
+  assert.match(styles, /--canvas:\s*color-mix\(in srgb, var\(--surface-seed\) 16%/);
   assert.match(styles, /:root\[data-resolved-theme="dark"\]/);
   assert.match(styles, /body\s*\{[^}]*background:\s*var\(--canvas\)/);
   assert.match(styles, /\.topbar\s*\{[^}]*background:\s*var\(--chrome\)/);
@@ -108,6 +109,25 @@ test("dark text and controls remain legible for every accent", () => {
   }
 });
 
+test("community colors are independent, human-authored, and route-scoped", () => {
+  assert.match(app, /function effectiveCommunityColorScheme\(community\)/);
+  assert.match(app, /communityColorSchemes/);
+  assert.match(app, /item\("Community colors", \(\) => showCommunityColorEditor\(community\)\)/);
+  assert.match(app, /function showCommunityColorEditor\(community\)/);
+  assert.match(app, /"light_base"|light_base:/);
+  assert.match(app, /"dark_accent"|dark_accent:/);
+  assert.match(app, /community_color_scheme\.set/);
+  assert.match(app, /Generate dark from light/);
+  assert.match(app, /Use followed scheme/);
+  assert.match(app, /Use community colors/);
+  assert.match(app, /use_community_colors/);
+  assert.match(app, /applyAppearance\(session\.state\?\.settings\)/);
+  assert.match(app, /--surface-seed/);
+  assert.match(styles, /--surface-seed:\s*#5687bb/);
+  assert.match(styles, /\.community-theme-preview/);
+  assert.match(styles, /\.community-theme-sample\.dark/);
+});
+
 test("the permanent shell avoids AI-generated interface foibles", () => {
   assert.match(index, /<title>Hydra<\/title>/);
   assert.match(tauri, /"title": "Hydra"/);
@@ -177,7 +197,7 @@ test("startup uses the real icon and one atomic splash handoff", () => {
 test("appearance and chamber tabs honor desktop input contracts", () => {
   assert.match(app, /function saveAppearanceChoice\(event\)/);
   assert.match(app, /runtime\("settings\.update", selected\)/);
-  assert.match(app, /"stone-blue": "#5687bb"/);
+  assert.match(theme, /"stone-blue": "#5687bb"/);
   assert.match(app, /\["stone-blue", "Light blue"\]/);
   assert.match(app, /Hydra derives selection, focus, and lightly tinted surfaces from this one color/);
   assert.match(app, /role:\s*"tab"/);
@@ -408,7 +428,7 @@ test("community routes use one compact heading with art and actions", () => {
   assert.match(app, /showCommunityAppearanceEditor/);
   assert.match(app, /community_appearance\.set/);
   assert.match(app, /appearance_source\.set/);
-  assert.match(app, /Follow their community images/);
+  assert.match(app, /Follow their community appearance/);
   assert.match(app, /function showPersonaProfile/);
   assert.doesNotMatch(app, /function showAppearanceSources/);
   assert.doesNotMatch(app, /field\("SHA-256"/);

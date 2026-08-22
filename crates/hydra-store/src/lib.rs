@@ -1020,6 +1020,7 @@ pub struct ReplayState {
     pub head_first_seen: BTreeMap<(AnchorId, u64), u64>,
     pub flocking_judgments: Vec<flocking_core::Judgment>,
     pub community_appearances: Vec<flocking_core::CommunityAppearance>,
+    pub community_color_choices: Vec<hydra_domain::CommunityColorChoice>,
     pub media: BTreeMap<(AnchorId, String), MediaManifest>,
 }
 
@@ -1135,6 +1136,7 @@ impl ReplayState {
                 public_projections,
                 flocking_judgments,
                 community_appearances,
+                community_color_choices,
             } => self.apply_remote_event(
                 event_id,
                 event_json,
@@ -1143,6 +1145,7 @@ impl ReplayState {
                 public_projections,
                 flocking_judgments,
                 community_appearances,
+                community_color_choices,
                 recorded_at,
             ),
             DurableEvent::MediaPreserved(manifest)
@@ -1397,6 +1400,7 @@ impl ReplayState {
         public_projections: &[PublicProjectionRecord],
         flocking_judgments: &[flocking_core::Judgment],
         community_appearances: &[flocking_core::CommunityAppearance],
+        community_color_choices: &[hydra_domain::CommunityColorChoice],
         recorded_at: u64,
     ) -> Result<(), DomainError> {
         if event_id.is_empty() || event_json.is_empty() {
@@ -1444,6 +1448,8 @@ impl ReplayState {
             .extend(flocking_judgments.iter().cloned());
         self.community_appearances
             .extend(community_appearances.iter().cloned());
+        self.community_color_choices
+            .extend(community_color_choices.iter().cloned());
         self.received_events
             .insert(event_id.to_owned(), event_json.to_owned());
         self.received_event_first_seen
@@ -1817,6 +1823,7 @@ mod tests {
                     public_projections: Vec::new(),
                     flocking_judgments: Vec::new(),
                     community_appearances: Vec::new(),
+                    community_color_choices: Vec::new(),
                 },
                 42,
             )

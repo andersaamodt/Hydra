@@ -1261,6 +1261,7 @@ mod tests {
                     public_projections: Vec::new(),
                     flocking_judgments: vec![judgment],
                     community_appearances: Vec::new(),
+                    community_color_choices: Vec::new(),
                 },
                 2,
             )
@@ -1361,6 +1362,7 @@ mod tests {
                         public_projections: Vec::new(),
                         flocking_judgments: Vec::new(),
                         community_appearances: Vec::new(),
+                        community_color_choices: Vec::new(),
                     },
                     recorded_at,
                 )
@@ -1402,6 +1404,7 @@ mod tests {
                         Some(10),
                     )],
                     community_appearances: Vec::new(),
+                    community_color_choices: Vec::new(),
                 },
                 10,
             )
@@ -1439,6 +1442,7 @@ mod tests {
                         None,
                     )],
                     community_appearances: Vec::new(),
+                    community_color_choices: Vec::new(),
                 },
                 13,
             )

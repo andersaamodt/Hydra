@@ -16,6 +16,10 @@ pub const OBJECT_HEAD_KIND: u16 = 30_800;
 /// Experimental addressable kind for external projection records.
 pub const PROJECTION_RECORD_KIND: u16 = 30_801;
 
+/// Experimental addressable kind for one person's current community-color choice.
+/// Unlisted in the official machine-readable Nostr kind registry when checked on 2026-08-21.
+pub const COMMUNITY_COLOR_SCHEME_KIND: u16 = 30_802;
+
 pub const PROTOCOL_VERSION: &str = "hydra-protocol/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -27,6 +31,7 @@ pub enum EventRole {
     ExternalReaction,
     EditableHead,
     ProjectionRecord,
+    CommunityColorScheme,
     FollowList,
     InterestList,
     MuteList,
@@ -81,6 +86,12 @@ pub const EVENT_MAPPINGS: &[EventMapping] = &[
         addressable: true,
     },
     EventMapping {
+        role: EventRole::CommunityColorScheme,
+        kind: COMMUNITY_COLOR_SCHEME_KIND,
+        standard_nip: None,
+        addressable: true,
+    },
+    EventMapping {
         role: EventRole::FollowList,
         kind: 3,
         standard_nip: Some(2),
@@ -125,7 +136,10 @@ pub fn mapping(role: EventRole) -> Option<&'static EventMapping> {
 
 #[must_use]
 pub fn custom_kind(kind: u16) -> bool {
-    matches!(kind, OBJECT_HEAD_KIND | PROJECTION_RECORD_KIND)
+    matches!(
+        kind,
+        OBJECT_HEAD_KIND | PROJECTION_RECORD_KIND | COMMUNITY_COLOR_SCHEME_KIND
+    )
 }
 
 #[cfg(test)]
@@ -146,7 +160,7 @@ mod tests {
             .map(|item| item.kind)
             .collect::<BTreeSet<_>>();
         assert_eq!(roles.len(), EVENT_MAPPINGS.len());
-        assert_eq!(custom.len(), 2);
+        assert_eq!(custom.len(), 3);
     }
 
     #[test]

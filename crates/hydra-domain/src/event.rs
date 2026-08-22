@@ -77,6 +77,8 @@ pub enum DurableEvent {
         flocking_judgments: Vec<flocking_core::Judgment>,
         #[serde(default)]
         community_appearances: Vec<flocking_core::CommunityAppearance>,
+        #[serde(default)]
+        community_color_choices: Vec<crate::CommunityColorChoice>,
     },
     MediaPreserved(MediaManifest),
     MediaPreservedFor {
@@ -225,6 +227,7 @@ impl DurableEvent {
                 public_projections,
                 flocking_judgments,
                 community_appearances,
+                community_color_choices,
             } => {
                 if event_id.is_empty()
                     || event_id.len() > 128
@@ -236,6 +239,7 @@ impl DurableEvent {
                     || public_projections.len() > 8
                     || flocking_judgments.len() > 512
                     || community_appearances.len() > 8
+                    || community_color_choices.len() > 8
                 {
                     return Err(crate::DomainError::InvalidObjectShape);
                 }
@@ -249,6 +253,9 @@ impl DurableEvent {
                     appearance
                         .validate()
                         .map_err(|_| crate::DomainError::InvalidFlocking)?;
+                }
+                for choice in community_color_choices {
+                    choice.validate()?;
                 }
                 for projection in public_projections {
                     projection.validate()?;
