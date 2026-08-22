@@ -338,6 +338,9 @@ test("post listings use a minimal old-Reddit hierarchy", () => {
   assert.match(app, /M12 3 4 11h5v8h6v-8h5z/);
   assert.match(styles, /--vote-up:\s*#ff4500/);
   assert.match(styles, /--vote-down:\s*#4f72d8/);
+  assert.match(styles, /\.vote-button\s*\{[^}]*width:\s*32px;[^}]*height:\s*28px/);
+  assert.match(styles, /\.vote-arrow-icon\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px/);
+  assert.match(styles, /\.vote-action-button \.vote-arrow-icon\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px/);
   assert.match(styles, /\.post-card\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent/);
   assert.doesNotMatch(styles, /\.post-card:hover/);
   assert.match(styles, /\.post-title\s*\{[^}]*system-ui/);
