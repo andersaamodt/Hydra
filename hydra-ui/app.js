@@ -48,7 +48,7 @@ const session = {
   selected: null,
   treeFilters: {},
   reddit: { community: null, items: [], rules: [], rulesAvailable: false, after: null, threadRoot: null, threadItems: [], focusedFullname: null, refreshTimer: null, refreshStep: 0, requestEpoch: 0 },
-  openNostr: { items: [], loaded: false, filter: "all", query: "", kind: "all", age: "all" },
+  openNostr: { items: [], loaded: false, loading: false, filter: "all", query: "", kind: "all", age: "all" },
   companions: { checked: false, bookClubInstalled: false },
   foreignBridges: {},
   revealedBlocks: new Set(),
@@ -798,6 +798,7 @@ function setRoute(route, community = null) {
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("is-active", item.dataset.nav === route));
   document.querySelector("#messages-button")?.classList.toggle("is-active", route === "messages");
   render();
+  if (route === "open-nostr" && !session.openNostr.loaded && !session.openNostr.loading) void loadOpenNostr();
 }
 
 async function openSettings(tab = "general") {
@@ -2182,10 +2183,13 @@ function renderMessages() {
 function renderOpenNostr() {
   const header = viewHeader("Open Nostr");
   const controls = element("div", { class: "community-actions" }, [
-    actionButton("Refresh from relays", loadOpenNostr, "primary-button"),
+    actionButton(session.openNostr.loading ? "Refreshing…" : "Refresh from relays", loadOpenNostr, "primary-button"),
   ]);
+  controls.querySelector("button").disabled = session.openNostr.loading;
   const list = element("div", { class: "content-list open-nostr-results" });
-  if (!session.openNostr.loaded) {
+  if (session.openNostr.loading && !session.openNostr.loaded) {
+    list.append(emptyState("Loading from relays…", "Requesting a recent transient sample from your configured read relays."));
+  } else if (!session.openNostr.loaded) {
     list.append(emptyState("No relay sample loaded", "Reading remains transient until you curate or categorize an event.", "Load from relays", loadOpenNostr));
   } else if (!session.openNostr.items.length) {
     list.append(emptyState("No recent discussion returned", "Try again later or choose different read relays in Settings.", "Refresh", loadOpenNostr));
@@ -2378,16 +2382,21 @@ async function copyPortableLink(uri) {
 }
 
 async function loadOpenNostr() {
+  if (session.openNostr.loading) return;
   const persona = activePersona(session.state);
+  session.openNostr.loading = true;
+  if (session.route === "open-nostr") renderOpenNostr();
   try {
     const response = await runtime("nostr.open", { persona_id: persona?.id ?? null, since: null, limit: 30 });
     session.openNostr.items = response.result?.items ?? [];
     session.openNostr.loaded = true;
     resetOpenNostrFilters();
-    renderOpenNostr();
     toast(`Loaded ${session.openNostr.items.length} recent Nostr event${session.openNostr.items.length === 1 ? "" : "s"}.`);
   } catch (error) {
     toast(readableError(error), true);
+  } finally {
+    session.openNostr.loading = false;
+    if (session.route === "open-nostr") renderOpenNostr();
   }
 }
 

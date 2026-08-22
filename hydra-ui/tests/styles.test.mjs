@@ -127,6 +127,9 @@ test("selection and conversation state use whole-element treatments", () => {
 
 test("Open Nostr uses a readable one-column card and bounded first page", () => {
   assert.match(styles, /\.post-card\.open-nostr-card\s*\{[^}]*grid-template-columns:\s*minmax\(0,1fr\)/);
+  assert.match(app, /route === "open-nostr" && !session\.openNostr\.loaded && !session\.openNostr\.loading\) void loadOpenNostr\(\)/);
+  assert.match(app, /if \(session\.openNostr\.loading\) return;/);
+  assert.match(app, /Loading from relays…/);
   assert.match(app, /filter:\s*"all"/);
   assert.match(app, /\["tagged",\s*"Tagged"\]/);
   assert.match(app, /\["uncategorized",\s*"Uncategorized"\]/);
