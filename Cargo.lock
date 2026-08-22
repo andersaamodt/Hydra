@@ -2176,6 +2176,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
+ "tempfile",
  "tokio",
  "url",
 ]

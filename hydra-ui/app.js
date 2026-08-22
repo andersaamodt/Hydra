@@ -55,6 +55,7 @@ const session = {
   pendingJudgment: null,
   emojiPicker: null,
   communityImages: new Map(),
+  mediaPreviews: new Map(),
   busy: false,
 };
 const AUTOMATIC_SYNC_INTERVAL_MS = 120_000;
@@ -227,6 +228,19 @@ function emojiReactIcon() {
     path.setAttribute("d", pathData);
     icon.append(path);
   }
+  return icon;
+}
+
+function blockArrowIcon(direction) {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "vote-arrow-icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "currentColor");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", direction === "down" ? "M12 21 4 13h5V5h6v8h5z" : "M12 3 4 11h5v8h6v-8h5z");
+  icon.append(path);
   return icon;
 }
 
@@ -698,10 +712,34 @@ function postActionMenu(post, lens, community) {
     element("summary", { class: "community-menu-trigger post-menu-trigger", "aria-label": "Post actions", title: "Post actions", text: "⋮" }),
     element("div", { class: "community-menu-popover", role: "menu" }, [
       item("Why is this here?", () => toast(whyShown(post, lens, community))),
+      item("Post details", () => showPostDetails(post)),
       item("Vote details", () => showVoteViews(post)),
     ]),
   );
   return menu;
+}
+
+function showPostDetails(post) {
+  const source = provenance(post);
+  const author = (session.state.personas ?? []).find((persona) => persona.publicKey === post.author);
+  const communities = (post.communities ?? []).map((name) => element("button", {
+    type: "button",
+    class: "community-chip",
+    text: `/h/${name}`,
+    onclick: () => { closeModal(); setRoute("community", name); },
+  }));
+  modal("Post details", "Protocol and storage details for this listing.", element("div", { class: "post-detail-list" }, [
+    element("div", { class: "post-detail-row" }, [element("span", { text: "Source" }), element("strong", { text: source.label })]),
+    element("div", { class: "post-detail-row" }, [
+      element("span", { text: "Author" }),
+      element("button", { type: "button", class: "text-action", text: author?.displayName || `${post.author.slice(0, 16)}…`, onclick: () => { closeModal(); showPersonaProfile(post.author); } }),
+    ]),
+    element("div", { class: "post-detail-row" }, [element("span", { text: "Author key" }), element("code", { text: post.author })]),
+    element("div", { class: "post-detail-row" }, [element("span", { text: "Post anchor" }), element("code", { text: post.anchor })]),
+    element("div", { class: "post-detail-row" }, [element("span", { text: "Stored" }), element("strong", { text: durabilityLabel(post.durability) })]),
+    element("div", { class: "post-detail-row" }, [element("span", { text: "Updated" }), element("time", { datetime: new Date(post.editedAt * 1000).toISOString(), text: new Date(post.editedAt * 1000).toLocaleString() })]),
+    communities.length ? element("div", { class: "post-detail-row" }, [element("span", { text: "Hydrants" }), element("div", { class: "post-detail-hydrants" }, communities)]) : null,
+  ]), { submitLabel: "Close", onSubmit: closeModal });
 }
 
 function communityViewHeader(community, title, extras = []) {
@@ -942,36 +980,85 @@ function emptyState(title, body, action, onAction) {
   ]);
 }
 
+function openDiscussion(anchor) {
+  session.selected = anchor;
+  render();
+}
+
+function imageMediaFor(post) {
+  return (post.media ?? []).find((media) => media.mimeType?.startsWith("image/")) ?? null;
+}
+
+async function localMediaPreview(media) {
+  if (!invoke) return null;
+  if (!session.mediaPreviews.has(media.sha256)) {
+    const pending = invoke("read_media_preview", { sha256: media.sha256 })
+      .then((preview) => `data:${preview.mimeType};base64,${preview.base64}`)
+      .catch(() => null);
+    session.mediaPreviews.set(media.sha256, pending);
+  }
+  const preview = await session.mediaPreviews.get(media.sha256);
+  session.mediaPreviews.set(media.sha256, preview);
+  return preview;
+}
+
+function postImagePreview(post) {
+  if (session.state.settings?.show_image_previews === false) return null;
+  const media = imageMediaFor(post);
+  if (!media) return null;
+  const preview = element("button", {
+    type: "button",
+    class: "post-image-preview is-loading",
+    "aria-label": `Open ${post.title || "image post"}`,
+    onclick: () => openDiscussion(post.anchor),
+  }, [element("span", { text: "Loading image…" })]);
+  void localMediaPreview(media).then((source) => {
+    if (!preview.isConnected) return;
+    if (!source) { preview.remove(); return; }
+    const image = element("img", {
+      src: source,
+      alt: post.title || "Post image",
+      onload: () => preview.classList.remove("is-loading"),
+      onerror: () => preview.remove(),
+    });
+    preview.replaceChildren(image);
+  });
+  return preview;
+}
+
 function postCard(post, lens, community) {
   const effect = judgmentEffect(post, community);
   const pendingHide = effect?.pending && effect.kind === "hide";
   if (effect && !pendingHide && !session.revealedBlocks.has(post.anchor)) {
     return blockedPlaceholder(post, "Post", effect);
   }
-  const origin = provenance(post);
   const currentVote = currentPersonaVote(post.anchor);
-  const vote = element("div", { class: "vote-column", "aria-label": "Hydra vote" }, [
-    element("button", { type: "button", class: `vote-button${currentVote === "+" ? " is-active" : ""}`, text: "▲", title: currentVote === "+" ? "Remove upvote" : "Upvote", "aria-pressed": currentVote === "+", onclick: () => toggleVote(post.anchor, "+") }),
+  const vote = element("div", { class: `vote-column${currentVote === "+" ? " is-upvoted" : currentVote === "-" ? " is-downvoted" : ""}`, "aria-label": "Hydra vote" }, [
+    element("button", { type: "button", class: `vote-button${currentVote === "+" ? " is-active" : ""}`, title: currentVote === "+" ? "Remove upvote" : "Upvote", "aria-label": currentVote === "+" ? "Remove upvote" : "Upvote", "aria-pressed": currentVote === "+", onclick: () => toggleVote(post.anchor, "+") }, [blockArrowIcon("up")]),
     element("span", { class: "vote-score", text: String(post.currentScore ?? 0), title: "Current Hydra score: one stance per persona" }),
-    element("button", { type: "button", class: `vote-button down${currentVote === "-" ? " is-active" : ""}`, text: "▼", title: currentVote === "-" ? "Remove downvote" : "Downvote", "aria-pressed": currentVote === "-", onclick: () => toggleVote(post.anchor, "-") }),
+    element("button", { type: "button", class: `vote-button down${currentVote === "-" ? " is-active" : ""}`, title: currentVote === "-" ? "Remove downvote" : "Downvote", "aria-label": currentVote === "-" ? "Remove downvote" : "Downvote", "aria-pressed": currentVote === "-", onclick: () => toggleVote(post.anchor, "-") }, [blockArrowIcon("down")]),
   ]);
   const communities = (post.communities ?? []).map((name) => element("button", {
     type: "button", class: "community-chip", text: `/h/${name}`, onclick: () => setRoute("community", name),
   }));
+  const textOnly = !(post.media ?? []).length;
+  const textPreview = textOnly && session.state.settings?.show_text_previews !== false && post.body?.trim()
+    ? element("p", { class: "post-body post-text-preview", text: post.body })
+    : null;
   const main = element("div", { class: "post-main" }, [
-    element("div", { class: "meta-line" }, [
-      element("span", { class: `provenance ${origin.tone}`, text: origin.label }),
-      element("button", { type: "button", class: "text-action", text: `${post.author.slice(0, 12)}…`, onclick: () => showPersonaProfile(post.author) }),
-      element("span", { text: `· ${relativeTime(post.editedAt)}` }),
-      element("span", { class: "state-chip", text: durabilityLabel(post.durability) }),
-      post.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
+    element("div", { class: "post-listing-head" }, [
+      element("div", { class: "post-title-line" }, [
+        element("button", { type: "button", class: "post-title", text: post.title || "Untitled discussion", onclick: () => openDiscussion(post.anchor) }),
+        element("time", { class: "post-age", datetime: new Date(post.editedAt * 1000).toISOString(), text: relativeTime(post.editedAt) }),
+        post.disowned ? element("span", { class: "state-chip", text: "Disowning requested" }) : null,
+      ]),
+      communities.length ? element("div", { class: "post-hydrants", "aria-label": "Hydrants" }, communities) : null,
     ]),
-    element("button", { type: "button", class: "post-title", text: post.title || "Untitled discussion", onclick: () => { session.selected = post.anchor; render(); } }),
-    element("p", { class: "post-body", text: post.body }),
-    element("div", { class: "status-row" }, communities),
+    textPreview,
+    postImagePreview(post),
     emojiReactionStrip(post),
     element("div", { class: "post-actions" }, [
-      element("button", { type: "button", class: "text-action", text: `${post.discussionCount ?? 0} replies`, onclick: () => { session.selected = post.anchor; render(); } }),
+      element("button", { type: "button", class: "text-action", text: `${post.discussionCount ?? 0} replies`, onclick: () => openDiscussion(post.anchor) }),
       element("button", { type: "button", class: "text-action", text: "Save", onclick: () => showRevisit(post) }),
       emojiReactButton(post),
       instantJudgmentButton("Hide", "hide", post.anchor, (event) => queueHide(event, post)),
@@ -2228,6 +2315,9 @@ function renderSettings() {
       field("Content-addressed blob servers", "textarea", "blob_servers", blobServers, "Optional; local preservation never depends on them."),
     ]),
     settingsPane("feed", [
+      element("h2", { class: "settings-subheading", text: "Post previews" }),
+      toggle("Show text previews", "show_text_previews", settings.show_text_previews !== false, "Shows the opening text beneath titles for text-only posts."),
+      toggle("Show image previews", "show_image_previews", settings.show_image_previews !== false, "Shows locally preserved images in post listings. Hydra does not fetch remote images just to build the feed."),
       element("h2", { class: "settings-subheading", text: "My Feed sources" }),
       element("p", { text: "Relative local weights; equal values have equal priority." }),
       field("Followed personas", "number", "feed_followed", feedWeights.followed, "", { min: 0, max: 200 }),
@@ -2852,15 +2942,17 @@ function currentPersonaVote(target) {
 
 function voteActionButton(label, target, value, className = "quiet-button", onVote = null) {
   const active = currentPersonaVote(target) === value;
+  const visibleLabel = label.replace(/^[▲▼]\s*/, "");
   return element("button", {
     type: "button",
-    class: `${className}${active ? " is-active vote-is-active" : ""}`,
-    text: label,
-    title: active ? "Click again to remove this vote" : label.replace(/^[▲▼]\s*/, ""),
+    class: `${className} vote-action-button${active ? " is-active vote-is-active" : ""}`,
+    dataset: { vote: value },
+    title: active ? "Click again to remove this vote" : (visibleLabel || (value === "+" ? "Upvote" : "Downvote")),
+    "aria-label": active ? `Remove ${value === "+" ? "upvote" : "downvote"}` : (value === "+" ? "Upvote" : "Downvote"),
     "aria-pressed": active,
     disabled: session.busy,
     onclick: () => onVote ? onVote(value) : toggleVote(target, value),
-  });
+  }, [blockArrowIcon(value === "+" ? "up" : "down"), visibleLabel ? element("span", { text: visibleLabel }) : null]);
 }
 
 async function toggleVote(target, value) {
@@ -3166,7 +3258,7 @@ async function saveSettings(event) {
   const blobServers = String(data.get("blob_servers")).split(/\s+/).map((item) => item.trim()).filter(Boolean);
   const personaBlobServers = { ...(settings.persona_blob_servers ?? {}), [persona.id]: blobServers };
   const feedSourceWeights = { followed: Number(data.get("feed_followed")), communities: Number(data.get("feed_communities")), replies: Number(data.get("feed_replies")), revisit: Number(data.get("feed_revisit")) };
-  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), accent: data.get("accent"), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
+  await mutate("settings.update", { relays, persona_id: persona.id, persona_read_relays: personaReadRelays, persona_write_relays: personaWriteRelays, inbox_relays: inboxRelays, replication_threshold: Number(data.get("replication")), theme: data.get("theme"), accent: data.get("accent"), show_text_previews: Boolean(data.get("show_text_previews")), show_image_previews: Boolean(data.get("show_image_previews")), onboarding_complete: null, spam_filter_threshold: Number(data.get("spam_threshold")), remote_media_policy: data.get("remote_media_policy"), crosspost_default: Boolean(data.get("crosspost")), book_club_cross_links_enabled: session.companions.bookClubInstalled ? Boolean(data.get("book_club_cross_links")) : settings.cross_links?.book_club_enabled !== false, persona_crosspost_defaults: personaDefaults, community_crosspost_defaults: parseCommunityOverrides(data.get("community_crossposts")), content_crosspost_defaults: contentDefaults, media_copy_enabled: Boolean(data.get("media_copy")), max_media_bytes: Number(data.get("max_media_mib")) * 1048576, persona_blob_servers: personaBlobServers, feed_source_weights: feedSourceWeights, big_stick_enabled: Boolean(data.get("big_stick_enabled")), reddacted_enabled: Boolean(data.get("reddacted_enabled")), big_stick_archive_level: data.get("big_stick_archive_level"), reddacted_archive_level: data.get("reddacted_archive_level"), continuity_replication_threshold: Number(data.get("continuity_replication")), preferred_gateway_template: data.get("preferred_gateway") }, "Settings saved locally.");
   if (String(data.get("display_name")).trim() !== persona.displayName) {
     await mutate("persona.profile.update", { persona_id: persona.id, display_name: String(data.get("display_name")).trim() }, "Public persona profile updated and queued for publication.");
   }

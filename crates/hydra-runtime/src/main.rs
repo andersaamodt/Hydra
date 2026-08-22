@@ -765,6 +765,8 @@ struct SettingsUpdateInput {
     replication_threshold: Option<usize>,
     theme: Option<String>,
     accent: Option<String>,
+    show_text_previews: Option<bool>,
+    show_image_previews: Option<bool>,
     onboarding_complete: Option<bool>,
     crosspost_default: Option<bool>,
     book_club_cross_links_enabled: Option<bool>,
@@ -4605,7 +4607,7 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     let mut input: SettingsUpdateInput = serde_json::from_str(input)?;
     let store = SettingsStore::new(root);
     let mut settings = store.load()?;
-    apply_lens_setting_updates(&mut settings, &mut input);
+    apply_feed_setting_updates(&mut settings, &mut input);
     if let Some(value) = input.relays {
         settings.relays = value;
         settings.relay_probe = ReadinessProbe::default();
@@ -4700,7 +4702,13 @@ fn settings_update_action(root: &PathBuf, input: &str) -> Result<(), RuntimeErro
     print_changed("settings.update")
 }
 
-fn apply_lens_setting_updates(settings: &mut Settings, input: &mut SettingsUpdateInput) {
+fn apply_feed_setting_updates(settings: &mut Settings, input: &mut SettingsUpdateInput) {
+    if let Some(value) = input.show_text_previews {
+        settings.show_text_previews = value;
+    }
+    if let Some(value) = input.show_image_previews {
+        settings.show_image_previews = value;
+    }
     if let Some(value) = input.feed_source_weights.take() {
         settings.feed_source_weights = value;
     }

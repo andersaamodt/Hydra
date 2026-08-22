@@ -269,6 +269,32 @@ test("votes toggle conventionally and secondary post context lives in the overfl
   assert.match(app, /item\("Vote details"/);
 });
 
+test("post listings use a minimal old-Reddit hierarchy", () => {
+  assert.match(app, /function blockArrowIcon\(direction\)/);
+  assert.match(app, /M12 3 4 11h5v8h6v-8h5z/);
+  assert.match(styles, /--vote-up:\s*#ff4500/);
+  assert.match(styles, /--vote-down:\s*#4f72d8/);
+  assert.match(styles, /\.post-card\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent/);
+  assert.doesNotMatch(styles, /\.post-card:hover/);
+  assert.match(styles, /\.post-title\s*\{[^}]*system-ui/);
+  assert.doesNotMatch(styles, /\.post-title\s*\{[^}]*Georgia/);
+  assert.match(app, /class: "post-age"/);
+  assert.match(app, /class: "post-hydrants"/);
+  assert.match(app, /item\("Post details"/);
+  assert.match(app, /onclick: \(\) => setRoute\("community", name\)/);
+});
+
+test("text and local image listing previews are independently configurable", () => {
+  assert.match(app, /settings\.show_text_previews !== false/);
+  assert.match(app, /settings\.show_image_previews !== false/);
+  assert.match(app, /textOnly && session\.state\.settings\?\.show_text_previews !== false/);
+  assert.match(app, /function postImagePreview\(post\)/);
+  assert.match(app, /invoke\("read_media_preview", \{ sha256: media\.sha256 \}\)/);
+  assert.match(desktop, /fn read_media_preview\(sha256: &str\)/);
+  assert.match(desktop, /content hash/);
+  assert.match(styles, /\.post-image-preview img\s*\{[^}]*object-fit:\s*contain/);
+});
+
 test("React uses an accessible anchored emoji callout", () => {
   assert.match(app, /function emojiReactButton\(object, className = "text-action"\)/);
   assert.match(app, /class: `\$\{className\} emoji-react-button`/);

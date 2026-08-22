@@ -82,6 +82,7 @@ pub struct CommunityAppearanceSetting {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Settings {
     pub relays: Vec<String>,
     #[serde(default)]
@@ -93,6 +94,10 @@ pub struct Settings {
     pub theme: String,
     #[serde(default = "default_accent")]
     pub accent: String,
+    #[serde(default = "default_enabled")]
+    pub show_text_previews: bool,
+    #[serde(default = "default_enabled")]
+    pub show_image_previews: bool,
     #[serde(default)]
     pub onboarding_complete: bool,
     #[serde(default)]
@@ -203,6 +208,8 @@ impl Default for Settings {
             replication_threshold: 2,
             theme: default_theme(),
             accent: default_accent(),
+            show_text_previews: true,
+            show_image_previews: true,
             onboarding_complete: false,
             active_persona_id: None,
             last_backup_at: None,
@@ -567,12 +574,18 @@ mod tests {
         let defaults = Settings::default();
         assert_eq!(defaults.theme, "light");
         assert_eq!(defaults.accent, "stone-blue");
+        assert!(defaults.show_text_previews);
+        assert!(defaults.show_image_previews);
 
         let root = tempdir().unwrap();
         let serialized = serde_yaml::to_string(&defaults).unwrap();
         let legacy = serialized
             .lines()
-            .filter(|line| !line.starts_with("accent:"))
+            .filter(|line| {
+                !line.starts_with("accent:")
+                    && !line.starts_with("show_text_previews:")
+                    && !line.starts_with("show_image_previews:")
+            })
             .collect::<Vec<_>>()
             .join("\n");
         fs::write(root.path().join("settings.yaml"), legacy).unwrap();
@@ -581,6 +594,9 @@ mod tests {
             SettingsStore::new(root.path()).load().unwrap().accent,
             "stone-blue"
         );
+        let migrated = SettingsStore::new(root.path()).load().unwrap();
+        assert!(migrated.show_text_previews);
+        assert!(migrated.show_image_previews);
     }
 
     #[cfg(unix)]

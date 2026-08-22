@@ -34,3 +34,6 @@ unsafe_code = "forbid"
 [lints.clippy]
 all = "deny"
 pedantic = "warn"
+
+[dev-dependencies]
+tempfile.workspace = true

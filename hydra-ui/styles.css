@@ -24,6 +24,8 @@
   --red: #bd4e48;
   --amber: #9a751c;
   --blue: #436f9f;
+  --vote-up: #ff4500;
+  --vote-down: #4f72d8;
   --shadow: 0 18px 55px color-mix(in srgb, var(--accent-seed) 20%, transparent);
   --nav-ink: #485869;
   --nav-active: var(--accent-strong);
@@ -65,6 +67,8 @@
   --red: #ff766f;
   --amber: #edc96d;
   --blue: #77b8ff;
+  --vote-up: #ff6a33;
+  --vote-down: #7193ff;
   --shadow: 0 18px 55px rgba(0, 0, 0, 0.34);
   --nav-ink: #b4bec8;
   --nav-active: #edf3f8;
@@ -192,13 +196,12 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .tree-filter-bar { align-items: center; margin: 10px 0; padding: 8px 0; border: 0; background: transparent; }
 .filter-select { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .filter-select select { border: 1px solid var(--line); border-radius: 5px; padding: 6px 24px 6px 10px; color: var(--ink); background: var(--panel); }
-.content-list { padding: 16px 20px 56px; }
+.content-list { display: grid; gap: 10px; padding: 14px 24px 56px; }
 .empty-state { max-width: 540px; margin: 11vh auto 0; padding: 20px 4px; }
 .empty-state h2 { margin: 0 0 6px; font: 600 22px Georgia, serif; }
 .empty-state p { margin: 0; color: var(--muted); line-height: 1.5; }
-.post-card { display: grid; grid-template-columns: 48px minmax(0,1fr); border-bottom: 1px solid var(--line); background: transparent; overflow: visible; }
+.post-card { display: grid; grid-template-columns: 40px minmax(0,1fr); border: 0; background: transparent; overflow: visible; }
 .post-card.open-nostr-card { grid-template-columns: minmax(0,1fr); }
-.post-card:hover { background: var(--card-hover); }
 .blocked-placeholder { margin: 0; padding: 16px; border-bottom: 1px solid var(--line); color: var(--muted); background: rgba(127,127,127,.055); }
 .blocked-placeholder p { margin: 6px 0 10px; overflow-wrap: anywhere; }
 .pending-judgment-label { border: 0; padding: 0; color: var(--ink); background: transparent; cursor: pointer; font: inherit; font-weight: 700; }
@@ -214,27 +217,38 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .discussion.is-pending-hide > .discussion-toolbar > :not(.judgment-origin) { opacity: .14; filter: blur(.8px); pointer-events: none; }
 .is-pending-hide .judgment-origin { position: relative; z-index: 1; opacity: 1; filter: none; }
 .reddit-card.is-focused { outline: 2px solid var(--accent); outline-offset: 3px; }
-.vote-column { display: flex; flex-direction: column; align-items: center; padding: 13px 6px; border-right: 1px solid var(--line); background: var(--shade); }
-.vote-button { width: 30px; height: 27px; border: 0; border-radius: 7px; color: var(--faint); background: transparent; cursor: pointer; }
-.vote-button:hover { color: var(--accent); background: var(--accent-faint); }
-.vote-button.down:hover { color: var(--red); background: rgba(255,118,111,.08); }
-.vote-button.is-active { color: var(--accent-strong); background: var(--accent-faint); }
-.vote-button.down.is-active { color: var(--red); background: rgba(255,118,111,.1); }
-.vote-score { margin: 4px 0; color: var(--score-ink); font-size: 12px; font-weight: 750; }
-.post-main { padding: 15px 17px 13px; min-width: 0; }
+.vote-column { display: flex; flex-direction: column; align-items: center; align-self: start; padding: 6px 3px 0; border: 0; background: transparent; }
+.vote-button { width: 28px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 3px; padding: 3px; color: var(--faint); background: transparent; cursor: pointer; }
+.vote-arrow-icon { width: 18px; height: 18px; display: block; }
+.vote-button:hover { color: var(--vote-up); background: transparent; }
+.vote-button.down:hover { color: var(--vote-down); background: transparent; }
+.vote-button.is-active { color: var(--vote-up); background: transparent; }
+.vote-button.down.is-active { color: var(--vote-down); background: transparent; }
+.vote-column.is-upvoted .vote-score { color: var(--vote-up); }
+.vote-column.is-downvoted .vote-score { color: var(--vote-down); }
+.vote-score { margin: 1px 0; color: var(--score-ink); font-size: 11px; font-weight: 700; }
+.post-main { min-width: 0; padding: 5px 0 7px; }
 .meta-line, .post-actions, .status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .meta-line { color: var(--muted); font-size: 11px; }
 .provenance { color: var(--provenance-ink); font-weight: 650; }
 .provenance.projected { color: var(--projected-ink); }
-.post-title { margin: 8px 0 6px; border: 0; padding: 0; color: var(--ink); background: none; font: 600 18px/1.28 Georgia, serif; text-align: left; unicode-bidi: plaintext; cursor: pointer; }
-.post-body { display: -webkit-box; margin: 0; overflow: hidden; color: var(--body-ink); font-size: 13px; line-height: 1.52; unicode-bidi: plaintext; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.post-listing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.post-title-line { min-width: 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; }
+.post-title { margin: 0; border: 0; padding: 0; color: var(--ink); background: none; font: 500 14px/1.3 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: left; unicode-bidi: plaintext; cursor: pointer; }
+.post-title:hover { color: var(--accent-strong); text-decoration: underline; }
+.post-age { flex: 0 0 auto; color: var(--faint); font-size: 10px; }
+.post-hydrants { flex: 0 0 auto; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 5px; }
+.post-body { display: -webkit-box; margin: 3px 0 0; overflow: hidden; color: var(--body-ink); font-size: 12px; line-height: 1.42; unicode-bidi: plaintext; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.post-image-preview { max-width: min(520px, 100%); max-height: 300px; display: block; margin-top: 6px; overflow: hidden; border: 0; border-radius: 3px; padding: 0; color: var(--muted); background: transparent; cursor: pointer; text-align: left; }
+.post-image-preview.is-loading { min-width: 120px; min-height: 46px; display: grid; place-items: center; background: var(--shade); font-size: 11px; }
+.post-image-preview img { max-width: 100%; max-height: 300px; display: block; object-fit: contain; }
 .community-chip, .state-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 2px; border: 0; color: var(--chip-ink); background: transparent; font-size: 10px; }
 .community-norm-banner { margin: 12px 24px 0; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
 .community-norm-banner .norm-field summary { color: var(--ink); font-weight: 700; }
 .view-intro { margin: 0; padding: 12px 28px; border-bottom: 1px solid var(--line); color: var(--muted); background: var(--bar); font-size: 13px; }
 .pinned-area { display: grid; gap: 8px; margin: 12px 24px 0; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--accent) 5%, var(--paper)); }
 .pinned-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 10px; border-radius: 8px; background: var(--paper); }
-.post-title.compact { display: inline; margin-inline-start: 7px; font-size: 16px; }
+.post-title.compact { display: inline; margin-inline-start: 7px; font-size: 14px; }
 .profile-judgments { padding-block: 8px; border-block: 1px solid var(--line); }
 .community-image-preview { display: flex; align-items: center; gap: 12px; margin: 8px 0 18px; }
 .community-image-preview img { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; }
@@ -246,13 +260,21 @@ html.sidebar-is-resizing * { cursor: col-resize !important; user-select: none !i
 .norm-field summary { cursor: pointer; color: var(--muted); }
 .norm-card { margin-top: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
 .selection-item { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.post-actions { margin-top: 12px; }
+.post-actions { margin-top: 5px; }
 .text-action { border: 0; padding: 3px 5px; color: var(--muted); background: none; cursor: pointer; font-size: 11px; }
 .text-action:hover { color: var(--ink); }
 .emoji-react-button { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 4px; color: var(--muted); }
 .emoji-react-button:hover, .emoji-react-button:focus-visible { color: var(--ink); background: var(--shade); }
 .emoji-react-icon { width: 18px; height: 18px; display: block; }
-.vote-is-active { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-faint); }
+.vote-action-button { display: inline-flex; align-items: center; gap: 4px; }
+.vote-action-button .vote-arrow-icon { width: 15px; height: 15px; }
+.vote-action-button[data-vote="+"]:hover, .vote-action-button[data-vote="+"].vote-is-active { border-color: var(--vote-up); color: var(--vote-up); background: transparent; }
+.vote-action-button[data-vote="-"]:hover, .vote-action-button[data-vote="-"].vote-is-active { border-color: var(--vote-down); color: var(--vote-down); background: transparent; }
+.post-detail-list { display: grid; gap: 0; }
+.post-detail-row { min-width: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.post-detail-row > span:first-child { color: var(--muted); font-size: 11px; }
+.post-detail-row code { overflow-wrap: anywhere; color: var(--body-ink); font-size: 10px; }
+.post-detail-hydrants { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .context-card { padding: 14px 0; border-bottom: 1px solid var(--line); }
 .context-card:first-child { padding-top: 0; }

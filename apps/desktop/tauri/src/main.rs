@@ -11,7 +11,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 #[cfg(any(target_os = "linux", windows))]
 use std::process::Command as ProcessCommand;
-use std::time::Duration;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(target_os = "macos")]
 use tauri::{TitleBarStyle, WebviewUrl, WebviewWindowBuilder};
@@ -54,6 +58,72 @@ struct CommunityImageDownload {
     mime_type: &'static str,
     sha256: String,
     base64: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MediaPreview {
+    mime_type: &'static str,
+    base64: String,
+}
+
+#[tauri::command]
+fn read_media_preview(sha256: &str) -> Result<MediaPreview, String> {
+    let root = env::var_os("HYDRA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join("hydra")))
+        .ok_or_else(|| "Hydra’s data folder is unavailable.".to_owned())?;
+    read_media_preview_at(&root, sha256)
+}
+
+fn read_media_preview_at(root: &Path, sha256: &str) -> Result<MediaPreview, String> {
+    const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
+    if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Image preview hash is invalid.".to_owned());
+    }
+    let hash = sha256.to_ascii_lowercase();
+    let media_directory = root.join("media");
+    for directory in [root, media_directory.as_path()] {
+        let metadata = fs::symlink_metadata(directory)
+            .map_err(|_| "The preserved image folder is unavailable.".to_owned())?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("The preserved image folder is unsafe.".to_owned());
+        }
+    }
+    let path = media_directory.join(&hash);
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|_| "This image is not preserved locally.".to_owned())?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("The preserved image is unsafe.".to_owned());
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_PREVIEW_BYTES {
+        return Err("This image is too large to preview in the feed.".to_owned());
+    }
+    let bytes =
+        fs::read(path).map_err(|_| "Hydra could not read the preserved image.".to_owned())?;
+    if format!("{:x}", Sha256::digest(&bytes)) != hash {
+        return Err("The preserved image no longer matches its content hash.".to_owned());
+    }
+    let mime_type = preview_image_mime(&bytes)
+        .ok_or_else(|| "This preserved file is not a supported image.".to_owned())?;
+    Ok(MediaPreview {
+        mime_type,
+        base64: BASE64.encode(bytes),
+    })
+}
+
+fn preview_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else {
+        None
+    }
 }
 
 #[tauri::command]
@@ -499,6 +569,7 @@ fn main() {
             runtime_action,
             companion_status,
             inspect_community_image,
+            read_media_preview,
             open_settings_window
         ])
         .run(tauri::generate_context!())
@@ -513,6 +584,23 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn media_previews_are_content_addressed_local_images() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("media")).unwrap();
+        let bytes = b"\x89PNG\r\n\x1a\nverified preview";
+        let hash = format!("{:x}", Sha256::digest(bytes));
+        fs::write(root.path().join("media").join(&hash), bytes).unwrap();
+
+        let preview = read_media_preview_at(root.path(), &hash).unwrap();
+        assert_eq!(preview.mime_type, "image/png");
+        assert_eq!(BASE64.decode(preview.base64).unwrap(), bytes);
+        assert!(read_media_preview_at(root.path(), "../settings.yaml").is_err());
+
+        fs::write(root.path().join("media").join(&hash), b"tampered").unwrap();
+        assert!(read_media_preview_at(root.path(), &hash).is_err());
+    }
 
     #[test]
     fn unaccepted_request_restarts_one_dead_session() {
