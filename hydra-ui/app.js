@@ -1157,23 +1157,23 @@ function chamberTabs() {
   ]);
 }
 
-function lensBar() {
-  return element("div", { class: "lens-bar", "aria-label": "Feed lens" }, LENSES.map(([id, label]) => element("button", {
+function lensBar(community = null) {
+  const lenses = LENSES.map(([id, label]) => element("button", {
     type: "button",
     class: `lens-button${session.lens === id ? " is-active" : ""}`,
     text: label,
     title: id === "controversial" ? "Orders by the smaller of positive and negative reaction counts" : `Use the ${label} lens`,
     onclick: () => { session.lens = id; renderFeed(); },
-  })));
-}
-
-function audienceBar(community) {
+  }));
+  if (!community) return element("div", { class: "lens-bar", "aria-label": "Feed lens" }, lenses);
   const audiences = [["all", "All personas"], ["reddit", "Reddit-linked"], ["followed", "Followed"]];
-  return element("div", { class: "lens-bar community-audience-bar", "aria-label": "Community audience" }, [
-    ...audiences.map(([id, label]) => element("button", {
-    type: "button", class: `lens-button${session.audience === id ? " is-active" : ""}`, text: label,
-    onclick: () => { session.audience = id; renderFeed(); },
-    })),
+  return element("div", { class: "lens-bar community-filter-bar", "aria-label": "Community feed filters" }, [
+    ...lenses,
+    element("div", { class: "audience-filters", role: "group", "aria-label": "Community audience" }, audiences.map(([id, label]) => element("button", {
+      type: "button", class: `audience-filter${session.audience === id ? " is-active" : ""}`, text: label,
+      "aria-pressed": session.audience === id,
+      onclick: () => { session.audience = id; renderFeed(); },
+    }))),
     actionButton("New post", () => showComposer(community), "primary-button community-new-post"),
   ]);
 }
@@ -1222,7 +1222,7 @@ function renderFeed() {
   const normBanner = community ? renderCommunityNormBanner(community) : null;
   const pins = community ? renderCommunityPins(community) : null;
   const revisitIntro = session.route === "revisited" ? element("p", { class: "view-intro", text: "Posts you save appear here for this persona; this is not browsing history." }) : null;
-  view.replaceChildren(...[header, revisitIntro, normBanner, pins, community ? audienceBar(community) : null, session.route === "revisited" ? null : lensBar(), list].filter(Boolean));
+  view.replaceChildren(...[header, revisitIntro, normBanner, pins, session.route === "revisited" ? null : lensBar(community), list].filter(Boolean));
 }
 
 function renderCommunityPins(community) {
