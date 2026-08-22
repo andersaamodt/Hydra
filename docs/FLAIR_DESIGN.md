@@ -43,6 +43,12 @@ choice for a post, rather than an open-ended bag of tags. Across people, those
 choices form a small set of candidate labels such as `Question` or
 `Field report`.
 
+At the wire level, each choice is stored as a Nostr tag inside that person's
+signed flair-choice event. It is not a static tag copied into the post event:
+doing that would give only the post author control and would not represent who
+chose each value. `Choice` describes the one-per-person domain rule; `tag`
+describes its event encoding; `flair` describes the winning visual treatment.
+
 The interface renders the leading post label as a compact flair chip. The label
 detail surface shows the other proposed labels and their support. This keeps
 `flair` as a useful visual treatment without inventing a separate semantic
@@ -221,6 +227,13 @@ tags. It should define one addressable label-choice event. `kind:30802` is the
 proposed allocation, subject to the protocol review performed when the feature
 is implemented.
 
+The choice value is an explicit `flair` tag. A custom tag is preferable to
+claiming strict NIP-32 compatibility: NIP-32 defines immutable `kind:1985`
+label events, while Hydra needs a replaceable current choice with a community
+context. It also specifies that labels on other event kinds refer to that event
+itself. A future standard addressable-label convention could replace this
+Hydra event without changing the product model.
+
 An active community-scoped choice has this shape:
 
 ```json
@@ -231,7 +244,7 @@ An active community-scoped choice has this shape:
     ["e", "<anchor-id>"],
     ["k", "11"],
     ["t", "science"],
-    ["label", "Field report"],
+    ["flair", "Field report"],
     ["version", "hydra-protocol/v2"],
     ["status", "active"]
   ],
@@ -241,7 +254,7 @@ An active community-scoped choice has this shape:
 
 A default choice uses `all` instead of a community in its `d` tag and omits
 `t`. A withdrawal republishes the same address with `status=withdrawn` and no
-`label` tag. The normal addressable-event winner rules select one current event
+`flair` tag. The normal addressable-event winner rules select one current event
 per publisher, post, and scope.
 
 The event targets the immutable post anchor, not the editable object head, so
